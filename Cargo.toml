@@ -8,6 +8,7 @@ members = [
     "crates/hns-cache",
     "crates/hns-dns-wire",
     "crates/hns-dnssec",
+    "crates/hns-gateway",
     "crates/hns-light-chain",
     "crates/hns-light-p2p",
     "crates/hns-light-sync",

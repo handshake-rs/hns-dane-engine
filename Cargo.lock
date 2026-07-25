@@ -161,6 +161,7 @@ dependencies = [
  "hns-dane",
  "hns-dns-wire",
  "hns-dnssec",
+ "hns-gateway",
  "hns-header-consensus",
  "hns-light-chain",
  "hns-primitives",
@@ -196,6 +197,14 @@ dependencies = [
 name = "hns-encoding"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "hns-gateway"
+version = "0.1.0"
+dependencies = [
+ "hns-resolution-policy",
  "thiserror",
 ]
 

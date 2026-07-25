@@ -1,0 +1,15 @@
+[package]
+name = "hns-gateway"
+description = "Fail-closed HNS browser transport gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hns-resolution-policy = { path = "../hns-resolution-policy" }
+thiserror = "2.0.19"
+
+[lints]
+workspace = true

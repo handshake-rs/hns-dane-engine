@@ -24,6 +24,7 @@ pub use hns_browser_runtime::AuthorityState;
 use hns_browser_runtime::{BrowserRuntime, RuntimeError, RuntimeStamp};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
+pub use hns_gateway::{Gateway, GatewayLimits};
 use hns_resolution_policy::{
     Admission, ChainAnchor, EvidenceState, Network, PolicyConfig, PolicyController, PolicyError,
     PolicySnapshot, PolicyTransition, ResolutionProvenance, ResolutionTransport, TransportPlan,
@@ -289,6 +290,12 @@ impl Engine {
     pub fn transport_plan(&self) -> Result<TransportPlan, EngineError> {
         let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
         Ok(state.policy.transport_plan())
+    }
+
+    /// Begin one bounded fail-closed transport gateway under current policy.
+    pub fn begin_gateway(&self, limits: GatewayLimits) -> Result<Gateway, EngineError> {
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        Gateway::new(state.policy.snapshot(), limits).map_err(EngineError::Gateway)
     }
 
     /// Produce the complete, bounded shared browser status.
@@ -787,6 +794,8 @@ pub enum EngineError {
     Policy(PolicyError),
     /// Shared observability snapshot failed invariant checks.
     Status(StatusError),
+    /// Fail-closed transport gateway rejected its bounds or lifecycle.
+    Gateway(hns_gateway::GatewayError),
 }
 
 impl fmt::Display for EngineError {
@@ -847,6 +856,7 @@ impl fmt::Display for EngineError {
             Self::Dane(error) => write!(formatter, "DANE error: {error}"),
             Self::Policy(error) => write!(formatter, "policy error: {error}"),
             Self::Status(error) => write!(formatter, "observability status error: {error}"),
+            Self::Gateway(error) => write!(formatter, "transport gateway error: {error}"),
         }
     }
 }
@@ -858,6 +868,7 @@ impl std::error::Error for EngineError {
             Self::Dane(error) => Some(error),
             Self::Policy(error) => Some(error),
             Self::Status(error) => Some(error),
+            Self::Gateway(error) => Some(error),
             _ => None,
         }
     }
@@ -1502,6 +1513,31 @@ mod tests {
                 ParseLimits::requester()
             ),
             Err(EngineError::StaleRuntimeGeneration)
+        ));
+    }
+
+    #[test]
+    fn engine_gateway_revokes_on_policy_generation_change() {
+        let engine = ready_engine();
+        let before = engine.snapshot().unwrap().policy;
+        let mut gateway = engine.begin_gateway(GatewayLimits::default()).unwrap();
+        let attempt = gateway.next_attempt(before, 100).unwrap();
+        assert_eq!(
+            attempt.transport(),
+            ResolutionTransport::DirectAuthoritativeUdp
+        );
+
+        let mut next = before.config();
+        next.authenticated_authoritative_doh = false;
+        engine.update_policy(before.generation(), next).unwrap();
+        let after = engine.snapshot().unwrap().policy;
+        assert!(matches!(
+            gateway.next_attempt(after, 101),
+            Err(hns_gateway::GatewayError::StalePolicy)
+        ));
+        assert!(matches!(
+            gateway.next_attempt(before, 101),
+            Err(hns_gateway::GatewayError::Terminal)
         ));
     }
 

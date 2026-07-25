@@ -11,7 +11,7 @@ hns-dns-wire ---> hns-dnssec --------------------------> hns-resolver --+
        |                                                               |
        +---------------------------------> hns-dane ------------------->+--> hns-dane-engine
                                                                         |          |
-hns-resolution-policy -------------------------------------------------+          v
+hns-resolution-policy ---> hns-gateway -------------------------------+          v
 hns-browser-observability ---------------------------------------------+   hns-dane-engine-ffi
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
@@ -44,6 +44,11 @@ It derives the reported chain anchor from resolver evidence and rejects conflict
 admitted operation carries the caller-supplied unique runtime session, runtime generation, and
 event sequence; another session, a revoked generation, or a future event is rejected before
 response parsing or completion.
+`hns-gateway` consumes the exact persistent policy snapshot and issues one process-unique,
+policy-selected attempt at a time. Only unreachable, timed-out, or unsupported candidates advance;
+a valid UDP truncation advances to direct TCP. Malformed or unauthenticated transport results,
+foreign/replayed attempt tokens, stale policy, invalid intermediary topology, and response-bound
+violations terminate the plan. ODoH-to-relay downgrade status is derived from attempt history.
 `hns-browser-observability` validates the shared, name-free mobile/Chromium status contract:
 session/generations/event sequence, policy and actual transport, chain anchor, registry identity,
 HNSR/provider state and readiness, rate-limit saturation, intermediary identities, all seven

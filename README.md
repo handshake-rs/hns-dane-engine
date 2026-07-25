@@ -13,6 +13,9 @@
 - proof-authorized direct authoritative DNS over connected UDP and length-delimited TCP, with
   finite timeouts, lifecycle cancellation, strict query/response correlation, current-anchor and
   exact-TLD binding, public-address enforcement, and regtest-only loopback fixture ports;
+- a policy-bound fail-closed transport gateway that selects candidates in typed order, permits
+  fallback only for reachability/timeout/unsupported paths or valid UDP truncation, and derives
+  intermediary identity and privacy-downgrade status from the actual attempt history;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;

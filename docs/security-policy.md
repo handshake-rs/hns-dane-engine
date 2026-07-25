@@ -74,6 +74,13 @@ The only HNS resolution candidates are direct delegated-authoritative UDP/TCP, e
 authenticated authoritative DoH, Denuo Experimental V1 P2P ODoH, and Denuo Experimental V1 P2P DNS
 Relay. The policy model contains no operating-system or public-recursive fallback variant.
 
+The gateway—not the caller—selects the next candidate from the exact policy snapshot. Unreachable,
+timed-out, and unsupported paths may advance; a valid truncated UDP response advances specifically
+to direct TCP. Malformed framing, endpoint/intermediary authentication failure, cancellation,
+foreign attempt tokens, stale policy, invalid proxy/target topology, and response-bound violations
+terminate the plan. Direct-relay privacy downgrade is true only when an ODoH attempt actually
+preceded the relay attempt.
+
 Policy updates increment generations, immediately reject new disabled work, reject stale
 completions, clear requester selections, and report provider withdrawal/peer renegotiation effects.
 Provider roles default off. HNSR requester and provider roles default off.

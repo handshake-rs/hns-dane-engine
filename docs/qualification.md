@@ -4,8 +4,8 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-features --locked --offline
-  88 unit tests passed
-  14 doc-test targets passed (0 doctests)
+  95 unit tests passed
+  15 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -64,6 +64,11 @@ Covered:
 - checksummed policy persistence, optimistic updates, generation revocation, requester opt-out,
   provider opt-in, and conflicting privacy-policy rejection;
 - direct-authoritative-first planning with no representable OS/public-recursive fallback;
+- engine-integrated, policy-generation-bound gateway ordering; one process-unique active attempt;
+  response/identity/deadline bounds; valid UDP-truncation-to-TCP handling; retry only for
+  reachability, timeout, or unsupported paths; fail-closed malformed/authentication/cancellation
+  handling; ODoH proxy/target topology; derived relay downgrade; and foreign-token/stale-policy
+  rejection;
 - engine-derived HNS proof, chain-currency, DNSSEC, TLSA, DANE, and SNI evidence; exact
   Handshake-network and validation-time binding; derived rather than caller-selected provenance
   anchors; and distinct ODoH proxy/target identity enforcement;
