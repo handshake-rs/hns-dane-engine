@@ -106,8 +106,14 @@ A stale selection consumes no engine event, and completion context is derived fr
 rather than supplied independently.
 
 Policy updates increment generations, immediately reject new disabled work, reject stale
-completions, clear requester selections, and report provider withdrawal/peer renegotiation effects.
-Provider roles default off. HNSR requester and provider roles default off.
+completions, clear requester selections, and report provider withdrawal/peer-renegotiation effects.
+Opaque forwarding roles (the ODoH proxy and HNSR relay) default on and have independent persistent
+opt-outs. Output roles that learn a plaintext request or originate an external request (the
+HIP-76 DNS relay, ODoH target, and HNSR endpoint/output node) default off and require explicit
+opt-in. HNSR requester and rendezvous roles are also independent and default off. Enabling any
+requester, relay, or output role never enables another role implicitly. Schema-1 policy blobs retain
+their exact legacy role selection during migration, so an upgrade cannot grant participation that
+was previously disabled.
 
 Every admitted operation is stamped with the caller-supplied per-start unique runtime session,
 current runtime generation, and monotonic event sequence. Parsing and completion reject another

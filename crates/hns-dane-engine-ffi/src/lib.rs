@@ -119,7 +119,7 @@ pub struct HnsDanePolicyV1 {
     pub dns_relay_requester: u8,
     /// [`ObliviousDnsPolicy`] discriminant.
     pub oblivious_dns: u8,
-    /// [`HnsrPolicy`] discriminant.
+    /// Independent [`HnsrPolicy`] role bits.
     pub hnsr: u8,
     /// [`WireProfile`] discriminant.
     pub wire_profile: u8,
@@ -687,7 +687,7 @@ fn policy_to_ffi(snapshot: PolicySnapshot) -> HnsDanePolicyV1 {
         generation: snapshot.generation(),
         dns_relay_requester: config.dns_relay_requester as u8,
         oblivious_dns: config.oblivious_dns as u8,
-        hnsr: config.hnsr as u8,
+        hnsr: config.hnsr.bits(),
         wire_profile: config.wire_profile as u8,
         authenticated_authoritative_doh: u8::from(config.authenticated_authoritative_doh),
         allow_legacy_regtest_compatibility: u8::from(config.allow_legacy_regtest_compatibility),
@@ -729,7 +729,7 @@ fn policy_from_ffi(policy: HnsDanePolicyV1) -> Result<(u64, PolicyConfig), HnsDa
                 .map_err(map_policy_error)?,
             oblivious_dns: ObliviousDnsPolicy::try_from(policy.oblivious_dns)
                 .map_err(map_policy_error)?,
-            hnsr: HnsrPolicy::try_from(policy.hnsr).map_err(map_policy_error)?,
+            hnsr: HnsrPolicy::from_bits(policy.hnsr).map_err(map_policy_error)?,
             authenticated_authoritative_doh: policy.authenticated_authoritative_doh != 0,
             providers: ProviderPolicy {
                 dns_relay: policy.provider_flags & PROVIDER_DNS_RELAY != 0,
@@ -936,7 +936,9 @@ mod tests {
             unsafe { hns_dane_engine_v1_get_policy(engine, &mut policy) },
             HnsDaneStatus::Ok.code()
         );
-        assert_eq!(policy.provider_flags, 0);
+        assert_eq!(policy.hnsr, HnsrPolicy::relay_default().bits());
+        assert_eq!(policy.provider_flags, PROVIDER_ODOH_PROXY);
+        assert_eq!(policy.provider_flags & PROVIDER_ODOH_TARGET, 0);
         policy.dns_relay_requester = DnsRelayRequesterPolicy::Disabled as u8;
         let mut generation = 0;
         let mut effects = 0;

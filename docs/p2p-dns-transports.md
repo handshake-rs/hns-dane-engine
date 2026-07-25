@@ -84,6 +84,8 @@ cannot substitute a separate intermediary context.
 Native/mobile/Chromium hosts still need to connect this contract to their
 established Brontide socket runtime, propagate lifecycle cancellation, source
 unpredictable first request IDs, perform live registry-hello exchange, and run
-platform network qualification. HIP-76/77 relay, proxy, and target provider
-roles are separate operator opt-ins and are not implemented by this requester
-crate.
+platform network qualification. Provider roles are independent and are not
+implemented by this requester crate. The opaque ODoH proxy is default-on with a
+persistent opt-out; the plaintext HIP-76 DNS relay and ODoH target are output
+roles that remain default-off until explicitly enabled. One role never conveys
+consent for another.

@@ -16,6 +16,12 @@ Policy structs include both `struct_size` and `abi_version`; reserved bytes must
 completion requires distinct proxy and target identities. Direct-relay completion requires a relay
 peer identity. Fixed buffers bound identity allocation at the ABI edge.
 
+`HnsDanePolicyV1.hnsr` is an independent role bitset using the
+`HNS_DANE_HNSR_*` constants, not a single mode enum. New policy snapshots enable only the opaque
+HNSR relay and ODoH proxy provider roles. Both have persistent opt-outs. The HNSR endpoint/output
+node, plaintext DNS relay, and ODoH target remain off until separately enabled; no role implies
+another.
+
 `HnsDaneResultV1.untrusted_ad_claim` reports only what arrived on the wire. It never substitutes for
 local evidence. `hns_dane_engine_v1_validate_response` borrows both the correlated DNS response and
 the presented leaf-certificate DER. Its prerequisite mask contains only HNS proof, DNSSEC, chain

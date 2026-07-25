@@ -4,7 +4,7 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-targets --all-features --locked --offline
-  111 unit tests passed
+  115 unit tests passed
 
 cargo test --workspace --doc --all-features --locked --offline
   18 doc-test targets passed (0 doctests)
@@ -63,8 +63,10 @@ Covered:
 - positive real-certificate fixtures, negative mismatch/mutation cases, unsupported TLSA fields,
   malformed DER, wrong digest lengths, nonzero response codes, missing/wrong-owner TLSA, and input
   bounds;
-- checksummed policy persistence, optimistic updates, generation revocation, requester opt-out,
-  provider opt-in, and conflicting privacy-policy rejection;
+- checksummed versioned policy persistence and legacy migration, optimistic updates, generation
+  revocation, independent requester/relay/output controls, persistent opt-out for opaque ODoH and
+  HNSR relaying, explicit opt-in for plaintext/output-node roles, and conflicting privacy-policy
+  rejection;
 - direct-authoritative-first planning with no representable OS/public-recursive fallback;
 - engine-integrated, policy-generation-bound gateway ordering; one process-unique active attempt;
   response/identity/deadline bounds; valid UDP-truncation-to-TCP handling; retry only for

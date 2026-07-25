@@ -83,7 +83,7 @@ pub struct EngineSnapshot {
 }
 
 /// Runtime-owned fields needed to produce shared status.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservabilityRuntime {
     /// Exact canonical experimental registry fingerprint.
     pub registry_fingerprint: [u8; 32],
@@ -99,6 +99,24 @@ pub struct ObservabilityRuntime {
     pub revocation_reason: Option<RevocationReason>,
     /// Bounded unsupported evidence details.
     pub unsupported_evidence: Vec<UnsupportedEvidence>,
+}
+
+impl Default for ObservabilityRuntime {
+    fn default() -> Self {
+        Self {
+            registry_fingerprint: [0; 32],
+            protocol_version: 0,
+            provider_readiness: ProviderReadiness {
+                odoh_proxy: hns_browser_observability::ReadinessState::Starting,
+                hnsr_relay: hns_browser_observability::ReadinessState::Starting,
+                ..ProviderReadiness::default()
+            },
+            rate_limits: RateLimitState::default(),
+            degraded_reason: None,
+            revocation_reason: None,
+            unsupported_evidence: Vec::new(),
+        }
+    }
 }
 
 /// A query and transport admission bound to engine generations.

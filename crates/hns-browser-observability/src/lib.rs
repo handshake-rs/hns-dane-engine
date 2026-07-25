@@ -461,11 +461,8 @@ fn validate_provider_readiness(
     hnsr: HnsrPolicy,
     readiness: ProviderReadiness,
 ) -> Result<(), StatusError> {
-    let endpoint_enabled = matches!(
-        hnsr,
-        HnsrPolicy::Endpoint | HnsrPolicy::EndpointAndClient | HnsrPolicy::Full
-    );
-    let relay_enabled = matches!(hnsr, HnsrPolicy::Relay | HnsrPolicy::Full);
+    let endpoint_enabled = hnsr.endpoint_enabled();
+    let relay_enabled = hnsr.relay_enabled();
     for (enabled, state) in [
         (roles.dns_relay, readiness.dns_relay),
         (roles.odoh_proxy, readiness.odoh_proxy),
@@ -542,7 +539,7 @@ mod tests {
             PolicyConfig {
                 dns_relay_requester: DnsRelayRequesterPolicy::Auto,
                 oblivious_dns: ObliviousDnsPolicy::Preferred,
-                hnsr: HnsrPolicy::Endpoint,
+                hnsr: HnsrPolicy::disabled().with_endpoint(true),
                 authenticated_authoritative_doh: true,
                 providers: ProviderPolicy {
                     dns_relay: true,
@@ -613,7 +610,10 @@ mod tests {
             ResolutionTransport::HandshakeP2pDnsRelay
         );
         assert_eq!(status.identities().peer.as_deref(), Some("peer-a"));
-        assert_eq!(status.hnsr_mode(), HnsrPolicy::Endpoint);
+        assert_eq!(
+            status.hnsr_mode(),
+            HnsrPolicy::disabled().with_endpoint(true)
+        );
         assert!(status.provider_roles().dns_relay);
         assert_eq!(status.provider_readiness().dns_relay, ReadinessState::Ready);
         assert!(status.evidence().fully_verified());

@@ -16,7 +16,8 @@
 use std::fmt;
 
 const PERSISTED_MAGIC: &[u8; 8] = b"HNSPOL1\0";
-const PERSISTED_SCHEMA: u16 = 1;
+const PERSISTED_SCHEMA: u16 = 2;
+const LEGACY_PERSISTED_SCHEMA: u16 = 1;
 const PERSISTED_PAYLOAD_LEN: u16 = 16;
 /// Exact encoded policy snapshot length.
 pub const PERSISTED_POLICY_LEN: usize = 32;
@@ -74,60 +75,139 @@ impl TryFrom<u8> for ObliviousDnsPolicy {
     }
 }
 
-/// HNSR requester/provider mode.
+/// Independent HNSR participation roles.
 ///
-/// All non-disabled modes require explicit user or operator action. Provider
-/// modes are never inferred from requester settings.
-#[repr(u8)]
+/// Opaque relay participation defaults on and remains independently opt-out.
+/// Endpoint/output, requester, and rendezvous roles require separate explicit
+/// enablement, so one role can never grant another implicitly.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HnsrPolicy {
-    /// No requester or provider role.
-    Disabled = 0,
-    /// Requester/client only.
-    Client = 1,
-    /// Endpoint provider only.
-    Endpoint = 2,
-    /// Relay provider only.
-    Relay = 3,
-    /// Rendezvous provider only.
-    Rendezvous = 4,
-    /// Endpoint provider and requester.
-    EndpointAndClient = 5,
-    /// Requester and all provider roles.
-    Full = 6,
+pub struct HnsrPolicy {
+    bits: u8,
 }
 
 impl HnsrPolicy {
+    const CLIENT: u8 = 1 << 0;
+    const ENDPOINT: u8 = 1 << 1;
+    const RELAY: u8 = 1 << 2;
+    const RENDEZVOUS: u8 = 1 << 3;
+    const KNOWN_BITS: u8 = Self::CLIENT | Self::ENDPOINT | Self::RELAY | Self::RENDEZVOUS;
+
+    /// Disable every HNSR role.
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self { bits: 0 }
+    }
+
+    /// Default to opaque relay participation only.
+    #[must_use]
+    pub const fn relay_default() -> Self {
+        Self { bits: Self::RELAY }
+    }
+
+    /// Set requester/client participation independently.
+    #[must_use]
+    pub const fn with_requester(mut self, enabled: bool) -> Self {
+        self.bits = set_flag(self.bits, Self::CLIENT, enabled);
+        self
+    }
+
+    /// Set endpoint/output-node participation independently.
+    #[must_use]
+    pub const fn with_endpoint(mut self, enabled: bool) -> Self {
+        self.bits = set_flag(self.bits, Self::ENDPOINT, enabled);
+        self
+    }
+
+    /// Set opaque relay participation independently.
+    #[must_use]
+    pub const fn with_relay(mut self, enabled: bool) -> Self {
+        self.bits = set_flag(self.bits, Self::RELAY, enabled);
+        self
+    }
+
+    /// Set rendezvous-directory participation independently.
+    #[must_use]
+    pub const fn with_rendezvous(mut self, enabled: bool) -> Self {
+        self.bits = set_flag(self.bits, Self::RENDEZVOUS, enabled);
+        self
+    }
+
     /// Whether this mode permits requester activity.
     #[must_use]
     pub const fn requester_enabled(self) -> bool {
-        matches!(self, Self::Client | Self::EndpointAndClient | Self::Full)
+        self.bits & Self::CLIENT != 0
+    }
+
+    /// Whether endpoint/output-node activity is enabled.
+    #[must_use]
+    pub const fn endpoint_enabled(self) -> bool {
+        self.bits & Self::ENDPOINT != 0
+    }
+
+    /// Whether opaque relay activity is enabled.
+    #[must_use]
+    pub const fn relay_enabled(self) -> bool {
+        self.bits & Self::RELAY != 0
+    }
+
+    /// Whether rendezvous-directory activity is enabled.
+    #[must_use]
+    pub const fn rendezvous_enabled(self) -> bool {
+        self.bits & Self::RENDEZVOUS != 0
     }
 
     /// Whether this mode advertises any provider capability.
     #[must_use]
     pub const fn provider_enabled(self) -> bool {
-        matches!(
-            self,
-            Self::Endpoint | Self::Relay | Self::Rendezvous | Self::EndpointAndClient | Self::Full
-        )
+        self.provider_bits() != 0
+    }
+
+    /// Stable role bit representation for persistence and platform ABIs.
+    #[must_use]
+    pub const fn bits(self) -> u8 {
+        self.bits
+    }
+
+    /// Decode independent role bits.
+    pub const fn from_bits(bits: u8) -> Result<Self, PolicyError> {
+        if bits & !Self::KNOWN_BITS != 0 {
+            Err(PolicyError::InvalidEncoding)
+        } else {
+            Ok(Self { bits })
+        }
+    }
+
+    const fn provider_bits(self) -> u8 {
+        self.bits & (Self::ENDPOINT | Self::RELAY | Self::RENDEZVOUS)
     }
 }
 
-impl TryFrom<u8> for HnsrPolicy {
-    type Error = PolicyError;
+impl Default for HnsrPolicy {
+    fn default() -> Self {
+        Self::relay_default()
+    }
+}
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Disabled),
-            1 => Ok(Self::Client),
-            2 => Ok(Self::Endpoint),
-            3 => Ok(Self::Relay),
-            4 => Ok(Self::Rendezvous),
-            5 => Ok(Self::EndpointAndClient),
-            6 => Ok(Self::Full),
-            _ => Err(PolicyError::InvalidEncoding),
-        }
+const fn set_flag(bits: u8, flag: u8, enabled: bool) -> u8 {
+    if enabled { bits | flag } else { bits & !flag }
+}
+
+const fn legacy_hnsr_policy(value: u8) -> Result<HnsrPolicy, PolicyError> {
+    match value {
+        0 => Ok(HnsrPolicy::disabled()),
+        1 => Ok(HnsrPolicy::disabled().with_requester(true)),
+        2 => Ok(HnsrPolicy::disabled().with_endpoint(true)),
+        3 => Ok(HnsrPolicy::disabled().with_relay(true)),
+        4 => Ok(HnsrPolicy::disabled().with_rendezvous(true)),
+        5 => Ok(HnsrPolicy::disabled()
+            .with_requester(true)
+            .with_endpoint(true)),
+        6 => Ok(HnsrPolicy::disabled()
+            .with_requester(true)
+            .with_endpoint(true)
+            .with_relay(true)
+            .with_rendezvous(true)),
+        _ => Err(PolicyError::InvalidEncoding),
     }
 }
 
@@ -156,8 +236,8 @@ impl TryFrom<u8> for WireProfile {
     }
 }
 
-/// Provider roles, all disabled by default.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Provider roles with opaque proxying default-on and output roles default-off.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProviderPolicy {
     /// Offer bounded P2P DNS relay capacity.
     pub dns_relay: bool,
@@ -167,6 +247,17 @@ pub struct ProviderPolicy {
     pub odoh_target: bool,
     /// Advertise market gossip while the market service is active.
     pub market_gossip: bool,
+}
+
+impl Default for ProviderPolicy {
+    fn default() -> Self {
+        Self {
+            dns_relay: false,
+            odoh_proxy: true,
+            odoh_target: false,
+            market_gossip: false,
+        }
+    }
 }
 
 impl ProviderPolicy {
@@ -212,11 +303,11 @@ pub struct PolicyConfig {
     pub dns_relay_requester: DnsRelayRequesterPolicy,
     /// P2P ODoH requester policy.
     pub oblivious_dns: ObliviousDnsPolicy,
-    /// Explicit HNSR requester/provider mode.
+    /// Independent HNSR requester/provider roles.
     pub hnsr: HnsrPolicy,
     /// Permit proof-authenticated authoritative DoH after direct UDP/TCP.
     pub authenticated_authoritative_doh: bool,
-    /// Explicit provider opt-ins.
+    /// Independent provider controls.
     pub providers: ProviderPolicy,
     /// Experimental assignment profile.
     pub wire_profile: WireProfile,
@@ -229,7 +320,7 @@ impl Default for PolicyConfig {
         Self {
             dns_relay_requester: DnsRelayRequesterPolicy::Auto,
             oblivious_dns: ObliviousDnsPolicy::DirectRelayAllowed,
-            hnsr: HnsrPolicy::Disabled,
+            hnsr: HnsrPolicy::default(),
             authenticated_authoritative_doh: true,
             providers: ProviderPolicy::default(),
             wire_profile: WireProfile::DenuoV1,
@@ -302,7 +393,7 @@ impl PolicySnapshot {
         output[12..20].copy_from_slice(&self.generation.to_be_bytes());
         output[20] = self.config.dns_relay_requester as u8;
         output[21] = self.config.oblivious_dns as u8;
-        output[22] = self.config.hnsr as u8;
+        output[22] = self.config.hnsr.bits();
         output[23] = self.config.wire_profile as u8;
         output[24..26].copy_from_slice(&self.config.providers.bits().to_be_bytes());
         let settings = u16::from(self.config.authenticated_authoritative_doh)
@@ -319,7 +410,9 @@ impl PolicySnapshot {
         {
             return Err(PolicyError::InvalidEncoding);
         }
-        if read_u16(input, 8)? != PERSISTED_SCHEMA || read_u16(input, 10)? != PERSISTED_PAYLOAD_LEN
+        let schema = read_u16(input, 8)?;
+        if !matches!(schema, LEGACY_PERSISTED_SCHEMA | PERSISTED_SCHEMA)
+            || read_u16(input, 10)? != PERSISTED_PAYLOAD_LEN
         {
             return Err(PolicyError::UnsupportedSchema);
         }
@@ -336,10 +429,15 @@ impl PolicySnapshot {
         if settings & !0b11 != 0 {
             return Err(PolicyError::InvalidEncoding);
         }
+        let hnsr = if schema == LEGACY_PERSISTED_SCHEMA {
+            legacy_hnsr_policy(byte(input, 22)?)?
+        } else {
+            HnsrPolicy::from_bits(byte(input, 22)?)?
+        };
         let config = PolicyConfig {
             dns_relay_requester: DnsRelayRequesterPolicy::try_from(byte(input, 20)?)?,
             oblivious_dns: ObliviousDnsPolicy::try_from(byte(input, 21)?)?,
-            hnsr: HnsrPolicy::try_from(byte(input, 22)?)?,
+            hnsr,
             wire_profile: WireProfile::try_from(byte(input, 23)?)?,
             providers: ProviderPolicy::from_bits(provider_bits)?,
             authenticated_authoritative_doh: settings & 1 != 0,
@@ -563,16 +661,16 @@ fn transition_effects(previous: PolicyConfig, current: PolicyConfig) -> PolicyCh
         || previous.oblivious_dns != current.oblivious_dns
         || previous.authenticated_authoritative_doh != current.authenticated_authoritative_doh
         || previous.hnsr.requester_enabled() != current.hnsr.requester_enabled();
-    let providers_changed =
-        previous.providers != current.providers || previous.hnsr != current.hnsr;
+    let hnsr_providers_changed = previous.hnsr.provider_bits() != current.hnsr.provider_bits();
+    let providers_changed = previous.providers != current.providers || hnsr_providers_changed;
     let removed_provider = (previous.providers.bits() & !current.providers.bits()) != 0
-        || (previous.hnsr.provider_enabled() && !current.hnsr.provider_enabled());
+        || (previous.hnsr.provider_bits() & !current.hnsr.provider_bits()) != 0;
     PolicyChangeEffects {
         stop_admitting_disabled_work: true,
         cancel_or_drain_inflight: true,
         clear_requester_selections: requester_changed,
         withdraw_advertisements: removed_provider,
-        withdraw_hnsr_routes: previous.hnsr.provider_enabled() && previous.hnsr != current.hnsr,
+        withdraw_hnsr_routes: (previous.hnsr.provider_bits() & !current.hnsr.provider_bits()) != 0,
         revoke_target_configurations: previous.providers.odoh_target
             && !current.providers.odoh_target,
         renegotiate_peer_connections: providers_changed
@@ -824,7 +922,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_are_direct_first_requester_fallback_and_provider_off() {
+    fn defaults_are_direct_first_with_relay_opt_out_and_output_opt_in() {
         let snapshot = PolicySnapshot::default();
         let plan = TransportPlan::for_policy(snapshot.config);
 
@@ -838,8 +936,13 @@ mod tests {
                 ResolutionTransport::HandshakeP2pDnsRelay,
             ]
         );
-        assert_eq!(snapshot.config.providers, ProviderPolicy::default());
-        assert_eq!(snapshot.config.hnsr, HnsrPolicy::Disabled);
+        assert!(!snapshot.config.providers.dns_relay);
+        assert!(snapshot.config.providers.odoh_proxy);
+        assert!(!snapshot.config.providers.odoh_target);
+        assert!(snapshot.config.hnsr.relay_enabled());
+        assert!(!snapshot.config.hnsr.endpoint_enabled());
+        assert!(!snapshot.config.hnsr.requester_enabled());
+        assert!(!snapshot.config.hnsr.rendezvous_enabled());
     }
 
     #[test]
@@ -910,6 +1013,74 @@ mod tests {
     }
 
     #[test]
+    fn schema_one_roles_migrate_without_granting_new_consent() {
+        let mut legacy = PolicySnapshot::default().encode();
+        legacy[8..10].copy_from_slice(&LEGACY_PERSISTED_SCHEMA.to_be_bytes());
+        legacy[22] = 0;
+        legacy[24..26].copy_from_slice(&0u16.to_be_bytes());
+        let checksum = crc32(&legacy[..28]);
+        legacy[28..32].copy_from_slice(&checksum.to_be_bytes());
+
+        let migrated = PolicySnapshot::decode(&legacy).unwrap();
+
+        assert_eq!(migrated.generation(), 1);
+        assert_eq!(migrated.config().hnsr, HnsrPolicy::disabled());
+        assert_eq!(
+            migrated.config().providers,
+            ProviderPolicy {
+                dns_relay: false,
+                odoh_proxy: false,
+                odoh_target: false,
+                market_gossip: false,
+            }
+        );
+        assert_eq!(read_u16(&migrated.encode(), 8).unwrap(), PERSISTED_SCHEMA);
+    }
+
+    #[test]
+    fn schema_one_enum_values_are_not_reinterpreted_as_role_bits() {
+        let mut legacy = PolicySnapshot::default().encode();
+        legacy[8..10].copy_from_slice(&LEGACY_PERSISTED_SCHEMA.to_be_bytes());
+        legacy[22] = 3;
+        let checksum = crc32(&legacy[..28]);
+        legacy[28..32].copy_from_slice(&checksum.to_be_bytes());
+
+        let migrated = PolicySnapshot::decode(&legacy).unwrap().config().hnsr;
+
+        assert!(migrated.relay_enabled());
+        assert!(!migrated.requester_enabled());
+        assert!(!migrated.endpoint_enabled());
+        assert!(!migrated.rendezvous_enabled());
+
+        let current = HnsrPolicy::from_bits(3).unwrap();
+        assert!(current.requester_enabled());
+        assert!(current.endpoint_enabled());
+        assert!(!current.relay_enabled());
+    }
+
+    #[test]
+    fn relay_and_output_node_consent_are_independent() {
+        let relay_only = PolicyConfig::default();
+        assert!(relay_only.hnsr.relay_enabled());
+        assert!(!relay_only.hnsr.endpoint_enabled());
+        assert!(relay_only.providers.odoh_proxy);
+        assert!(!relay_only.providers.odoh_target);
+
+        let mut output_enabled = relay_only;
+        output_enabled.hnsr = output_enabled.hnsr.with_endpoint(true);
+        output_enabled.providers.odoh_target = true;
+        assert!(output_enabled.hnsr.relay_enabled());
+        assert!(output_enabled.hnsr.endpoint_enabled());
+
+        output_enabled.hnsr = output_enabled.hnsr.with_relay(false);
+        output_enabled.providers.odoh_proxy = false;
+        assert!(!output_enabled.hnsr.relay_enabled());
+        assert!(output_enabled.hnsr.endpoint_enabled());
+        assert!(!output_enabled.providers.odoh_proxy);
+        assert!(output_enabled.providers.odoh_target);
+    }
+
+    #[test]
     fn policy_change_revokes_stale_completions() {
         let mut controller = PolicyController::new(PolicySnapshot::default());
         let admission = controller
@@ -938,17 +1109,42 @@ mod tests {
         let mut config = PolicyConfig::default();
         config.providers.dns_relay = true;
         config.providers.odoh_target = true;
-        config.hnsr = HnsrPolicy::Full;
+        config.hnsr = HnsrPolicy::default()
+            .with_requester(true)
+            .with_endpoint(true)
+            .with_rendezvous(true);
         let mut controller = PolicyController::new(PolicySnapshot::new(7, config).unwrap());
         let mut next = config;
-        next.providers = ProviderPolicy::default();
-        next.hnsr = HnsrPolicy::Disabled;
+        next.providers = ProviderPolicy {
+            dns_relay: false,
+            odoh_proxy: false,
+            odoh_target: false,
+            market_gossip: false,
+        };
+        next.hnsr = HnsrPolicy::disabled();
         let transition = controller.replace(7, next).unwrap();
 
         assert!(transition.effects.withdraw_advertisements);
         assert!(transition.effects.withdraw_hnsr_routes);
         assert!(transition.effects.revoke_target_configurations);
         assert!(transition.effects.renegotiate_peer_connections);
+    }
+
+    #[test]
+    fn requester_change_does_not_mutate_provider_consent() {
+        let config = PolicyConfig::default();
+        let mut controller = PolicyController::new(PolicySnapshot::new(4, config).unwrap());
+        let mut next = config;
+        next.hnsr = next.hnsr.with_requester(true);
+
+        let transition = controller.replace(4, next).unwrap();
+
+        assert!(transition.effects.clear_requester_selections);
+        assert!(!transition.effects.withdraw_advertisements);
+        assert!(!transition.effects.withdraw_hnsr_routes);
+        assert!(!transition.effects.renegotiate_peer_connections);
+        assert!(transition.current.config().hnsr.relay_enabled());
+        assert!(transition.current.config().hnsr.requester_enabled());
     }
 
     #[test]

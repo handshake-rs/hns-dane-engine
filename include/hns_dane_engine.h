@@ -34,6 +34,11 @@ extern "C" {
 #define HNS_DANE_PROVIDER_ODOH_TARGET (1u << 2)
 #define HNS_DANE_PROVIDER_MARKET_GOSSIP (1u << 3)
 
+#define HNS_DANE_HNSR_REQUESTER (1u << 0)
+#define HNS_DANE_HNSR_ENDPOINT (1u << 1)
+#define HNS_DANE_HNSR_RELAY (1u << 2)
+#define HNS_DANE_HNSR_RENDEZVOUS (1u << 3)
+
 typedef struct HnsDaneEngine HnsDaneEngine;
 typedef struct HnsDaneAttempt HnsDaneAttempt;
 
@@ -43,7 +48,7 @@ typedef struct HnsDanePolicyV1 {
   uint64_t generation;
   uint8_t dns_relay_requester;
   uint8_t oblivious_dns;
-  uint8_t hnsr;
+  uint8_t hnsr; /* Independent HNS_DANE_HNSR_* role bits. */
   uint8_t wire_profile;
   uint8_t authenticated_authoritative_doh;
   uint8_t allow_legacy_regtest_compatibility;
