@@ -154,7 +154,7 @@ impl GatewayAttempt {
 }
 
 /// Successful actual transport selection.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct GatewaySelection {
     policy_generation: u64,
     transport: ResolutionTransport,
@@ -193,10 +193,22 @@ impl GatewaySelection {
     pub const fn direct_relay_fallback(&self) -> bool {
         self.direct_relay_fallback
     }
+
+    /// Consume the one-shot selection into its admitted fields.
+    #[must_use]
+    pub fn into_parts(self) -> (u64, ResolutionTransport, Vec<u8>, GatewayIdentities, bool) {
+        (
+            self.policy_generation,
+            self.transport,
+            self.response,
+            self.identities,
+            self.direct_relay_fallback,
+        )
+    }
 }
 
 /// Result of completing one gateway attempt.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum GatewayStep {
     /// A retryable transport failure left another policy candidate.
     RetryAvailable,

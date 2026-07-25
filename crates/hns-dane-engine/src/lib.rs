@@ -24,7 +24,12 @@ pub use hns_browser_runtime::AuthorityState;
 use hns_browser_runtime::{BrowserRuntime, RuntimeError, RuntimeStamp};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
-pub use hns_gateway::{Gateway, GatewayLimits};
+pub use hns_gateway::{Gateway, GatewayLimits, GatewaySelection};
+pub use hns_p2p_transport::{
+    AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DnsRelayRequester,
+    ExperimentalExchange, ExperimentalRequest, ExperimentalResponse, OdohRequester,
+    P2pTransportError, PeerIdentity, RequesterLimits, VerifiedOdohTarget,
+};
 use hns_resolution_policy::{
     Admission, ChainAnchor, EvidenceState, Network, PolicyConfig, PolicyController, PolicyError,
     PolicySnapshot, PolicyTransition, ResolutionProvenance, ResolutionTransport, TransportPlan,
@@ -155,6 +160,40 @@ impl ParsedResponse {
     #[must_use]
     pub const fn untrusted_ad_claim(&self) -> bool {
         self.untrusted_ad_claim
+    }
+}
+
+/// Gateway-selected response atomically admitted to the current engine.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GatewayResolution {
+    attempt: ResolutionAttempt,
+    response: ParsedResponse,
+    context: CompletionContext,
+}
+
+impl GatewayResolution {
+    /// Current-generation resolution attempt.
+    #[must_use]
+    pub const fn attempt(&self) -> &ResolutionAttempt {
+        &self.attempt
+    }
+
+    /// Locally parsed and correlated gateway response.
+    #[must_use]
+    pub const fn response(&self) -> &ParsedResponse {
+        &self.response
+    }
+
+    /// Gateway-derived intermediary identities and downgrade state.
+    #[must_use]
+    pub const fn context(&self) -> &CompletionContext {
+        &self.context
+    }
+
+    /// Consume into the three inputs used by local DNSSEC/DANE completion.
+    #[must_use]
+    pub fn into_parts(self) -> (ResolutionAttempt, ParsedResponse, CompletionContext) {
+        (self.attempt, self.response, self.context)
     }
 }
 
@@ -535,14 +574,7 @@ impl Engine {
         query: Query,
     ) -> Result<ResolutionAttempt, EngineError> {
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
-        if !matches!(
-            state.runtime.authority_state(),
-            AuthorityState::ResolutionTransportReady
-                | AuthorityState::DnssecVerified
-                | AuthorityState::DaneOriginVerified
-                | AuthorityState::BrowserBridgeReady
-                | AuthorityState::Active
-        ) {
+        if !resolution_transport_ready(state.runtime.authority_state()) {
             return Err(EngineError::AuthorityNotReady);
         }
         let admission = state.policy.admit(transport)?;
@@ -571,6 +603,58 @@ impl Engine {
             attempt_stamp: attempt.runtime_stamp,
             message,
             untrusted_ad_claim,
+        })
+    }
+
+    /// Atomically admit a gateway selection under the current policy/runtime.
+    ///
+    /// Response bytes are parsed and exactly correlated before an engine event
+    /// is consumed. The selection's policy generation, selected transport,
+    /// identities, and privacy-downgrade state are then admitted together
+    /// under one write lock, so callers cannot substitute completion context.
+    pub fn admit_gateway_selection(
+        &self,
+        selection: GatewaySelection,
+        query: Query,
+        limits: ParseLimits,
+    ) -> Result<GatewayResolution, EngineError> {
+        let (policy_generation, transport, response, identities, direct_relay_fallback) =
+            selection.into_parts();
+        let message = Message::parse_with_limits(&response, limits)?;
+        let correlated = query.correlate(&message)?;
+        let untrusted_ad_claim = correlated.untrusted_ad_claim();
+        let context = CompletionContext {
+            chain_anchor: None,
+            peer_identity: identities.peer,
+            proxy_identity: identities.proxy,
+            target_identity: identities.target,
+            direct_relay_fallback,
+        };
+        validate_completion_context(transport, &context)?;
+
+        let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
+        if state.policy.snapshot().generation() != policy_generation {
+            return Err(EngineError::StaleGatewaySelection);
+        }
+        if !resolution_transport_ready(state.runtime.authority_state()) {
+            return Err(EngineError::AuthorityNotReady);
+        }
+        let admission = state.policy.admit(transport)?;
+        let runtime_stamp = state.runtime.admit_event().map_err(map_runtime_error)?;
+        drop(state);
+
+        Ok(GatewayResolution {
+            response: ParsedResponse {
+                attempt_stamp: runtime_stamp,
+                message,
+                untrusted_ad_claim,
+            },
+            attempt: ResolutionAttempt {
+                runtime_stamp,
+                admission,
+                query,
+            },
+            context,
         })
     }
 
@@ -861,6 +945,17 @@ fn ensure_current(state: &EngineState, attempt: &ResolutionAttempt) -> Result<()
     Ok(())
 }
 
+const fn resolution_transport_ready(state: AuthorityState) -> bool {
+    matches!(
+        state,
+        AuthorityState::ResolutionTransportReady
+            | AuthorityState::DnssecVerified
+            | AuthorityState::DaneOriginVerified
+            | AuthorityState::BrowserBridgeReady
+            | AuthorityState::Active
+    )
+}
+
 const fn map_runtime_error(error: RuntimeError) -> EngineError {
     match error {
         RuntimeError::InvalidAuthorityTransition => EngineError::InvalidAuthorityTransition,
@@ -934,6 +1029,8 @@ pub enum EngineError {
     AuthorityNotReady,
     /// Work belongs to an older runtime generation.
     StaleRuntimeGeneration,
+    /// Gateway selection belongs to an older policy generation.
+    StaleGatewaySelection,
     /// Parsed response belongs to another attempt.
     ResponseAttemptMismatch,
     /// A TLSA response carried a nonzero DNS response code.
@@ -994,6 +1091,9 @@ impl fmt::Display for EngineError {
             }
             Self::AuthorityNotReady => formatter.write_str("browser authority state is not ready"),
             Self::StaleRuntimeGeneration => formatter.write_str("stale runtime generation"),
+            Self::StaleGatewaySelection => {
+                formatter.write_str("gateway selection belongs to a stale policy generation")
+            }
             Self::ResponseAttemptMismatch => {
                 formatter.write_str("DNS response and resolution attempt mismatch")
             }
@@ -1203,6 +1303,34 @@ mod tests {
             association_data: certificate.clone(),
         });
         (query, response, certificate)
+    }
+
+    fn odoh_gateway_selection(engine: &Engine, response: &[u8]) -> Option<GatewaySelection> {
+        let policy = engine.snapshot().unwrap().policy;
+        let mut gateway = engine.begin_gateway(GatewayLimits::default()).unwrap();
+        let mut now = 100_u64;
+        loop {
+            let attempt = gateway.next_attempt(policy, now).unwrap();
+            let outcome = if attempt.transport() == ResolutionTransport::HandshakeP2pOdoh {
+                hns_gateway::AttemptOutcome::Response {
+                    bytes: response.to_owned(),
+                    identities: hns_gateway::GatewayIdentities {
+                        proxy: Some("brontide:proxy".to_owned()),
+                        target: Some("brontide:target".to_owned()),
+                        ..hns_gateway::GatewayIdentities::default()
+                    },
+                }
+            } else {
+                hns_gateway::AttemptOutcome::Failure(hns_gateway::TransportFailure::Unsupported)
+            };
+            match gateway.complete(policy, attempt, outcome, now).unwrap() {
+                hns_gateway::GatewayStep::RetryAvailable => {
+                    now = now.checked_add(1).unwrap();
+                }
+                hns_gateway::GatewayStep::Selected(selection) => return Some(selection),
+                hns_gateway::GatewayStep::Unavailable => return None,
+            }
+        }
     }
 
     #[test]
@@ -1540,6 +1668,51 @@ mod tests {
             gateway.next_attempt(before, 101),
             Err(hns_gateway::GatewayError::Terminal)
         ));
+    }
+
+    #[test]
+    fn gateway_selection_atomically_binds_response_and_identities() {
+        let engine = ready_engine();
+        let (query, response, _) = exact_certificate_exchange();
+        let selection = odoh_gateway_selection(&engine, &response).unwrap();
+        let admitted = engine
+            .admit_gateway_selection(selection, query, ParseLimits::requester())
+            .unwrap();
+        assert_eq!(
+            admitted.attempt().transport(),
+            ResolutionTransport::HandshakeP2pOdoh
+        );
+        assert_eq!(
+            admitted.context().proxy_identity.as_deref(),
+            Some("brontide:proxy")
+        );
+        assert_eq!(
+            admitted.context().target_identity.as_deref(),
+            Some("brontide:target")
+        );
+        assert_eq!(admitted.response().message().header.id, 0x1234);
+    }
+
+    #[test]
+    fn stale_gateway_selection_consumes_no_engine_event() {
+        let engine = ready_engine();
+        let (query, response, _) = exact_certificate_exchange();
+        let selection = odoh_gateway_selection(&engine, &response).unwrap();
+        let before = engine.snapshot().unwrap();
+        let mut next = before.policy.config();
+        next.authenticated_authoritative_doh = !next.authenticated_authoritative_doh;
+        engine
+            .update_policy(before.policy.generation(), next)
+            .unwrap();
+        let after_update = engine.snapshot().unwrap();
+        assert!(matches!(
+            engine.admit_gateway_selection(selection, query, ParseLimits::requester()),
+            Err(EngineError::StaleGatewaySelection)
+        ));
+        assert_eq!(
+            engine.snapshot().unwrap().event_sequence,
+            after_update.event_sequence
+        );
     }
 
     #[test]

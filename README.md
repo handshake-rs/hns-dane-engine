@@ -16,6 +16,10 @@
 - a policy-bound fail-closed transport gateway that selects candidates in typed order, permits
   fallback only for reachability/timeout/unsupported paths or valid UDP truncation, and derives
   intermediary identity and privacy-downgrade status from the actual attempt history;
+- authenticated adapter-backed HIP-76 DNS Relay and HIP-77 ODoH requesters with negotiated
+  experimental-peer admission, independent request IDs, signed target records, distinct
+  proxy/target identities, local HPKE opening, finite bounds, cancellation, and exact DNS
+  correlation;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;
@@ -38,8 +42,10 @@
 The policy transport order is direct delegated-authoritative UDP, direct
 delegated-authoritative TCP, optional authenticated authoritative DoH, then policy-permitted
 Handshake P2P ODoH and P2P DNS Relay. HNS resolution has no operating-system resolver, public
-recursive resolver, public DoH, or WebPKI fallback. Network I/O is currently implemented only for
-direct UDP/TCP; the other candidates remain unavailable rather than falling back.
+recursive resolver, public DoH, or WebPKI fallback. Direct UDP/TCP own their socket I/O here.
+HIP-76/77 own the complete authenticated request/response boundary but consume a platform-supplied
+established Brontide exchange; authenticated authoritative DoH and HNSR remain unavailable rather
+than silently falling back.
 
 P2P DNS Relay and P2P ODoH are described as **Denuo Experimental V1 — Not an official Handshake
 protocol assignment**. Their transport cannot establish authenticity. The production Rust path
@@ -58,6 +64,12 @@ current: all selected peers must respond, every valid response must report no ex
 consensus-invalid responders are excluded only under the configured agreement/ban policy. Socket
 dialing, peer discovery, competing-fork download/reorganization, restart
 snapshots, and checkpoint bootstrap remain adapter/storage work.
+
+The HIP-76/77 requester boundary is likewise runtime independent. An adapter can return a response
+only with the static key authenticated by the exact Brontide session, under the request's finite
+deadline and allocation bound. The engine atomically admits the gateway-selected bytes,
+intermediary identities, actual transport, and downgrade state under the current runtime/policy;
+callers cannot substitute a separate completion context. See `docs/p2p-dns-transports.md`.
 
 `hns-loopback-proxy` is deliberately the shared admission/capability boundary, not a socket or TLS
 server. Native hosts still own the listener, HTTP response I/O, per-install local CA, exact-host leaf

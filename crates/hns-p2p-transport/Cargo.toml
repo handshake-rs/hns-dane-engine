@@ -1,0 +1,27 @@
+[package]
+name = "hns-p2p-transport"
+description = "Authenticated adapter boundary for Handshake P2P DNS Relay and ODoH"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hex = "0.4.3"
+hns-dns-relay-protocol = { path = "../../../hns-rs/crates/hns-dns-relay-protocol" }
+hns-dns-wire = { path = "../hns-dns-wire" }
+hns-gateway = { path = "../hns-gateway" }
+hns-odoh-protocol = { path = "../../../hns-rs/crates/hns-odoh-protocol" }
+hns-p2p-experimental = { path = "../../../hns-rs/crates/hns-p2p-experimental" }
+hns-transport = { path = "../hns-transport" }
+k256 = { version = "0.13.4", default-features = false, features = ["ecdsa", "std"] }
+thiserror = "2.0.19"
+
+[dev-dependencies]
+blake2 = "0.10.6"
+hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
+hpke = { version = "0.14.0", default-features = false, features = ["alloc", "aes", "getrandom", "x25519"] }
+
+[lints]
+workspace = true

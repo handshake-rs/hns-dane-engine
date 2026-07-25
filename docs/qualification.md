@@ -3,9 +3,11 @@
 Qualification is run with the repository's locked dependency graph and no network access:
 
 ```text
-cargo test --workspace --all-features --locked --offline
-  103 unit tests passed
-  17 doc-test targets passed (0 doctests)
+cargo test --workspace --all-targets --all-features --locked --offline
+  111 unit tests passed
+
+cargo test --workspace --doc --all-features --locked --offline
+  18 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -69,6 +71,16 @@ Covered:
   reachability, timeout, or unsupported paths; fail-closed malformed/authentication/cancellation
   handling; ODoH proxy/target topology; derived relay downgrade; and foreign-token/stale-policy
   rejection;
+- authenticated HIP-76/HIP-77 adapter contracts; exact negotiated packet admission; non-cloneable
+  independent request-ID sequences; adapter-attested Brontide response identity; request/response
+  ID and deadline checks; negotiated outbound and local inbound allocation bounds; signed current
+  ODoH target selection and response-time currency;
+  distinct proxy/target enforcement; fixed-bucket outer padding; local HPKE seal/open; qname
+  non-disclosure to the proxy; exact DNS parsing/correlation; mutated ciphertext rejection; and
+  gateway failure classification;
+- atomic engine admission of a gateway selection's policy generation, actual transport, response,
+  identities, and relay-downgrade state, including non-cloneable selection consumption and
+  stale-selection rejection before an engine event is consumed;
 - engine-derived HNS proof, chain-currency, DNSSEC, TLSA, DANE, and SNI evidence; exact
   Handshake-network and validation-time binding; derived rather than caller-selected provenance
   anchors; and distinct ODoH proxy/target identity enforcement;
@@ -115,9 +127,11 @@ Not yet implemented:
 - subdelegation discovery and a complete live authoritative DNSSEC walk beyond the on-chain TLD
   DNSKEY path;
 - origin TLS socket/SNI execution (the Rust API checks the adapter-reported exact SNI);
-- authenticated authoritative DoH, P2P DNS Relay, ODoH, or HNSR network transports;
+- authenticated authoritative DoH, HNSR transport, HIP-76/77 provider roles, and the native
+  Brontide socket adapter for the implemented HIP-76/77 requester boundary;
 - filesystem/mobile preferences adapters and atomic durable writes;
-- registry fingerprint negotiation and HSD draft-PR cross-language execution;
+- live registry negotiation exchange and HSD draft-PR cross-language execution (the requester
+  consumes and enforces an already authenticated `NegotiatedRegistry`);
 - native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf lifecycle, mobile ABI
   packaging, and platform bridges (the shared proxy admission/capability core is implemented);
 - fuzz targets, HSD-generated live DNSSEC fixture generation, and performance benchmarks.

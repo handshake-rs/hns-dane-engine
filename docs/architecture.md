@@ -16,6 +16,7 @@ hns-browser-observability ---------------------------------------------+   hns-d
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
 hns-transport ---------------------------------------------------------+
+hns-p2p-transport -----------------------------------------------------+
                                                                                   |
                                                                                   v
                                                                          hns-loopback-proxy
@@ -73,6 +74,15 @@ nonstandard loopback ports require an explicit regtest-fixture policy. Connected
 length-delimited TCP use strict non-recursive DNSSEC queries, finite timeouts and message bounds,
 cooperative lifecycle cancellation, exact response correlation, and request-time anchor/TLD
 authorization.
+`hns-p2p-transport` is the socket-independent HIP-76/HIP-77 requester boundary. It binds a
+validated compressed key to established, registry-negotiated experimental peer state; allocates
+independent nonzero request IDs; admits exact semantic packets; and requires an adapter to attest
+the same Brontide identity on the response. HIP-76 response status, ID, DNS framing, and question
+are checked locally. HIP-77 selects an immutable target from its signed current record, rejects a
+proxy/target identity collision, seals the query locally, pads the outer client message, and opens
+the target response locally. The gateway receives only locally parsed/correlated DNS or a
+fail-closed failure class. The engine atomically converts a successful gateway selection into its
+current-generation attempt, parsed response, and derived completion context.
 `hns-loopback-proxy` is a platform-neutral two-phase proxy gate. It binds one non-cloneable session
 to an exact numeric-loopback endpoint, runtime session/generation, immutable HNS TLD scope,
 per-instance capability, origin port, and request bounds. Phase one admits one strictly parsed,
@@ -91,10 +101,12 @@ The dependency boundary is deliberate: these crates do not depend on Tokio, JNI,
 SQLite, operating-system DNS, or a particular network stack. Callers can execute the deterministic
 state machines under their native runtime.
 
-This foundation does not yet implement P2P socket dialing or peer discovery, download/reorganization
-from a fork predating the current tip, durable restart checkpoints, authenticated authoritative
-DoH, P2P relay/ODoH/HNSR transports, origin TLS socket execution, native loopback listener and
-tunnel I/O, local CA management, or platform bridges. Header sync currently selects only among
-bounded candidates extending the same validated base. PKIX usages 0/1 intentionally have no WebPKI
-path. The existing C ABI still exposes the earlier single-response DANE-EE entry point; the full
-header-to-Urkel-to-DNSSEC Rust path is pending ABI v2/mobile integration.
+This foundation does not yet implement P2P socket dialing or peer discovery,
+download/reorganization from a fork predating the current tip, durable restart checkpoints,
+authenticated authoritative DoH, an HNSR requester, HIP-76/77 provider roles, origin TLS socket
+execution, native loopback listener and tunnel I/O, local CA management, or platform bridges. A
+native adapter must connect the HIP-76/77 requester boundary to its established Brontide runtime.
+Header sync currently selects only among bounded candidates extending the same validated base.
+PKIX usages 0/1 intentionally have no WebPKI path. The existing C ABI still exposes the earlier
+single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI
+v2/mobile integration.

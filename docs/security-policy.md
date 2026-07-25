@@ -57,6 +57,20 @@ fork recovery.
 The DNS AD bit, Brontide, a relay, an ODoH proxy, and an ODoH target are never validation
 authorities. Transport status is reported separately from evidence status.
 
+HIP-76/77 requesters consume only an established peer whose advertised service, Denuo extension,
+registry fingerprint, network, and genesis identity were admitted. Each requester owns a
+non-cloneable monotonic nonzero request-ID sequence. The runtime adapter receives an exact packet,
+deadline, authenticated destination, and response allocation cap; its response must attest the
+same Brontide static key. Wrong keys, semantic packets, request IDs, deadlines, lengths, status
+framing, or DNS questions fail closed. Reachability, timeout, and explicit unsupported statuses are
+the only classes that may advance the gateway.
+
+An ODoH target comes only from a target-signed, locator/network/lifetime-bound configuration
+record. The proxy identity must differ from the target's signed Brontide identity. HPKE sealing and
+opening occur locally, the client envelope is zero-padded to a bounded bucket, and the proxy never
+receives plaintext DNS. A decrypted response is still untrusted DNS and must pass exact local
+correlation, HNS proof, DNSSEC, TLSA, and DANE validation.
+
 Shared status uses explicit `verified`, `failed`, `unavailable`, `unsupported`, `not attempted`,
 `stale`, and `revoked` evidence values. It never contains qnames, URLs, DNS payloads, certificates,
 or secrets. Actual transport identities are bounded and checked against the selected transport;
@@ -85,6 +99,11 @@ to direct TCP. Malformed framing, endpoint/intermediary authentication failure, 
 foreign attempt tokens, stale policy, invalid proxy/target topology, and response-bound violations
 terminate the plan. Direct-relay privacy downgrade is true only when an ODoH attempt actually
 preceded the relay attempt.
+
+After selection, the engine parses the response and atomically admits the selection's policy
+generation, actual transport, identities, and downgrade state under its current runtime lock.
+A stale selection consumes no engine event, and completion context is derived from the gateway
+rather than supplied independently.
 
 Policy updates increment generations, immediately reject new disabled work, reject stale
 completions, clear requester selections, and report provider withdrawal/peer renegotiation effects.
