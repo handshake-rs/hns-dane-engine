@@ -5,6 +5,8 @@
 - a strict, allocation-bounded DNS wire codec with compression-loop and bounds defenses;
 - a genesis-anchored Handshake light-chain consensus gate with median-time, difficulty, proof-of-work,
   chainwork, explicit currency, strict Urkel, `NameState`, and HNS resource validation;
+- a bounded positive/negative cache with qname-free session keys, exact runtime/policy/chain
+  generation binding, finite TTLs, byte/entry limits, and LRU eviction;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;

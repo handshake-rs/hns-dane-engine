@@ -11,6 +11,7 @@ hns-dns-wire ---> hns-dnssec --------------------------> hns-resolver --+
                                                                         |          |
 hns-resolution-policy -------------------------------------------------+          v
 hns-browser-observability ---------------------------------------------+   hns-dane-engine-ffi
+hns-cache -------------------------------------------------------------+
 ```
 
 `hns-dns-wire` parses and emits DNS without I/O. `hns-resolution-policy` owns typed persistent
@@ -32,6 +33,10 @@ session/generations/event sequence, policy and actual transport, chain anchor, r
 HNSR/provider state and readiness, rate-limit saturation, intermediary identities, all seven
 evidence states, and stable degraded/revocation/unsupported reasons. The engine retains only the
 last current-generation provenance and clears it on degradation or revocation.
+`hns-cache` provides a runtime-independent bounded LRU for positive and authenticated-negative
+results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
+height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched
+entries before returning them; metrics contain only counts and byte totals.
 `hns-dane-engine-ffi` contains the narrowly audited unsafe pointer boundary and versioned C ABI.
 Adapters own sockets, clocks, secure storage, threads, UI, and platform lifecycle.
 

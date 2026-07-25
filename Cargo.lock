@@ -118,6 +118,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-cache"
+version = "0.1.0"
+dependencies = [
+ "hns-dns-wire",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "hns-covenants"
 version = "0.1.0"
 dependencies = [

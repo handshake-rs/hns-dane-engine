@@ -4,8 +4,8 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-features --locked --offline
-  66 unit tests passed
-  9 doc-test targets passed (0 doctests)
+  70 unit tests passed
+  10 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -65,6 +65,9 @@ Covered:
   bounded unsupported-evidence details;
 - all required evidence states: verified, failed, unavailable, unsupported, not attempted, stale,
   and revoked, with verified-state clearing on engine degradation or policy revocation;
+- qname-free secret-derived cache keys bound to network, runtime generation, policy generation,
+  chain height/tree root, qtype, and canonical DNS name; bounded positive/negative TTLs; exact
+  entry/value/total-byte limits; LRU eviction; and remove-before-use expiry/stale handling;
 - explicit browser authority states;
 - C layout assertions, ownership functions, policy exchange, transport planning, query admission,
   end-to-end local DANE matching, caller-DANE-bit rejection, response correlation, and panic

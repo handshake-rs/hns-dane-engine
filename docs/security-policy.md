@@ -51,6 +51,12 @@ or secrets. Actual transport identities are bounded and checked against the sele
 ODoH proxy and target must be present and distinct. Provider readiness must agree with explicit
 provider roles, and rate-limit counters cannot claim impossible capacity or saturation states.
 
+Cache entries use a per-runtime secret-derived opaque key and are bound to network, runtime and
+policy generations, and the exact Handshake chain height/tree root. Positive and authenticated
+negative TTLs have separate finite maxima. Entry count, per-value size, total value bytes, and LRU
+state are bounded; expired or generation-mismatched entries are removed before any value is
+returned. Cache metrics contain no qnames or values.
+
 The only HNS resolution candidates are direct delegated-authoritative UDP/TCP, explicitly
 authenticated authoritative DoH, Denuo Experimental V1 P2P ODoH, and Denuo Experimental V1 P2P DNS
 Relay. The policy model contains no operating-system or public-recursive fallback variant.
