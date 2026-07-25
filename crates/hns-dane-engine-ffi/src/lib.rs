@@ -596,9 +596,10 @@ pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
                 context,
             )
             .map_err(map_engine_error)?;
-        let provenance = completed.provenance;
-        let record_index = u16::try_from(completed.dane_match.record_index())
-            .map_err(|_| HnsDaneStatus::Internal)?;
+        let provenance = completed.provenance().clone();
+        let dane_match = completed.dane_match();
+        let record_index =
+            u16::try_from(dane_match.record_index()).map_err(|_| HnsDaneStatus::Internal)?;
         let result = HnsDaneResultV1 {
             struct_size: size_u32::<HnsDaneResultV1>()?,
             schema_version: provenance.schema_version,
@@ -609,9 +610,9 @@ pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
             event_sequence: provenance.event_sequence,
             answer_count,
             tlsa_record_index: record_index,
-            tlsa_usage: completed.dane_match.usage() as u8,
-            tlsa_selector: completed.dane_match.selector() as u8,
-            tlsa_matching_type: completed.dane_match.matching_type() as u8,
+            tlsa_usage: dane_match.usage() as u8,
+            tlsa_selector: dane_match.selector() as u8,
+            tlsa_matching_type: dane_match.matching_type() as u8,
             reserved: 0,
         };
         // SAFETY: output is required writable by the caller contract.

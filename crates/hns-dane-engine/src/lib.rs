@@ -214,12 +214,120 @@ impl LocalDanePrerequisites {
 }
 
 /// Completed provenance plus the locally matched TLSA record details.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct DaneCompletion {
+    provenance: ResolutionProvenance,
+    dane_match: DaneMatch,
+    origin_sni: Option<String>,
+    bridge_valid_from: Option<u64>,
+    bridge_valid_until: Option<u64>,
+}
+
+impl DaneCompletion {
     /// Fully verified HNS HTTPS provenance.
-    pub provenance: ResolutionProvenance,
+    #[must_use]
+    pub const fn provenance(&self) -> &ResolutionProvenance {
+        &self.provenance
+    }
+
     /// Match derived locally from the correlated TLSA answer and certificate.
-    pub dane_match: DaneMatch,
+    #[must_use]
+    pub const fn dane_match(&self) -> DaneMatch {
+        self.dane_match
+    }
+
+    /// Exact strict-path origin, absent for the legacy prerequisite API.
+    #[must_use]
+    pub fn origin_sni(&self) -> Option<&str> {
+        self.origin_sni.as_deref()
+    }
+}
+
+impl fmt::Debug for DaneCompletion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DaneCompletion")
+            .field("provenance", &self.provenance)
+            .field("dane_match", &self.dane_match)
+            .field(
+                "origin_sni",
+                &self.origin_sni.as_ref().map(|_| "[redacted]"),
+            )
+            .field("bridge_valid_from", &self.bridge_valid_from)
+            .field("bridge_valid_until", &self.bridge_valid_until)
+            .finish()
+    }
+}
+
+/// Non-forgeable current-generation permission for an exact browser origin.
+#[derive(Clone, Eq, PartialEq)]
+pub struct BrowserBridgeAuthorization {
+    runtime_session: [u8; 16],
+    runtime_generation: u64,
+    policy_generation: u64,
+    event_sequence: u64,
+    valid_from: u64,
+    valid_until: u64,
+    origin: String,
+}
+
+impl BrowserBridgeAuthorization {
+    /// Runtime session that issued the authorization.
+    #[must_use]
+    pub const fn runtime_session(&self) -> [u8; 16] {
+        self.runtime_session
+    }
+
+    /// Runtime generation that issued the authorization.
+    #[must_use]
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
+    }
+
+    /// Policy generation that issued the authorization.
+    #[must_use]
+    pub const fn policy_generation(&self) -> u64 {
+        self.policy_generation
+    }
+
+    /// Authorization event sequence.
+    #[must_use]
+    pub const fn event_sequence(&self) -> u64 {
+        self.event_sequence
+    }
+
+    /// First chain-currency time at which this grant may be consumed.
+    #[must_use]
+    pub const fn valid_from(&self) -> u64 {
+        self.valid_from
+    }
+
+    /// Last chain-currency time at which this grant may be consumed.
+    #[must_use]
+    pub const fn valid_until(&self) -> u64 {
+        self.valid_until
+    }
+
+    /// Exact normalized origin SNI.
+    #[must_use]
+    pub fn origin(&self) -> &str {
+        &self.origin
+    }
+}
+
+impl fmt::Debug for BrowserBridgeAuthorization {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BrowserBridgeAuthorization")
+            .field("runtime_session", &self.runtime_session)
+            .field("runtime_generation", &self.runtime_generation)
+            .field("policy_generation", &self.policy_generation)
+            .field("event_sequence", &self.event_sequence)
+            .field("valid_from", &self.valid_from)
+            .field("valid_until", &self.valid_until)
+            .field("origin", &"[redacted]")
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -508,6 +616,9 @@ impl Engine {
         Ok(DaneCompletion {
             provenance,
             dane_match,
+            origin_sni: None,
+            bridge_valid_from: None,
+            bridge_valid_until: None,
         })
     }
 
@@ -583,6 +694,73 @@ impl Engine {
         Ok(DaneCompletion {
             provenance,
             dane_match,
+            origin_sni: Some(input.origin_sni.trim_end_matches('.').to_ascii_lowercase()),
+            bridge_valid_from: Some(hns_authority.anchor().validated_at().get()),
+            bridge_valid_until: Some(hns_authority.anchor().valid_until().get()),
+        })
+    }
+
+    /// Authorize the exact strict-path origin for the browser bridge.
+    ///
+    /// The completion must still be this engine's latest current-generation
+    /// provenance. Legacy caller-prerequisite completions cannot mint a bridge
+    /// authorization because they carry no engine-verified origin binding.
+    pub fn authorize_browser_bridge(
+        &self,
+        completion: &DaneCompletion,
+        now: u64,
+    ) -> Result<BrowserBridgeAuthorization, EngineError> {
+        let origin = completion
+            .origin_sni
+            .as_ref()
+            .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        let valid_from = completion
+            .bridge_valid_from
+            .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        let valid_until = completion
+            .bridge_valid_until
+            .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        if now < valid_from {
+            return Err(EngineError::CompletionNotYetValid);
+        }
+        if now > valid_until {
+            return Err(EngineError::CompletionExpired);
+        }
+        let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
+        let runtime_before = state.runtime.snapshot();
+        if !matches!(
+            runtime_before.authority_state,
+            AuthorityState::DaneOriginVerified
+                | AuthorityState::BrowserBridgeReady
+                | AuthorityState::Active
+        ) {
+            return Err(EngineError::AuthorityNotReady);
+        }
+        if state.last_provenance.as_ref() != Some(&completion.provenance)
+            || completion.provenance.runtime_session != runtime_before.session
+            || completion.provenance.runtime_generation != runtime_before.generation
+            || completion.provenance.policy_generation != state.policy.snapshot().generation()
+            || !completion.provenance.evidence.fully_verified()
+        {
+            return Err(EngineError::CompletionNotCurrent);
+        }
+        if runtime_before.authority_state == AuthorityState::DaneOriginVerified {
+            state
+                .runtime
+                .transition(AuthorityState::BrowserBridgeReady)
+                .map_err(map_runtime_error)?;
+        } else {
+            state.runtime.admit_event().map_err(map_runtime_error)?;
+        }
+        let runtime = state.runtime.snapshot();
+        Ok(BrowserBridgeAuthorization {
+            runtime_session: runtime.session,
+            runtime_generation: runtime.generation,
+            policy_generation: state.policy.snapshot().generation(),
+            event_sequence: runtime.event_sequence,
+            valid_from,
+            valid_until,
+            origin: origin.clone(),
         })
     }
 
@@ -782,6 +960,14 @@ pub enum EngineError {
     HnsNetworkMismatch,
     /// Caller-supplied provenance conflicts with the derived HNS anchor.
     ChainAnchorMismatch,
+    /// Legacy prerequisite completion has no engine-verified origin binding.
+    LegacyCompletionNotBridgeable,
+    /// Completion is no longer the engine's latest current-generation result.
+    CompletionNotCurrent,
+    /// Completion's chain-currency validity window elapsed.
+    CompletionExpired,
+    /// Completion predates the beginning of its chain-currency validity window.
+    CompletionNotYetValid,
     /// Degraded/revoked/stopped status omitted its reason.
     MissingObservabilityReason,
     /// A status reason conflicts with the current authority state.
@@ -846,6 +1032,18 @@ impl fmt::Display for EngineError {
             Self::ChainAnchorMismatch => {
                 formatter.write_str("completion context conflicts with derived HNS chain anchor")
             }
+            Self::LegacyCompletionNotBridgeable => {
+                formatter.write_str("legacy DANE completion cannot authorize a browser bridge")
+            }
+            Self::CompletionNotCurrent => {
+                formatter.write_str("DANE completion is not current for this engine")
+            }
+            Self::CompletionExpired => {
+                formatter.write_str("DANE completion chain-currency window expired")
+            }
+            Self::CompletionNotYetValid => {
+                formatter.write_str("DANE completion chain-currency window has not begun")
+            }
             Self::MissingObservabilityReason => {
                 formatter.write_str("authority state requires an observability reason")
             }
@@ -899,19 +1097,9 @@ impl From<PolicyError> for EngineError {
 )]
 mod tests {
     use super::*;
-    use blake2::Blake2bVar;
-    use blake2::digest::{Update, VariableOutput};
-    use hns_dns_wire::{Dnskey, Ds, Flags, Header, Name, ResourceRecord, Rrsig};
-    use hns_dnssec::{ALGORITHM_RSASHA256, DnssecLimits, dnskey_tag, rrsig_signed_data};
-    use hns_header_consensus::{Header as ConsensusHeader, Network as ConsensusNetwork};
-    use hns_light_chain::{ChainLimits, CurrencyPolicy, LightChain, VerifiedHnsResource};
-    use hns_primitives::{BlockTime, Chainwork, Height, TreeRoot};
+    use hns_browser_testkit::{STRICT_HNS_ORIGIN, StrictRegtestDaneFixture};
+    use hns_dns_wire::{Flags, Header, Name, ResourceRecord};
     use hns_resolution_policy::{DnsRelayRequesterPolicy, EvidenceState, ObliviousDnsPolicy};
-    use hns_resolver::{HnsDnssecAuthority, ResolutionStep, ResolverLimits, TlsaResolution};
-    use openssl::hash::{MessageDigest, hash};
-    use openssl::pkey::{PKey, Private};
-    use openssl::rsa::Rsa;
-    use openssl::sign::Signer;
 
     const RESPONSE_WITH_UNTRUSTED_AD: &[u8] =
         b"\x12\x34\x84\x20\x00\x01\x00\x01\x00\x00\x00\x00\x07example\x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x7f\x00\x00\x01";
@@ -972,171 +1160,6 @@ mod tests {
             chain_current: EvidenceState::Verified,
             origin_sni: EvidenceState::Verified,
         }
-    }
-
-    fn rsa_dnskey(rsa: &Rsa<Private>) -> Dnskey {
-        let exponent = rsa.e().to_vec();
-        let modulus = rsa.n().to_vec();
-        let mut public_key = Vec::new();
-        public_key.push(u8::try_from(exponent.len()).unwrap());
-        public_key.extend_from_slice(&exponent);
-        public_key.extend_from_slice(&modulus);
-        Dnskey {
-            flags: 257,
-            protocol: 3,
-            algorithm: ALGORITHM_RSASHA256,
-            public_key,
-        }
-    }
-
-    fn sign_rrset_window(
-        records: &[ResourceRecord],
-        signer_name: Name,
-        key: &Dnskey,
-        key_pair: &PKey<Private>,
-        inception: u32,
-        expiration: u32,
-    ) -> ResourceRecord {
-        let first = records.first().unwrap();
-        let mut signature = Rrsig {
-            type_covered: first.record_type,
-            algorithm: key.algorithm,
-            labels: u8::try_from(first.name.labels().len()).unwrap(),
-            original_ttl: first.ttl,
-            expiration,
-            inception,
-            key_tag: dnskey_tag(key),
-            signer: signer_name,
-            signature: Vec::new(),
-        };
-        let signed = rrsig_signed_data(records, &signature, 1024 * 1024).unwrap();
-        let mut crypto_signer = Signer::new(MessageDigest::sha256(), key_pair).unwrap();
-        crypto_signer.update(&signed).unwrap();
-        signature.signature = crypto_signer.sign_to_vec().unwrap();
-        ResourceRecord {
-            name: first.name.clone(),
-            record_type: RecordType::Rrsig,
-            class: hns_dns_wire::CLASS_IN,
-            ttl: first.ttl,
-            rdata: Rdata::Rrsig(signature),
-        }
-    }
-
-    fn blake2b_256(parts: &[&[u8]]) -> [u8; 32] {
-        let mut hasher = Blake2bVar::new(32).unwrap();
-        for part in parts {
-            hasher.update(part);
-        }
-        let mut output = [0_u8; 32];
-        hasher.finalize_variable(&mut output).unwrap();
-        output
-    }
-
-    fn verified_hns_resource(ds: &Ds) -> (VerifiedHnsResource, u32) {
-        let genesis_time = ConsensusNetwork::Regtest.parameters().genesis_time;
-        let validation_time = u32::try_from(genesis_time.get() + 100).unwrap();
-        let mut resource = vec![0, 0];
-        resource.extend_from_slice(&ds.key_tag.to_be_bytes());
-        resource.extend_from_slice(&[ds.algorithm, ds.digest_type]);
-        resource.push(u8::try_from(ds.digest.len()).unwrap());
-        resource.extend_from_slice(&ds.digest);
-        let mut state = Vec::new();
-        state.push(5);
-        state.extend_from_slice(b"alpha");
-        state.extend_from_slice(&u16::try_from(resource.len()).unwrap().to_le_bytes());
-        state.extend_from_slice(&resource);
-        state.extend_from_slice(&1_u32.to_le_bytes());
-        state.extend_from_slice(&1_u32.to_le_bytes());
-        state.extend_from_slice(&0_u16.to_le_bytes());
-
-        let key = hns_covenants::hash_name(b"alpha").unwrap();
-        let value_hash = blake2b_256(&[&state]);
-        let tree_root = TreeRoot::new(blake2b_256(&[&[0], key.as_bytes(), &value_hash]));
-        let mut proof = Vec::new();
-        proof.extend_from_slice(&0xc000_u16.to_le_bytes());
-        proof.extend_from_slice(&0_u16.to_le_bytes());
-        proof.extend_from_slice(&u16::try_from(state.len()).unwrap().to_le_bytes());
-        proof.extend_from_slice(&state);
-
-        let now = BlockTime::new(u64::from(validation_time));
-        let mut chain =
-            LightChain::from_genesis(ConsensusNetwork::Regtest, now, ChainLimits::default())
-                .unwrap();
-        let mut header = ConsensusHeader {
-            time: BlockTime::new(genesis_time.get() + 1),
-            previous_block: chain.tip().hash(),
-            tree_root,
-            bits: ConsensusNetwork::Regtest.parameters().pow.bits,
-            ..ConsensusHeader::default()
-        };
-        while !header.verify_pow() {
-            header.nonce = header.nonce.checked_add(1).unwrap();
-        }
-        chain.append(&header, now).unwrap();
-        let current = chain
-            .require_current(CurrencyPolicy {
-                now,
-                maximum_tip_age_seconds: 3_600,
-                minimum_height: Height::new(1),
-                minimum_chainwork: Chainwork::ZERO,
-            })
-            .unwrap();
-        (
-            current.verify_name_resource(b"alpha", &proof).unwrap(),
-            validation_time,
-        )
-    }
-
-    fn authenticated_hns_authority() -> (HnsDnssecAuthority, PKey<Private>, Dnskey, u32) {
-        let zone = Name::from_ascii("alpha.").unwrap();
-        let rsa = Rsa::generate(1024).unwrap();
-        let key = rsa_dnskey(&rsa);
-        let key_pair = PKey::from_rsa(rsa).unwrap();
-        let dnskeys = vec![ResourceRecord {
-            name: zone.clone(),
-            record_type: RecordType::Dnskey,
-            class: hns_dns_wire::CLASS_IN,
-            ttl: 300,
-            rdata: Rdata::Dnskey(key.clone()),
-        }];
-        let mut key_rdata = Vec::new();
-        key_rdata.extend_from_slice(&key.flags.to_be_bytes());
-        key_rdata.push(key.protocol);
-        key_rdata.push(key.algorithm);
-        key_rdata.extend_from_slice(&key.public_key);
-        let mut digest_input = Vec::new();
-        zone.encode(&mut digest_input).unwrap();
-        digest_input.extend_from_slice(&key_rdata);
-        let ds = Ds {
-            key_tag: dnskey_tag(&key),
-            algorithm: key.algorithm,
-            digest_type: 2,
-            digest: hash(MessageDigest::sha256(), &digest_input)
-                .unwrap()
-                .to_vec(),
-        };
-        let (resource, validation_time) = verified_hns_resource(&ds);
-        let signatures = vec![sign_rrset_window(
-            &dnskeys,
-            zone,
-            &key,
-            &key_pair,
-            validation_time - 10,
-            validation_time + 10,
-        )];
-        (
-            HnsDnssecAuthority::authenticate(
-                &resource,
-                &dnskeys,
-                &signatures,
-                validation_time,
-                DnssecLimits::default(),
-            )
-            .unwrap(),
-            key_pair,
-            key,
-            validation_time,
-        )
     }
 
     fn tlsa_exchange(tlsa: Tlsa) -> (Query, Vec<u8>) {
@@ -1207,11 +1230,16 @@ mod tests {
             )
             .unwrap();
 
-        assert!(completed.provenance.untrusted_ad_claim);
-        assert!(completed.provenance.evidence.fully_verified());
-        assert_eq!(completed.dane_match.record_index(), 0);
-        assert_eq!(completed.dane_match.selector() as u8, 0);
-        assert_eq!(completed.dane_match.matching_type() as u8, 0);
+        assert!(completed.provenance().untrusted_ad_claim);
+        assert!(completed.provenance().evidence.fully_verified());
+        assert_eq!(completed.dane_match().record_index(), 0);
+        assert_eq!(completed.dane_match().selector() as u8, 0);
+        assert_eq!(completed.dane_match().matching_type() as u8, 0);
+        assert_eq!(completed.origin_sni(), None);
+        assert!(matches!(
+            engine.authorize_browser_bridge(&completed, 0),
+            Err(EngineError::LegacyCompletionNotBridgeable)
+        ));
         assert_eq!(
             engine.snapshot().unwrap().authority_state,
             AuthorityState::DaneOriginVerified
@@ -1245,67 +1273,19 @@ mod tests {
     )]
     fn engine_consumes_local_dnssec_tlsa_and_rejects_sni_mismatch() {
         let engine = ready_engine_on(Network::Regtest);
-        let certificate = certificate();
-        let (authority, key_pair, key, validation_time) = authenticated_hns_authority();
-        let mut resolution = TlsaResolution::for_https(
-            Name::from_ascii("alpha.").unwrap(),
-            ResolverLimits::default(),
-        )
-        .unwrap();
-        let query = resolution.query(0x4242).unwrap();
-        let tlsa_records = vec![ResourceRecord {
-            name: query.question.name.clone(),
-            record_type: RecordType::Tlsa,
-            class: hns_dns_wire::CLASS_IN,
-            ttl: 300,
-            rdata: Rdata::Tlsa(Tlsa {
-                usage: 3,
-                selector: 0,
-                matching_type: 0,
-                association_data: certificate.clone(),
-            }),
-        }];
-        let response = Message {
-            header: Header {
-                id: query.id,
-                flags: Flags::from_bits(0x8420),
-                question_count: 1,
-                answer_count: 2,
-                authority_count: 0,
-                additional_count: 0,
-            },
-            questions: vec![query.question.clone()],
-            answers: vec![
-                tlsa_records.first().unwrap().clone(),
-                sign_rrset_window(
-                    &tlsa_records,
-                    Name::from_ascii("alpha.").unwrap(),
-                    &key,
-                    &key_pair,
-                    validation_time - 10,
-                    validation_time + 10,
-                ),
-            ],
-            authorities: Vec::new(),
-            additionals: Vec::new(),
-        }
-        .encode(u16::MAX.into())
-        .unwrap();
+        let fixture = StrictRegtestDaneFixture::new().unwrap();
+        let validation_time = fixture.validation_time();
         let attempt = engine
-            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query.clone())
+            .admit_resolution(
+                ResolutionTransport::DirectAuthoritativeTcp,
+                fixture.query().clone(),
+            )
             .unwrap();
         let parsed = engine
-            .parse_response(&attempt, &response, ParseLimits::requester())
+            .parse_response(&attempt, fixture.response(), ParseLimits::requester())
             .unwrap();
-        let validated = match resolution
-            .accept_hns_response(&query, parsed.message(), &authority)
-            .unwrap()
-        {
-            ResolutionStep::Complete(validated) => Some(validated),
-            ResolutionStep::FollowCname(_) => None,
-        }
-        .unwrap();
-        let chain = [&certificate[..]];
+        let validated = fixture.validate_response(parsed.message()).unwrap();
+        let chain = [fixture.certificate()];
         assert!(matches!(
             engine.complete_resolution_with_validated_tlsa(
                 &attempt,
@@ -1328,26 +1308,47 @@ mod tests {
                 ValidatedDaneInput {
                     validated: &validated,
                     certificate_chain_der: &chain,
-                    origin_sni: "alpha",
+                    origin_sni: STRICT_HNS_ORIGIN,
                     validation_unix_time: i64::from(validation_time),
                     limits: DaneLimits::default(),
                 },
                 CompletionContext::default(),
             )
             .unwrap();
-        assert!(completed.provenance.evidence.fully_verified());
-        assert!(completed.provenance.untrusted_ad_claim);
+        assert!(completed.provenance().evidence.fully_verified());
+        assert!(completed.provenance().untrusted_ad_claim);
         assert_eq!(
-            completed.provenance.chain_anchor,
+            completed.provenance().chain_anchor,
             Some(ChainAnchor {
                 height: 1,
-                tree_root: authority.anchor().tree_root().into_bytes(),
+                tree_root: fixture.authority().anchor().tree_root().into_bytes(),
             })
         );
         assert_eq!(
-            completed.dane_match.usage(),
+            completed.dane_match().usage(),
             hns_dane::CertificateUsage::DaneEe
         );
+        assert_eq!(completed.origin_sni(), Some(STRICT_HNS_ORIGIN));
+        assert!(matches!(
+            engine.authorize_browser_bridge(&completed, u64::from(validation_time - 1)),
+            Err(EngineError::CompletionNotYetValid)
+        ));
+        let bridge = engine
+            .authorize_browser_bridge(&completed, u64::from(validation_time))
+            .unwrap();
+        assert_eq!(bridge.origin(), STRICT_HNS_ORIGIN);
+        assert_eq!(bridge.runtime_session(), [7; 16]);
+        assert_eq!(bridge.valid_from(), u64::from(validation_time));
+        assert!(bridge.valid_until() >= u64::from(validation_time));
+        assert!(matches!(
+            engine.authorize_browser_bridge(&completed, bridge.valid_until() + 1),
+            Err(EngineError::CompletionExpired)
+        ));
+        assert_eq!(
+            engine.snapshot().unwrap().authority_state,
+            AuthorityState::BrowserBridgeReady
+        );
+        assert!(!format!("{bridge:?}").contains(STRICT_HNS_ORIGIN));
         let status = engine
             .observability_status(ObservabilityRuntime {
                 registry_fingerprint: [8; 32],
@@ -1359,7 +1360,7 @@ mod tests {
             status.actual_transport(),
             ResolutionTransport::DirectAuthoritativeTcp
         );
-        assert_eq!(status.chain_anchor(), completed.provenance.chain_anchor);
+        assert_eq!(status.chain_anchor(), completed.provenance().chain_anchor);
         assert!(status.evidence().fully_verified());
     }
 

@@ -9,6 +9,11 @@ For an HNS HTTPS origin, success requires all of:
 5. local DANE origin validation, including SNI; and
 6. an admission token from the current runtime and policy generations.
 
+Opening a browser tunnel additionally requires a non-forgeable browser-bridge authorization minted
+from that engine's latest strict completion. The authorization binds the exact normalized origin,
+runtime session/generation, policy generation, event sequence, and current chain-anchor validity
+window. Legacy completions based on caller-supplied prerequisite verdicts cannot mint one.
+
 Local matching accepts DANE-EE usage 3 and DANE-TA usage 2. It supports full-certificate selector 0
 and SPKI selector 1 with exact, SHA-256, and SHA-512 matching types 0, 1, and 2. Every terminal
 record is checked for supported fields and association length before any match is accepted.
@@ -90,6 +95,27 @@ current runtime generation, and monotonic event sequence. Parsing and completion
 session, a revoked generation, or an event that was never admitted. Platform adapters must supply a
 fresh unpredictable session on every engine start; a constant or reused session violates this
 replay-isolation contract.
+
+The shared loopback-proxy gate accepts only a nonzero numeric loopback endpoint and a loopback
+client. Native adapters must generate a fresh unpredictable 128-bit realm nonce and 256-bit
+capability for every proxy instance. The derived fixed-width Basic token is compared in constant
+time, exactly one authentication header is required, secret-bearing debug output is redacted, and
+owned intermediate/retained secret buffers are cleared when practical. The returned authorization
+header remains a secret owned by the adapter and must never be logged or persisted.
+
+`CONNECT` admission requires one complete bounded CRLF header, the exact `CONNECT host:port
+HTTP/1.1` form, one equal `Host`, one valid capability, the configured secure port, strict
+ASCII/punycode DNS labels, and the immutable HNS TLD label boundary. IP literals, legacy numeric IP
+forms, request bodies, transfer encodings, upgrades, duplicate credentials, and ambiguous
+authorities fail closed. Pending admissions are bounded and scoped to one non-cloneable process
+instance. A pending token is consumed before bridge authorization succeeds or fails, preventing
+retry with changed evidence.
+
+A non-cloneable `TunnelGrant` authorizes only its exact host and port under its exact runtime event
+and inclusive validity window; it is not a certificate, a WebPKI verdict, or permission to
+resolve another origin. Native hosts still own the listener, local CA, exact-host leaf creation,
+upstream TLS, and byte forwarding. They must bind those operations to the grant and stop on
+runtime/policy revocation or lifecycle cancellation.
 
 The persisted policy CRC detects accidental corruption only. Platform adapters must use their normal
 integrity-protected settings or secure storage; the CRC is not a MAC or signature.

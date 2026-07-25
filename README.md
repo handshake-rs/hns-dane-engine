@@ -25,9 +25,14 @@
 - resolution provenance that distinguishes transport from locally verified evidence;
 - a shared session-bound browser authority runtime whose generation/event stamps reject stale
   policy work, future events, and cross-session attempt replay;
+- a bounded authenticated loopback-proxy admission core with numeric-loopback binding, per-instance
+  constant-time Basic capability checks, strict exact-origin `CONNECT` parsing, and a two-phase
+  tunnel grant that only the engine's current non-forgeable DANE completion can authorize;
 - bounded shared mobile/Chromium status covering runtime and policy generations, actual transport,
   intermediary identities, registry identity, provider readiness, rate limits, explicit evidence
-  states, and degraded/revocation reasons; and
+  states, and degraded/revocation reasons;
+- a reusable browser testkit that constructs and verifies a mined regtest header, committed Urkel
+  name proof, HNS DS/DNSKEY authority, signed TLSA response, and exact-certificate DANE path; and
 - a versioned Rust facade and C ABI suitable for Android, Apple, and native-host adapters.
 
 The policy transport order is direct delegated-authoritative UDP, direct
@@ -42,7 +47,9 @@ validates shared `hns-rs` headers from the selected network genesis, verifies th
 proof and committed `NameState`, derives the initial DS set from that private proof token,
 authenticates the TLD DNSKEY RRset, locally validates CNAME and TLSA RRsets, checks the exact origin
 SNI, and derives DANE evidence from the server certificate chain. The engine derives its provenance
-anchor from that lineage; callers cannot substitute a separate chain anchor or evidence flag.
+anchor from that lineage; callers cannot substitute a separate chain anchor or evidence flag. Only
+that strict completion can mint a current, expiring, exact-origin browser-bridge authorization;
+legacy caller-verdict completions cannot authorize a proxy tunnel.
 
 The standard peer and synchronization state machines are runtime independent. They validate
 bounded same-base candidate extensions independently, select the unique greatest-work result, and
@@ -51,6 +58,11 @@ current: all selected peers must respond, every valid response must report no ex
 consensus-invalid responders are excluded only under the configured agreement/ban policy. Socket
 dialing, peer discovery, competing-fork download/reorganization, restart
 snapshots, and checkpoint bootstrap remain adapter/storage work.
+
+`hns-loopback-proxy` is deliberately the shared admission/capability boundary, not a socket or TLS
+server. Native hosts still own the listener, HTTP response I/O, per-install local CA, exact-host leaf
+issuance, and tunnel lifecycle. They must not open an origin connection until the crate returns an
+exact-host `TunnelGrant`.
 
 ## Build
 

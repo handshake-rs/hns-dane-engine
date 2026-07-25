@@ -16,6 +16,9 @@ provenance.
 
 The DANE certificate/SPKI fixtures were generated locally with OpenSSL 3.5.6. Their decoded sizes
 and SHA-256 hashes are pinned in `fixtures/dane/manifest.toml`; no private key is tracked.
+`hns-browser-testkit` generates a temporary test-only DNSSEC RSA key in memory for each strict
+regtest fixture, uses it to authenticate and sign the synthetic HNS authority/TLSA path, and drops
+the private key before returning the public verification fixture.
 
 HSD source SHA-256 values:
 

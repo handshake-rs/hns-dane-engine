@@ -1,0 +1,22 @@
+[package]
+name = "hns-loopback-proxy"
+description = "Authenticated exact-origin loopback proxy admission"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hns-dane-engine = { path = "../hns-dane-engine" }
+subtle = "2.6.1"
+thiserror = "2.0.19"
+
+[dev-dependencies]
+hns-browser-testkit = { path = "../hns-browser-testkit" }
+hns-dane = { path = "../hns-dane" }
+hns-dns-wire = { path = "../hns-dns-wire" }
+hns-resolution-policy = { path = "../hns-resolution-policy" }
+
+[lints]
+workspace = true

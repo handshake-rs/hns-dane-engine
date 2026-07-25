@@ -17,13 +17,7 @@ hns-resolver = { path = "../hns-resolver" }
 hns-resolution-policy = { path = "../hns-resolution-policy" }
 
 [dev-dependencies]
-blake2 = "0.10.6"
-hns-covenants = { path = "../../../hns-rs/crates/hns-covenants" }
-hns-dnssec = { path = "../hns-dnssec" }
-hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
-hns-light-chain = { path = "../hns-light-chain" }
-hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
-openssl = "0.10.81"
+hns-browser-testkit = { path = "../hns-browser-testkit" }
 
 [lints]
 workspace = true

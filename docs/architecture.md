@@ -16,6 +16,11 @@ hns-browser-observability ---------------------------------------------+   hns-d
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
 hns-transport ---------------------------------------------------------+
+                                                                                  |
+                                                                                  v
+                                                                         hns-loopback-proxy
+
+hns-browser-testkit - - regtest header/Urkel/DS/DNSKEY/TLSA qualification - - - -+
 ```
 
 `hns-dns-wire` parses and emits DNS without I/O. `hns-resolution-policy` owns typed persistent
@@ -40,6 +45,10 @@ path validation.
 `hns-dane-engine` binds that evidence to a current policy generation, exact terminal response,
 origin SNI, certificate chain, Handshake network, common validation time, and structured provenance.
 It derives the reported chain anchor from resolver evidence and rejects conflicting caller context.
+Its strict completion fields are private. A completion can mint a browser-bridge authorization only
+while it is the engine's latest fully verified current-generation result, its chain anchor is still
+valid, and its exact normalized origin remains bound. The older caller-prerequisite completion path
+cannot mint this capability.
 `hns-browser-runtime` is the single authority-state graph and monotonic runtime clock. Each
 admitted operation carries the caller-supplied unique runtime session, runtime generation, and
 event sequence; another session, a revoked generation, or a future event is rejected before
@@ -64,17 +73,28 @@ nonstandard loopback ports require an explicit regtest-fixture policy. Connected
 length-delimited TCP use strict non-recursive DNSSEC queries, finite timeouts and message bounds,
 cooperative lifecycle cancellation, exact response correlation, and request-time anchor/TLD
 authorization.
+`hns-loopback-proxy` is a platform-neutral two-phase proxy gate. It binds one non-cloneable session
+to an exact numeric-loopback endpoint, runtime session/generation, immutable HNS TLD scope,
+per-instance capability, origin port, and request bounds. Phase one admits one strictly parsed,
+authenticated loopback `CONNECT` into a bounded opaque pending set. Phase two consumes that pending
+token and a non-forgeable engine browser-bridge authorization to return an exact-host tunnel grant.
+The non-cloneable grant carries the exact authorizing event and inclusive validity window. Wrong
+instances, origins, generations, policies, events, or times fail closed.
+`hns-browser-testkit` builds a reusable strict regtest lineage—mined header, Urkel/`NameState`
+resource, DS-authenticated DNSKEY, signed TLSA, and certificate bytes—without retaining the
+temporary DNSSEC signing key. Engine and proxy tests consume the same fixture.
 `hns-dane-engine-ffi` contains the narrowly audited unsafe pointer boundary and versioned C ABI.
-Adapters own sockets, clocks, secure storage, threads, UI, and platform lifecycle.
+Adapters own sockets, clocks, secure storage, threads, UI, platform lifecycle, local CA material,
+exact-host certificate issuance, and proxy/TLS byte forwarding.
 
 The dependency boundary is deliberate: these crates do not depend on Tokio, JNI, Swift, Chromium,
 SQLite, operating-system DNS, or a particular network stack. Callers can execute the deterministic
 state machines under their native runtime.
 
-This foundation does not yet implement socket dialing or peer discovery, download/reorganization
+This foundation does not yet implement P2P socket dialing or peer discovery, download/reorganization
 from a fork predating the current tip, durable restart checkpoints, authenticated authoritative
-DoH, P2P relay/ODoH/HNSR transports, origin TLS socket execution, or platform bridges. Header sync
-currently selects only among bounded candidates extending the same validated base. PKIX usages 0/1
-intentionally have no WebPKI path. The existing C ABI still exposes the earlier single-response
-DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI v2/mobile
-integration.
+DoH, P2P relay/ODoH/HNSR transports, origin TLS socket execution, native loopback listener and
+tunnel I/O, local CA management, or platform bridges. Header sync currently selects only among
+bounded candidates extending the same validated base. PKIX usages 0/1 intentionally have no WebPKI
+path. The existing C ABI still exposes the earlier single-response DANE-EE entry point; the full
+header-to-Urkel-to-DNSSEC Rust path is pending ABI v2/mobile integration.

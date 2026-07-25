@@ -4,8 +4,8 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-features --locked --offline
-  95 unit tests passed
-  15 doc-test targets passed (0 doctests)
+  103 unit tests passed
+  17 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -75,6 +75,19 @@ Covered:
 - the complete required authority graph, terminal stop behavior, policy-change generation
   revocation, monotonic event stamps, and rejection of other-session, stale-generation, and future
   work—including an engine-level cross-session response-replay negative;
+- strict completion encapsulation and browser-bridge authorization bound to the latest fully
+  verified exact origin, runtime/policy generations, event sequence, and chain validity window;
+  legacy completion, stale provenance, wrong-origin, not-yet-valid, and expired authorization
+  rejection;
+- numeric-loopback endpoint/client enforcement; fresh-instance capability and realm binding;
+  fixed-width constant-time Basic-token comparison; credential-bearing debug redaction; strict
+  bounded `CONNECT`/`Host` parsing; exact HNS TLD/port scope; body, upgrade, duplicate-auth, IP, and
+  malformed-authority rejection; bounded one-shot pending tokens; exact current-event rejection;
+  non-cloneable validity-window-carrying tunnel grants; and process-instance isolation;
+- a shared end-to-end regtest fixture that mines and validates a header, verifies its committed
+  Urkel/`NameState` DS resource, authenticates DNSKEY, validates a signed TLSA response, derives
+  exact-certificate DANE evidence, mints the engine bridge authorization, and issues only the exact
+  current proxy tunnel grant;
 - shared status schema with runtime/policy generations, event sequence, network/chain anchor,
   complete policy, actual transport, bounded identities, registry fingerprint/profile/version,
   HNSR/provider roles and readiness, aggregate rate limits, stable degraded/revocation reasons, and
@@ -105,7 +118,8 @@ Not yet implemented:
 - authenticated authoritative DoH, P2P DNS Relay, ODoH, or HNSR network transports;
 - filesystem/mobile preferences adapters and atomic durable writes;
 - registry fingerprint negotiation and HSD draft-PR cross-language execution;
-- platform bridges, loopback proxy, local CA, mobile ABI packaging, and Chromium native host;
+- native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf lifecycle, mobile ABI
+  packaging, and platform bridges (the shared proxy admission/capability core is implemented);
 - fuzz targets, HSD-generated live DNSSEC fixture generation, and performance benchmarks.
 
 The strict Rust facade has a non-forgeable header/Urkel/resource/DS/DNSKEY/CNAME/TLSA path and
