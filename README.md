@@ -11,7 +11,10 @@
 - local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation;
-- resolution provenance that distinguishes transport from locally verified evidence; and
+- resolution provenance that distinguishes transport from locally verified evidence;
+- bounded shared mobile/Chromium status covering runtime and policy generations, actual transport,
+  intermediary identities, registry identity, provider readiness, rate limits, explicit evidence
+  states, and degraded/revocation reasons; and
 - a versioned Rust facade and C ABI suitable for Android, Apple, and native-host adapters.
 
 The implemented transport order is direct delegated-authoritative UDP, direct

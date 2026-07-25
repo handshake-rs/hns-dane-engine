@@ -581,7 +581,7 @@ fn transition_effects(previous: PolicyConfig, current: PolicyConfig) -> PolicyCh
     }
 }
 
-/// Tri-state local evidence.
+/// Explicit local evidence state for browser observability.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EvidenceState {
@@ -591,6 +591,14 @@ pub enum EvidenceState {
     Failed = 1,
     /// No acceptable evidence was available.
     Unavailable = 2,
+    /// The required evidence form or algorithm is unsupported.
+    Unsupported = 3,
+    /// Validation has not been attempted.
+    NotAttempted = 4,
+    /// Previously valid evidence is no longer current.
+    Stale = 5,
+    /// Evidence was invalidated by a policy or runtime generation change.
+    Revoked = 6,
 }
 
 /// Local validation evidence required for HNS HTTPS.
@@ -611,6 +619,32 @@ pub struct ValidationEvidence {
 }
 
 impl ValidationEvidence {
+    /// Initial state before any HNS HTTPS validation work.
+    #[must_use]
+    pub const fn not_attempted() -> Self {
+        Self {
+            hns_proof: EvidenceState::NotAttempted,
+            dnssec: EvidenceState::NotAttempted,
+            tlsa: EvidenceState::NotAttempted,
+            dane: EvidenceState::NotAttempted,
+            chain_current: EvidenceState::NotAttempted,
+            origin_sni: EvidenceState::NotAttempted,
+        }
+    }
+
+    /// State after a policy/runtime generation revokes prior work.
+    #[must_use]
+    pub const fn revoked() -> Self {
+        Self {
+            hns_proof: EvidenceState::Revoked,
+            dnssec: EvidenceState::Revoked,
+            tlsa: EvidenceState::Revoked,
+            dane: EvidenceState::Revoked,
+            chain_current: EvidenceState::Revoked,
+            origin_sni: EvidenceState::Revoked,
+        }
+    }
+
     /// Whether all required local evidence is verified.
     #[must_use]
     pub const fn fully_verified(self) -> bool {

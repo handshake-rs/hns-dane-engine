@@ -45,6 +45,12 @@ until `hns-light-sync` supplies and selects the best validated chain.
 The DNS AD bit, Brontide, a relay, an ODoH proxy, and an ODoH target are never validation
 authorities. Transport status is reported separately from evidence status.
 
+Shared status uses explicit `verified`, `failed`, `unavailable`, `unsupported`, `not attempted`,
+`stale`, and `revoked` evidence values. It never contains qnames, URLs, DNS payloads, certificates,
+or secrets. Actual transport identities are bounded and checked against the selected transport;
+ODoH proxy and target must be present and distinct. Provider readiness must agree with explicit
+provider roles, and rate-limit counters cannot claim impossible capacity or saturation states.
+
 The only HNS resolution candidates are direct delegated-authoritative UDP/TCP, explicitly
 authenticated authoritative DoH, Denuo Experimental V1 P2P ODoH, and Denuo Experimental V1 P2P DNS
 Relay. The policy model contains no operating-system or public-recursive fallback variant.

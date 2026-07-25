@@ -16,6 +16,10 @@
 use std::fmt;
 use std::sync::RwLock;
 
+use hns_browser_observability::{
+    BrowserStatus, DegradedReason, ProviderReadiness, RateLimitState, RevocationReason,
+    StatusError, StatusInput, TransportIdentities, UnsupportedEvidence,
+};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
 use hns_resolution_policy::{
@@ -100,6 +104,25 @@ pub struct EngineSnapshot {
     pub authority_state: AuthorityState,
     /// Persistent policy.
     pub policy: PolicySnapshot,
+}
+
+/// Runtime-owned fields needed to produce shared status.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ObservabilityRuntime {
+    /// Exact canonical experimental registry fingerprint.
+    pub registry_fingerprint: [u8; 32],
+    /// Negotiated protocol/status version.
+    pub protocol_version: u16,
+    /// Provider readiness after socket/storage admission.
+    pub provider_readiness: ProviderReadiness,
+    /// Name-free aggregate rate-limit status.
+    pub rate_limits: RateLimitState,
+    /// Recoverable degraded reason.
+    pub degraded_reason: Option<DegradedReason>,
+    /// Revocation reason.
+    pub revocation_reason: Option<RevocationReason>,
+    /// Bounded unsupported evidence details.
+    pub unsupported_evidence: Vec<UnsupportedEvidence>,
 }
 
 /// A query and transport admission bound to engine generations.
@@ -231,6 +254,8 @@ struct EngineState {
     network: Network,
     authority_state: AuthorityState,
     policy: PolicyController,
+    last_provenance: Option<ResolutionProvenance>,
+    last_evidence: ValidationEvidence,
 }
 
 /// Thread-safe deterministic browser engine.
@@ -251,6 +276,8 @@ impl Engine {
                 network: config.network,
                 authority_state: AuthorityState::Uninitialized,
                 policy: PolicyController::new(config.policy),
+                last_provenance: None,
+                last_evidence: ValidationEvidence::not_attempted(),
             }),
         }
     }
@@ -294,6 +321,69 @@ impl Engine {
         Ok(state.policy.transport_plan())
     }
 
+    /// Produce the complete, bounded shared browser status.
+    pub fn observability_status(
+        &self,
+        runtime: ObservabilityRuntime,
+    ) -> Result<BrowserStatus, EngineError> {
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        match state.authority_state {
+            AuthorityState::Degraded if runtime.degraded_reason.is_none() => {
+                return Err(EngineError::MissingObservabilityReason);
+            }
+            AuthorityState::Revoked | AuthorityState::Stopped
+                if runtime.revocation_reason.is_none() =>
+            {
+                return Err(EngineError::MissingObservabilityReason);
+            }
+            AuthorityState::Degraded => {
+                if runtime.revocation_reason.is_some() {
+                    return Err(EngineError::InvalidObservabilityReason);
+                }
+            }
+            AuthorityState::Revoked | AuthorityState::Stopped => {
+                if runtime.degraded_reason.is_some() {
+                    return Err(EngineError::InvalidObservabilityReason);
+                }
+            }
+            _ if runtime.degraded_reason.is_some() || runtime.revocation_reason.is_some() => {
+                return Err(EngineError::InvalidObservabilityReason);
+            }
+            _ => {}
+        }
+        let provenance = state.last_provenance.as_ref();
+        let identities = provenance.map_or_else(TransportIdentities::default, |provenance| {
+            TransportIdentities {
+                peer: provenance.peer_identity.clone(),
+                proxy: provenance.proxy_identity.clone(),
+                target: provenance.target_identity.clone(),
+                direct_relay_fallback: provenance.direct_relay_fallback,
+            }
+        });
+        BrowserStatus::new(StatusInput {
+            runtime_session: state.runtime_session,
+            runtime_generation: state.runtime_generation,
+            event_sequence: state.event_sequence,
+            network: state.network,
+            policy: state.policy.snapshot(),
+            chain_anchor: provenance.and_then(|provenance| provenance.chain_anchor),
+            actual_transport: provenance.map_or(ResolutionTransport::Unavailable, |provenance| {
+                provenance.transport
+            }),
+            identities,
+            registry_profile: state.policy.snapshot().config().wire_profile,
+            registry_fingerprint: runtime.registry_fingerprint,
+            protocol_version: runtime.protocol_version,
+            provider_readiness: runtime.provider_readiness,
+            rate_limits: runtime.rate_limits,
+            evidence: provenance.map_or(state.last_evidence, |provenance| provenance.evidence),
+            degraded_reason: runtime.degraded_reason,
+            revocation_reason: runtime.revocation_reason,
+            unsupported_evidence: runtime.unsupported_evidence,
+        })
+        .map_err(EngineError::Status)
+    }
+
     /// Replace policy and increment runtime generation when it changes.
     pub fn update_policy(
         &self,
@@ -312,6 +402,8 @@ impl Engine {
             if state.authority_state != AuthorityState::Stopped {
                 state.authority_state = AuthorityState::Revoked;
             }
+            state.last_provenance = None;
+            state.last_evidence = ValidationEvidence::revoked();
         }
         Ok(transition)
     }
@@ -344,6 +436,17 @@ impl Engine {
             .ok_or(EngineError::GenerationExhausted)?;
         state.authority_state = next;
         state.event_sequence = next_event_sequence;
+        match next {
+            AuthorityState::Degraded => {
+                state.last_provenance = None;
+                state.last_evidence = unavailable_evidence();
+            }
+            AuthorityState::Revoked | AuthorityState::Stopped => {
+                state.last_provenance = None;
+                state.last_evidence = ValidationEvidence::revoked();
+            }
+            _ => {}
+        }
         drop(state);
         self.snapshot()
     }
@@ -562,6 +665,8 @@ impl Engine {
             untrusted_ad_claim: response.untrusted_ad_claim,
         };
         provenance.require_verified_hns_https()?;
+        state.last_provenance = Some(provenance.clone());
+        state.last_evidence = provenance.evidence;
         Ok(provenance)
     }
 }
@@ -589,6 +694,17 @@ const fn network_id(network: Network) -> u8 {
         Network::Testnet => 1,
         Network::Regtest => 2,
         Network::Simnet => 3,
+    }
+}
+
+const fn unavailable_evidence() -> ValidationEvidence {
+    ValidationEvidence {
+        hns_proof: EvidenceState::Unavailable,
+        dnssec: EvidenceState::Unavailable,
+        tlsa: EvidenceState::Unavailable,
+        dane: EvidenceState::Unavailable,
+        chain_current: EvidenceState::Unavailable,
+        origin_sni: EvidenceState::Unavailable,
     }
 }
 
@@ -725,12 +841,18 @@ pub enum EngineError {
     HnsNetworkMismatch,
     /// Caller-supplied provenance conflicts with the derived HNS anchor.
     ChainAnchorMismatch,
+    /// Degraded/revoked/stopped status omitted its reason.
+    MissingObservabilityReason,
+    /// A status reason conflicts with the current authority state.
+    InvalidObservabilityReason,
     /// DNS wire failure.
     Wire(hns_dns_wire::Error),
     /// Local TLSA/DANE matching failure.
     Dane(hns_dane::DaneError),
     /// Policy failure.
     Policy(PolicyError),
+    /// Shared observability snapshot failed invariant checks.
+    Status(StatusError),
 }
 
 impl fmt::Display for EngineError {
@@ -781,9 +903,16 @@ impl fmt::Display for EngineError {
             Self::ChainAnchorMismatch => {
                 formatter.write_str("completion context conflicts with derived HNS chain anchor")
             }
+            Self::MissingObservabilityReason => {
+                formatter.write_str("authority state requires an observability reason")
+            }
+            Self::InvalidObservabilityReason => {
+                formatter.write_str("observability reason conflicts with authority state")
+            }
             Self::Wire(error) => write!(formatter, "DNS wire error: {error}"),
             Self::Dane(error) => write!(formatter, "DANE error: {error}"),
             Self::Policy(error) => write!(formatter, "policy error: {error}"),
+            Self::Status(error) => write!(formatter, "observability status error: {error}"),
         }
     }
 }
@@ -794,6 +923,7 @@ impl std::error::Error for EngineError {
             Self::Wire(error) => Some(error),
             Self::Dane(error) => Some(error),
             Self::Policy(error) => Some(error),
+            Self::Status(error) => Some(error),
             _ => None,
         }
     }
@@ -1249,6 +1379,48 @@ mod tests {
             completed.dane_match.usage(),
             hns_dane::CertificateUsage::DaneEe
         );
+        let status = engine
+            .observability_status(ObservabilityRuntime {
+                registry_fingerprint: [8; 32],
+                protocol_version: 1,
+                ..ObservabilityRuntime::default()
+            })
+            .unwrap();
+        assert_eq!(
+            status.actual_transport(),
+            ResolutionTransport::DirectAuthoritativeTcp
+        );
+        assert_eq!(status.chain_anchor(), completed.provenance.chain_anchor);
+        assert!(status.evidence().fully_verified());
+    }
+
+    #[test]
+    fn observability_requires_reasons_and_clears_verified_state_when_degraded() {
+        let engine = ready_engine();
+        let initial = engine
+            .observability_status(ObservabilityRuntime::default())
+            .unwrap();
+        assert_eq!(initial.actual_transport(), ResolutionTransport::Unavailable);
+        assert_eq!(initial.evidence(), ValidationEvidence::not_attempted());
+
+        engine
+            .advance_authority_state(AuthorityState::Degraded)
+            .unwrap();
+        assert!(matches!(
+            engine.observability_status(ObservabilityRuntime::default()),
+            Err(EngineError::MissingObservabilityReason)
+        ));
+        let degraded = engine
+            .observability_status(ObservabilityRuntime {
+                degraded_reason: Some(DegradedReason::HeaderSyncUnavailable),
+                ..ObservabilityRuntime::default()
+            })
+            .unwrap();
+        assert_eq!(
+            degraded.degraded_reason(),
+            Some(DegradedReason::HeaderSyncUnavailable)
+        );
+        assert_eq!(degraded.evidence().hns_proof, EvidenceState::Unavailable);
     }
 
     #[test]

@@ -10,7 +10,7 @@ hns-dns-wire ---> hns-dnssec --------------------------> hns-resolver --+
        +---------------------------------> hns-dane ------------------->+--> hns-dane-engine
                                                                         |          |
 hns-resolution-policy -------------------------------------------------+          v
-                                                                        hns-dane-engine-ffi
+hns-browser-observability ---------------------------------------------+   hns-dane-engine-ffi
 ```
 
 `hns-dns-wire` parses and emits DNS without I/O. `hns-resolution-policy` owns typed persistent
@@ -27,6 +27,11 @@ path validation.
 `hns-dane-engine` binds that evidence to a current policy generation, exact terminal response,
 origin SNI, certificate chain, Handshake network, common validation time, and structured provenance.
 It derives the reported chain anchor from resolver evidence and rejects conflicting caller context.
+`hns-browser-observability` validates the shared, name-free mobile/Chromium status contract:
+session/generations/event sequence, policy and actual transport, chain anchor, registry identity,
+HNSR/provider state and readiness, rate-limit saturation, intermediary identities, all seven
+evidence states, and stable degraded/revocation/unsupported reasons. The engine retains only the
+last current-generation provenance and clears it on degradation or revocation.
 `hns-dane-engine-ffi` contains the narrowly audited unsafe pointer boundary and versioned C ABI.
 Adapters own sockets, clocks, secure storage, threads, UI, and platform lifecycle.
 
