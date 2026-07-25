@@ -23,8 +23,9 @@ verified Handshake state, DNSSEC, exact TLSA, and DANE evidence.
 cargo test --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo build --workspace --release
+cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
 ```
 
 The minimum supported compiler is Rust 1.89.0. See `docs/architecture.md`,
-`docs/security-policy.md`, and `docs/provenance.md` for boundaries and pinned compatibility inputs.
-
+`docs/security-policy.md`, `docs/abi.md`, `docs/provenance.md`, and `docs/qualification.md` for
+boundaries, pinned compatibility inputs, exact coverage, and remaining work.

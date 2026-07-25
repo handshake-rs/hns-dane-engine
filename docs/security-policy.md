@@ -20,3 +20,5 @@ Policy updates increment generations, immediately reject new disabled work, reje
 completions, clear requester selections, and report provider withdrawal/peer renegotiation effects.
 Provider roles default off. HNSR requester and provider roles default off.
 
+The persisted policy CRC detects accidental corruption only. Platform adapters must use their normal
+integrity-protected settings or secure storage; the CRC is not a MAC or signature.

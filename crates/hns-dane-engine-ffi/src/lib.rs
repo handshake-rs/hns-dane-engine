@@ -29,6 +29,8 @@ use hns_resolution_policy::{
 pub const ABI_VERSION: u32 = 1;
 /// All six local evidence bits required for successful HNS HTTPS validation.
 pub const EVIDENCE_ALL_VERIFIED: u32 = 0x3f;
+/// Maximum bytes in each fixed-size C transport identity.
+pub const ABI_IDENTITY_CAPACITY: usize = 128;
 
 const PROVIDER_DNS_RELAY: u16 = 1 << 0;
 const PROVIDER_ODOH_PROXY: u16 = 1 << 1;
@@ -128,6 +130,49 @@ pub struct HnsDanePolicyV1 {
     pub provider_flags: u16,
     /// Must be zero.
     pub reserved: [u8; 8],
+}
+
+/// Versioned transport identity context.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HnsDaneTransportContextV1 {
+    /// Set to `sizeof(HnsDaneTransportContextV1)`.
+    pub struct_size: u32,
+    /// Set to [`ABI_VERSION`].
+    pub abi_version: u32,
+    /// Used bytes in `peer_identity`.
+    pub peer_identity_len: u16,
+    /// Used bytes in `proxy_identity`.
+    pub proxy_identity_len: u16,
+    /// Used bytes in `target_identity`.
+    pub target_identity_len: u16,
+    /// One only when ODoH downgraded to a direct relay attempt.
+    pub direct_relay_fallback: u8,
+    /// Must be zero.
+    pub reserved: u8,
+    /// UTF-8 relay or peer identity.
+    pub peer_identity: [u8; ABI_IDENTITY_CAPACITY],
+    /// UTF-8 ODoH proxy identity.
+    pub proxy_identity: [u8; ABI_IDENTITY_CAPACITY],
+    /// UTF-8 ODoH target identity.
+    pub target_identity: [u8; ABI_IDENTITY_CAPACITY],
+}
+
+impl Default for HnsDaneTransportContextV1 {
+    fn default() -> Self {
+        Self {
+            struct_size: u32::try_from(std::mem::size_of::<Self>()).unwrap_or(u32::MAX),
+            abi_version: ABI_VERSION,
+            peer_identity_len: 0,
+            proxy_identity_len: 0,
+            target_identity_len: 0,
+            direct_relay_fallback: 0,
+            reserved: 0,
+            peer_identity: [0; ABI_IDENTITY_CAPACITY],
+            proxy_identity: [0; ABI_IDENTITY_CAPACITY],
+            target_identity: [0; ABI_IDENTITY_CAPACITY],
+        }
+    }
 }
 
 /// Versioned validated response summary.
@@ -346,7 +391,7 @@ pub unsafe extern "C" fn hns_dane_engine_v1_set_policy(
         let effect_bits = effects_to_bits(transition.effects);
         // SAFETY: output pointers are required writable by the caller contract.
         unsafe {
-            new_generation.write(transition.current.generation);
+            new_generation.write(transition.current.generation());
             effects.write(effect_bits);
         }
         Ok(())
@@ -486,6 +531,7 @@ pub unsafe extern "C" fn hns_dane_engine_v1_admit(
 ///
 /// `evidence_mask` bits 0 through 5 represent HNS proof, DNSSEC, TLSA, DANE,
 /// chain currency, and SNI respectively. Every bit must be set for success.
+/// `context` may be null only for a direct transport.
 ///
 /// # Safety
 ///
@@ -497,6 +543,7 @@ pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
     attempt: *const HnsDaneAttempt,
     response: *const u8,
     response_len: usize,
+    context: *const HnsDaneTransportContextV1,
     evidence_mask: u32,
     output: *mut HnsDaneResultV1,
 ) -> i32 {
@@ -515,16 +562,17 @@ pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
             .parse_response(&attempt.attempt, bytes, ParseLimits::requester())
             .map_err(map_engine_error)?;
         let evidence = evidence_from_mask(evidence_mask);
+        let context = if context.is_null() {
+            CompletionContext::default()
+        } else {
+            // SAFETY: A nonnull context is required to reference one readable structure.
+            context_from_ffi(unsafe { &*context })?
+        };
         let answer_count =
             u16::try_from(parsed.message().answers.len()).map_err(|_| HnsDaneStatus::Internal)?;
         let provenance = engine
             .engine
-            .complete_resolution(
-                &attempt.attempt,
-                &parsed,
-                evidence,
-                CompletionContext::default(),
-            )
+            .complete_resolution(&attempt.attempt, &parsed, evidence, context)
             .map_err(map_engine_error)?;
         let result = HnsDaneResultV1 {
             struct_size: size_u32::<HnsDaneResultV1>()?,
@@ -601,19 +649,18 @@ fn authority_state_from_u8(value: u8) -> Result<AuthorityState, HnsDaneStatus> {
 }
 
 fn policy_to_ffi(snapshot: PolicySnapshot) -> HnsDanePolicyV1 {
-    let providers = snapshot.config.providers;
+    let config = snapshot.config();
+    let providers = config.providers;
     HnsDanePolicyV1 {
         struct_size: u32::try_from(std::mem::size_of::<HnsDanePolicyV1>()).unwrap_or(u32::MAX),
         abi_version: ABI_VERSION,
-        generation: snapshot.generation,
-        dns_relay_requester: snapshot.config.dns_relay_requester as u8,
-        oblivious_dns: snapshot.config.oblivious_dns as u8,
-        hnsr: snapshot.config.hnsr as u8,
-        wire_profile: snapshot.config.wire_profile as u8,
-        authenticated_authoritative_doh: u8::from(snapshot.config.authenticated_authoritative_doh),
-        allow_legacy_regtest_compatibility: u8::from(
-            snapshot.config.allow_legacy_regtest_compatibility,
-        ),
+        generation: snapshot.generation(),
+        dns_relay_requester: config.dns_relay_requester as u8,
+        oblivious_dns: config.oblivious_dns as u8,
+        hnsr: config.hnsr as u8,
+        wire_profile: config.wire_profile as u8,
+        authenticated_authoritative_doh: u8::from(config.authenticated_authoritative_doh),
+        allow_legacy_regtest_compatibility: u8::from(config.allow_legacy_regtest_compatibility),
         provider_flags: (if providers.dns_relay {
             PROVIDER_DNS_RELAY
         } else {
@@ -720,6 +767,45 @@ fn evidence_from_mask(mask: u32) -> ValidationEvidence {
     }
 }
 
+fn context_from_ffi(
+    context: &HnsDaneTransportContextV1,
+) -> Result<CompletionContext, HnsDaneStatus> {
+    if context.struct_size != size_u32::<HnsDaneTransportContextV1>()?
+        || context.abi_version != ABI_VERSION
+        || context.reserved != 0
+        || context.direct_relay_fallback > 1
+    {
+        return Err(HnsDaneStatus::AbiMismatch);
+    }
+    Ok(CompletionContext {
+        chain_anchor: None,
+        peer_identity: decode_identity(&context.peer_identity, context.peer_identity_len)?,
+        proxy_identity: decode_identity(&context.proxy_identity, context.proxy_identity_len)?,
+        target_identity: decode_identity(&context.target_identity, context.target_identity_len)?,
+        direct_relay_fallback: context.direct_relay_fallback != 0,
+    })
+}
+
+fn decode_identity(
+    storage: &[u8; ABI_IDENTITY_CAPACITY],
+    length: u16,
+) -> Result<Option<String>, HnsDaneStatus> {
+    let length = usize::from(length);
+    if length > storage.len() {
+        return Err(HnsDaneStatus::InvalidArgument);
+    }
+    if length == 0 {
+        return Ok(None);
+    }
+    let text = str::from_utf8(
+        storage
+            .get(..length)
+            .ok_or(HnsDaneStatus::InvalidArgument)?,
+    )
+    .map_err(|_| HnsDaneStatus::InvalidArgument)?;
+    Ok(Some(text.to_owned()))
+}
+
 fn size_u32<T>() -> Result<u32, HnsDaneStatus> {
     u32::try_from(std::mem::size_of::<T>()).map_err(|_| HnsDaneStatus::Internal)
 }
@@ -732,7 +818,8 @@ fn map_policy_error(error: PolicyError) -> HnsDaneStatus {
         PolicyError::InvalidEncoding
         | PolicyError::UnsupportedSchema
         | PolicyError::ChecksumMismatch
-        | PolicyError::ZeroGeneration => HnsDaneStatus::InvalidArgument,
+        | PolicyError::ZeroGeneration
+        | PolicyError::ConflictingPolicies => HnsDaneStatus::InvalidArgument,
         _ => HnsDaneStatus::Internal,
     }
 }
@@ -748,6 +835,10 @@ fn map_engine_error(error: EngineError) -> HnsDaneStatus {
         }
         EngineError::StaleRuntimeGeneration => HnsDaneStatus::StaleGeneration,
         EngineError::ResponseAttemptMismatch | EngineError::Wire(_) => HnsDaneStatus::DnsRejected,
+        EngineError::MissingTransportIdentity
+        | EngineError::InvalidTransportIdentity
+        | EngineError::ProxyTargetNotSeparated
+        | EngineError::InvalidCompletionContext => HnsDaneStatus::InvalidArgument,
         EngineError::Policy(error) => map_policy_error(error),
         _ => HnsDaneStatus::Internal,
     }
@@ -766,6 +857,10 @@ mod tests {
 
     #[test]
     fn c_abi_policy_round_trip_and_provider_default() {
+        assert_eq!(std::mem::size_of::<HnsDanePolicyV1>(), 32);
+        assert_eq!(std::mem::size_of::<HnsDaneTransportContextV1>(), 400);
+        assert_eq!(std::mem::size_of::<HnsDaneResultV1>(), 40);
+
         let session = [9u8; 16];
         let mut engine = ptr::null_mut();
         // SAFETY: All pointers reference live local storage of the documented sizes.
@@ -814,5 +909,18 @@ mod tests {
             unsafe { hns_dane_engine_v1_destroy(engine) },
             HnsDaneStatus::Ok.code()
         );
+    }
+
+    #[test]
+    fn c_transport_context_requires_distinct_utf8_identities() {
+        let mut context = HnsDaneTransportContextV1::default();
+        context.proxy_identity[..5].copy_from_slice(b"proxy");
+        context.proxy_identity_len = 5;
+        context.target_identity[..6].copy_from_slice(b"target");
+        context.target_identity_len = 6;
+
+        let decoded = context_from_ffi(&context).unwrap();
+        assert_eq!(decoded.proxy_identity.as_deref(), Some("proxy"));
+        assert_eq!(decoded.target_identity.as_deref(), Some("target"));
     }
 }

@@ -238,13 +238,25 @@ impl Default for PolicyConfig {
     }
 }
 
+impl PolicyConfig {
+    /// Validate combinations whose individual typed controls conflict.
+    pub const fn validate(self) -> Result<(), PolicyError> {
+        if matches!(
+            self.oblivious_dns,
+            ObliviousDnsPolicy::Required | ObliviousDnsPolicy::Preferred
+        ) && matches!(self.dns_relay_requester, DnsRelayRequesterPolicy::Required)
+        {
+            return Err(PolicyError::ConflictingPolicies);
+        }
+        Ok(())
+    }
+}
+
 /// Persistent policy with a monotonic generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PolicySnapshot {
-    /// Nonzero policy generation.
-    pub generation: u64,
-    /// Typed policy.
-    pub config: PolicyConfig,
+    generation: u64,
+    config: PolicyConfig,
 }
 
 impl Default for PolicySnapshot {
@@ -262,7 +274,22 @@ impl PolicySnapshot {
         if generation == 0 {
             return Err(PolicyError::ZeroGeneration);
         }
+        if config.validate().is_err() {
+            return Err(PolicyError::ConflictingPolicies);
+        }
         Ok(Self { generation, config })
+    }
+
+    /// Nonzero policy generation.
+    #[must_use]
+    pub const fn generation(self) -> u64 {
+        self.generation
+    }
+
+    /// Typed policy.
+    #[must_use]
+    pub const fn config(self) -> PolicyConfig {
+        self.config
     }
 
     /// Encode the versioned, checksummed persistence representation.
@@ -309,18 +336,16 @@ impl PolicySnapshot {
         if settings & !0b11 != 0 {
             return Err(PolicyError::InvalidEncoding);
         }
-        Ok(Self {
-            generation,
-            config: PolicyConfig {
-                dns_relay_requester: DnsRelayRequesterPolicy::try_from(byte(input, 20)?)?,
-                oblivious_dns: ObliviousDnsPolicy::try_from(byte(input, 21)?)?,
-                hnsr: HnsrPolicy::try_from(byte(input, 22)?)?,
-                wire_profile: WireProfile::try_from(byte(input, 23)?)?,
-                providers: ProviderPolicy::from_bits(provider_bits)?,
-                authenticated_authoritative_doh: settings & 1 != 0,
-                allow_legacy_regtest_compatibility: settings & 2 != 0,
-            },
-        })
+        let config = PolicyConfig {
+            dns_relay_requester: DnsRelayRequesterPolicy::try_from(byte(input, 20)?)?,
+            oblivious_dns: ObliviousDnsPolicy::try_from(byte(input, 21)?)?,
+            hnsr: HnsrPolicy::try_from(byte(input, 22)?)?,
+            wire_profile: WireProfile::try_from(byte(input, 23)?)?,
+            providers: ProviderPolicy::from_bits(provider_bits)?,
+            authenticated_authoritative_doh: settings & 1 != 0,
+            allow_legacy_regtest_compatibility: settings & 2 != 0,
+        };
+        Self::new(generation, config)
     }
 }
 
@@ -378,13 +403,11 @@ impl TransportPlan {
         if config.oblivious_dns != ObliviousDnsPolicy::Disabled {
             transports.push(ResolutionTransport::HandshakeP2pOdoh);
         }
-        let relay_allowed = match config.dns_relay_requester {
-            DnsRelayRequesterPolicy::Disabled => false,
-            DnsRelayRequesterPolicy::Required => true,
-            DnsRelayRequesterPolicy::Auto => matches!(
-                config.oblivious_dns,
-                ObliviousDnsPolicy::DirectRelayAllowed | ObliviousDnsPolicy::Disabled
-            ),
+        let relay_allowed = match config.oblivious_dns {
+            ObliviousDnsPolicy::Required | ObliviousDnsPolicy::Preferred => false,
+            ObliviousDnsPolicy::DirectRelayAllowed | ObliviousDnsPolicy::Disabled => {
+                config.dns_relay_requester != DnsRelayRequesterPolicy::Disabled
+            }
         };
         if relay_allowed {
             transports.push(ResolutionTransport::HandshakeP2pDnsRelay);
@@ -506,6 +529,7 @@ impl PolicyController {
         if expected_generation != self.current.generation {
             return Err(PolicyError::StaleGeneration);
         }
+        next_config.validate()?;
         let previous = self.current;
         if previous.config == next_config {
             return Ok(PolicyTransition {
@@ -537,7 +561,8 @@ impl PolicyController {
 fn transition_effects(previous: PolicyConfig, current: PolicyConfig) -> PolicyChangeEffects {
     let requester_changed = previous.dns_relay_requester != current.dns_relay_requester
         || previous.oblivious_dns != current.oblivious_dns
-        || previous.authenticated_authoritative_doh != current.authenticated_authoritative_doh;
+        || previous.authenticated_authoritative_doh != current.authenticated_authoritative_doh
+        || previous.hnsr.requester_enabled() != current.hnsr.requester_enabled();
     let providers_changed =
         previous.providers != current.providers || previous.hnsr != current.hnsr;
     let removed_provider = (previous.providers.bits() & !current.providers.bits()) != 0
@@ -687,6 +712,8 @@ pub enum PolicyError {
     TransportDisabled,
     /// Required local HNS/DNSSEC/TLSA/DANE evidence is not all verified.
     UnverifiedEvidence,
+    /// Typed requester policies express mutually exclusive requirements.
+    ConflictingPolicies,
 }
 
 impl fmt::Display for PolicyError {
@@ -700,6 +727,7 @@ impl fmt::Display for PolicyError {
             Self::GenerationExhausted => "policy generation exhausted",
             Self::TransportDisabled => "transport is disabled by policy",
             Self::UnverifiedEvidence => "required local validation evidence is not verified",
+            Self::ConflictingPolicies => "requester policy requirements conflict",
         })
     }
 }
@@ -811,6 +839,26 @@ mod tests {
 
         assert!(plan.contains(ResolutionTransport::HandshakeP2pOdoh));
         assert!(!plan.contains(ResolutionTransport::HandshakeP2pDnsRelay));
+    }
+
+    #[test]
+    fn conflicting_required_privacy_modes_are_rejected() {
+        let config = PolicyConfig {
+            dns_relay_requester: DnsRelayRequesterPolicy::Required,
+            oblivious_dns: ObliviousDnsPolicy::Required,
+            ..PolicyConfig::default()
+        };
+        assert_eq!(
+            PolicySnapshot::new(1, config),
+            Err(PolicyError::ConflictingPolicies)
+        );
+
+        let mut controller = PolicyController::new(PolicySnapshot::default());
+        assert_eq!(
+            controller.replace(1, config),
+            Err(PolicyError::ConflictingPolicies)
+        );
+        assert_eq!(controller.snapshot(), PolicySnapshot::default());
     }
 
     #[test]

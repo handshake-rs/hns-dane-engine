@@ -10,6 +10,7 @@ extern "C" {
 
 #define HNS_DANE_ENGINE_ABI_VERSION 1u
 #define HNS_DANE_EVIDENCE_ALL_VERIFIED 0x3fu
+#define HNS_DANE_IDENTITY_CAPACITY 128u
 
 #define HNS_DANE_OK 0
 #define HNS_DANE_NULL_POINTER 1
@@ -57,6 +58,19 @@ typedef struct HnsDaneResultV1 {
   uint16_t answer_count;
   uint8_t reserved[6];
 } HnsDaneResultV1;
+
+typedef struct HnsDaneTransportContextV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  uint16_t peer_identity_len;
+  uint16_t proxy_identity_len;
+  uint16_t target_identity_len;
+  uint8_t direct_relay_fallback;
+  uint8_t reserved;
+  uint8_t peer_identity[HNS_DANE_IDENTITY_CAPACITY];
+  uint8_t proxy_identity[HNS_DANE_IDENTITY_CAPACITY];
+  uint8_t target_identity[HNS_DANE_IDENTITY_CAPACITY];
+} HnsDaneTransportContextV1;
 
 uint32_t hns_dane_engine_v1_abi_version(void);
 
@@ -117,6 +131,7 @@ int32_t hns_dane_engine_v1_validate_response(
     const HnsDaneAttempt *attempt,
     const uint8_t *response,
     size_t response_len,
+    const HnsDaneTransportContextV1 *context,
     uint32_t evidence_mask,
     HnsDaneResultV1 *output);
 

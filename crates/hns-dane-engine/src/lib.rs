@@ -23,6 +23,8 @@ use hns_resolution_policy::{
 
 /// Stable Rust facade API version.
 pub const ENGINE_API_VERSION: u32 = 1;
+/// Maximum UTF-8 bytes accepted for one transport identity.
+pub const MAX_TRANSPORT_IDENTITY_BYTES: usize = 256;
 
 /// Browser authority state.
 #[repr(u8)]
@@ -246,7 +248,7 @@ impl Engine {
         next: PolicyConfig,
     ) -> Result<PolicyTransition, EngineError> {
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
-        let changed = state.policy.snapshot().config != next;
+        let changed = state.policy.snapshot().config() != next;
         if changed && (state.runtime_generation == u64::MAX || state.event_sequence == u64::MAX) {
             return Err(EngineError::GenerationExhausted);
         }
@@ -268,10 +270,10 @@ impl Engine {
         blob: &[u8],
     ) -> Result<PolicyTransition, EngineError> {
         let decoded = PolicySnapshot::decode(blob)?;
-        if decoded.generation != expected_policy_generation {
+        if decoded.generation() != expected_policy_generation {
             return Err(EngineError::Policy(PolicyError::StaleGeneration));
         }
-        self.update_policy(expected_policy_generation, decoded.config)
+        self.update_policy(expected_policy_generation, decoded.config())
     }
 
     /// Advance the explicit authority state machine.
@@ -283,11 +285,12 @@ impl Engine {
         if !valid_authority_transition(state.authority_state, next) {
             return Err(EngineError::InvalidAuthorityTransition);
         }
-        state.authority_state = next;
-        state.event_sequence = state
+        let next_event_sequence = state
             .event_sequence
             .checked_add(1)
             .ok_or(EngineError::GenerationExhausted)?;
+        state.authority_state = next;
+        state.event_sequence = next_event_sequence;
         drop(state);
         self.snapshot()
     }
@@ -356,6 +359,7 @@ impl Engine {
         if !evidence.fully_verified() {
             return Err(EngineError::Policy(PolicyError::UnverifiedEvidence));
         }
+        validate_completion_context(attempt.transport(), &context)?;
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
         ensure_current(&state, attempt)?;
         if !matches!(
@@ -387,7 +391,7 @@ impl Engine {
             proxy_identity: context.proxy_identity,
             target_identity: context.target_identity,
             direct_relay_fallback: context.direct_relay_fallback,
-            registry_profile: state.policy.snapshot().config.wire_profile,
+            registry_profile: state.policy.snapshot().config().wire_profile,
             evidence,
             untrusted_ad_claim: response.untrusted_ad_claim,
         };
@@ -401,6 +405,57 @@ fn ensure_current(state: &EngineState, attempt: &ResolutionAttempt) -> Result<()
         return Err(EngineError::StaleRuntimeGeneration);
     }
     state.policy.accept_completion(attempt.admission)?;
+    Ok(())
+}
+
+fn validate_completion_context(
+    transport: ResolutionTransport,
+    context: &CompletionContext,
+) -> Result<(), EngineError> {
+    for identity in [
+        context.peer_identity.as_deref(),
+        context.proxy_identity.as_deref(),
+        context.target_identity.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if identity.is_empty() || identity.len() > MAX_TRANSPORT_IDENTITY_BYTES {
+            return Err(EngineError::InvalidTransportIdentity);
+        }
+    }
+
+    match transport {
+        ResolutionTransport::HandshakeP2pOdoh => {
+            let proxy = context
+                .proxy_identity
+                .as_deref()
+                .ok_or(EngineError::MissingTransportIdentity)?;
+            let target = context
+                .target_identity
+                .as_deref()
+                .ok_or(EngineError::MissingTransportIdentity)?;
+            if proxy == target {
+                return Err(EngineError::ProxyTargetNotSeparated);
+            }
+            if context.direct_relay_fallback {
+                return Err(EngineError::InvalidCompletionContext);
+            }
+        }
+        ResolutionTransport::HandshakeP2pDnsRelay => {
+            if context.peer_identity.is_none() {
+                return Err(EngineError::MissingTransportIdentity);
+            }
+        }
+        ResolutionTransport::DirectAuthoritativeUdp
+        | ResolutionTransport::DirectAuthoritativeTcp
+        | ResolutionTransport::AuthenticatedAuthoritativeDoh => {
+            if context.direct_relay_fallback {
+                return Err(EngineError::InvalidCompletionContext);
+            }
+        }
+        ResolutionTransport::Unavailable => return Err(EngineError::InvalidCompletionContext),
+    }
     Ok(())
 }
 
@@ -454,6 +509,14 @@ pub enum EngineError {
     StaleRuntimeGeneration,
     /// Parsed response belongs to another attempt.
     ResponseAttemptMismatch,
+    /// An intermediary path omitted its required identity.
+    MissingTransportIdentity,
+    /// An intermediary identity is empty or exceeds its bound.
+    InvalidTransportIdentity,
+    /// ODoH proxy and target identities are not distinct.
+    ProxyTargetNotSeparated,
+    /// Completion context conflicts with the admitted transport.
+    InvalidCompletionContext,
     /// DNS wire failure.
     Wire(hns_dns_wire::Error),
     /// Policy failure.
@@ -472,6 +535,18 @@ impl fmt::Display for EngineError {
             Self::StaleRuntimeGeneration => formatter.write_str("stale runtime generation"),
             Self::ResponseAttemptMismatch => {
                 formatter.write_str("DNS response and resolution attempt mismatch")
+            }
+            Self::MissingTransportIdentity => {
+                formatter.write_str("required transport identity is missing")
+            }
+            Self::InvalidTransportIdentity => {
+                formatter.write_str("transport identity is empty or too long")
+            }
+            Self::ProxyTargetNotSeparated => {
+                formatter.write_str("ODoH proxy and target identities are not distinct")
+            }
+            Self::InvalidCompletionContext => {
+                formatter.write_str("completion context conflicts with selected transport")
             }
             Self::Wire(error) => write!(formatter, "DNS wire error: {error}"),
             Self::Policy(error) => write!(formatter, "policy error: {error}"),
@@ -587,7 +662,7 @@ mod tests {
         let attempt = engine
             .admit_resolution(ResolutionTransport::HandshakeP2pDnsRelay, query)
             .unwrap();
-        let mut policy = engine.snapshot().unwrap().policy.config;
+        let mut policy = engine.snapshot().unwrap().policy.config();
         policy.dns_relay_requester = DnsRelayRequesterPolicy::Disabled;
         policy.oblivious_dns = ObliviousDnsPolicy::Required;
         engine.update_policy(1, policy).unwrap();
@@ -603,9 +678,62 @@ mod tests {
     }
 
     #[test]
+    fn odoh_completion_requires_distinct_bounded_identities() {
+        let engine = ready_engine();
+        let query =
+            Query::new(0x1234, Name::from_ascii("example").unwrap(), RecordType::A).unwrap();
+        let attempt = engine
+            .admit_resolution(ResolutionTransport::HandshakeP2pOdoh, query)
+            .unwrap();
+        let parsed = engine
+            .parse_response(
+                &attempt,
+                RESPONSE_WITH_UNTRUSTED_AD,
+                ParseLimits::requester(),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            engine.complete_resolution(
+                &attempt,
+                &parsed,
+                verified_evidence(),
+                CompletionContext::default()
+            ),
+            Err(EngineError::MissingTransportIdentity)
+        ));
+        assert!(matches!(
+            engine.complete_resolution(
+                &attempt,
+                &parsed,
+                verified_evidence(),
+                CompletionContext {
+                    proxy_identity: Some("same-peer".to_owned()),
+                    target_identity: Some("same-peer".to_owned()),
+                    ..CompletionContext::default()
+                }
+            ),
+            Err(EngineError::ProxyTargetNotSeparated)
+        ));
+        assert!(matches!(
+            engine.complete_resolution(
+                &attempt,
+                &parsed,
+                verified_evidence(),
+                CompletionContext {
+                    proxy_identity: Some("p".repeat(MAX_TRANSPORT_IDENTITY_BYTES + 1)),
+                    target_identity: Some("target".to_owned()),
+                    ..CompletionContext::default()
+                }
+            ),
+            Err(EngineError::InvalidTransportIdentity)
+        ));
+    }
+
+    #[test]
     fn persisted_policy_survives_restart() {
         let engine = Engine::new(EngineConfig::default());
-        let mut policy = engine.snapshot().unwrap().policy.config;
+        let mut policy = engine.snapshot().unwrap().policy.config();
         policy.dns_relay_requester = DnsRelayRequesterPolicy::Disabled;
         engine.update_policy(1, policy).unwrap();
         let blob = engine.export_policy().unwrap();

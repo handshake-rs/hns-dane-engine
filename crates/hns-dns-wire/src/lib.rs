@@ -112,6 +112,8 @@ pub enum Error {
     LengthOverflow,
     /// A strict query has invalid flags or section structure.
     InvalidQuery,
+    /// Reserved DNS header bits are nonzero.
+    ReservedHeaderBits,
     /// A packet expected to be a response is not one.
     NotResponse,
     /// Response ID does not match the query.
@@ -146,6 +148,7 @@ impl fmt::Display for Error {
             Self::TrailingBytes => "trailing bytes after declared DNS sections",
             Self::LengthOverflow => "DNS length arithmetic overflow",
             Self::InvalidQuery => "invalid strict DNS query",
+            Self::ReservedHeaderBits => "reserved DNS header bits are nonzero",
             Self::NotResponse => "DNS packet is not a response",
             Self::IdMismatch => "DNS response ID mismatch",
             Self::OpcodeMismatch => "DNS response opcode mismatch",
@@ -674,10 +677,13 @@ impl Message {
 
     /// Parse with explicit limits.
     pub fn parse_with_limits(message: &[u8], limits: ParseLimits) -> Result<Self, Error> {
-        if message.len() > limits.max_message_len {
+        if message.len() > limits.max_message_len || message.len() > usize::from(u16::MAX) {
             return Err(Error::MessageTooLong);
         }
         let header = Header::parse(message)?;
+        if header.flags.bits() & 0x0040 != 0 {
+            return Err(Error::ReservedHeaderBits);
+        }
         if usize::from(header.question_count) > limits.max_questions {
             return Err(Error::CountLimit);
         }
@@ -702,13 +708,15 @@ impl Message {
         if next != message.len() {
             return Err(Error::TrailingBytes);
         }
-        Ok(Self {
+        let parsed = Self {
             header,
             questions,
             answers,
             authorities,
             additionals,
-        })
+        };
+        validate_pseudo_records(&parsed)?;
+        Ok(parsed)
     }
 
     /// Encode all names without compression, enforcing a complete-message bound.
@@ -769,6 +777,7 @@ impl Query {
         if parsed.header.flags.is_response()
             || parsed.header.flags.opcode() != 0
             || parsed.header.flags.truncated()
+            || parsed.header.flags.bits() & !0x0130 != 0
             || parsed.questions.len() != 1
             || !parsed.answers.is_empty()
             || !parsed.authorities.is_empty()
@@ -786,6 +795,14 @@ impl Query {
         if let Some(opt) = parsed.additionals.first()
             && (!opt.name.is_root() || opt.record_type != RecordType::Opt)
         {
+            return Err(Error::InvalidQuery);
+        }
+        if parsed.additionals.iter().any(|record| {
+            matches!(
+                &record.rdata,
+                Rdata::Opt(options) if options.iter().any(|option| option.code == 8)
+            )
+        }) {
             return Err(Error::InvalidQuery);
         }
         Ok(Self {
@@ -882,6 +899,27 @@ fn parse_question(
         },
         end,
     ))
+}
+
+fn validate_pseudo_records(message: &Message) -> Result<(), Error> {
+    if message
+        .answers
+        .iter()
+        .chain(&message.authorities)
+        .any(|record| record.record_type == RecordType::Opt)
+    {
+        return Err(Error::InvalidEdns);
+    }
+    let mut opt_count = 0usize;
+    for record in &message.additionals {
+        if record.record_type == RecordType::Opt {
+            opt_count = opt_count.checked_add(1).ok_or(Error::LengthOverflow)?;
+            if opt_count > 1 || !record.name.is_root() {
+                return Err(Error::InvalidEdns);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn parse_records(
@@ -1713,6 +1751,55 @@ mod tests {
             Message::parse_with_limits(message, ParseLimits::requester()),
             Err(Error::CountLimit)
         );
+    }
+
+    #[test]
+    fn rejects_reserved_header_bits_and_oversized_tcp_message() {
+        let mut reserved = BASIC_QUERY.to_vec();
+        reserved[3] |= 0x40;
+        assert_eq!(Message::parse(&reserved), Err(Error::ReservedHeaderBits));
+
+        assert_eq!(
+            Message::parse(&vec![0; usize::from(u16::MAX) + 1]),
+            Err(Error::MessageTooLong)
+        );
+    }
+
+    #[test]
+    fn strict_query_rejects_ecs_and_misplaced_opt() {
+        let query = Query::new(9, Name::from_ascii("example").unwrap(), RecordType::A).unwrap();
+        let mut encoded = query.encode(1_232).unwrap();
+        // Replace empty OPT RDATA with one empty ECS option.
+        encoded.truncate(encoded.len() - 2);
+        encoded.extend_from_slice(&[0, 4, 0, 8, 0, 0]);
+        assert_eq!(
+            Query::parse(&encoded, ParseLimits::requester()),
+            Err(Error::InvalidQuery)
+        );
+
+        let misplaced = Message {
+            header: Header {
+                id: 1,
+                flags: Flags::from_bits(0x8000),
+                question_count: 0,
+                answer_count: 1,
+                authority_count: 0,
+                additional_count: 0,
+            },
+            questions: Vec::new(),
+            answers: vec![ResourceRecord {
+                name: Name::root(),
+                record_type: RecordType::Opt,
+                class: DEFAULT_UDP_PAYLOAD,
+                ttl: 0,
+                rdata: Rdata::Opt(Vec::new()),
+            }],
+            authorities: Vec::new(),
+            additionals: Vec::new(),
+        }
+        .encode(1_232)
+        .unwrap();
+        assert_eq!(Message::parse(&misplaced), Err(Error::InvalidEdns));
     }
 
     #[test]
