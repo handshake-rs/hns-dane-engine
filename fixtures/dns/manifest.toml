@@ -1,0 +1,75 @@
+schema = 1
+encoding = "lowercase hex; whitespace ignored"
+generator = "independent deterministic protocol construction"
+
+[[compatibility_pin]]
+repository = "https://github.com/handshake-org/hsd.git"
+commit = "698e252ebc7b5c1dd0a9587e342fdd153d020ae4"
+license = "MIT"
+path = "test/dns-test.js"
+source_sha256 = "dc86df3f7e56b638a99b9243936560ca252ead18bbfcf10e751419957b651ed4"
+copied = false
+
+[[compatibility_pin]]
+repository = "https://github.com/handshake-org/hsd.git"
+commit = "698e252ebc7b5c1dd0a9587e342fdd153d020ae4"
+license = "MIT"
+path = "test/resource-test.js"
+source_sha256 = "a46392345a7b607d20d613267fe6e17ea0b9459ead52be3bdc812db771c9a245"
+copied = false
+
+[[compatibility_pin]]
+repository = "https://github.com/Denuo-Web/hns-dane-browser.git"
+commit = "a71f9ea8dd2e697df6059e8840907f96e6eea2c9"
+license = "PolyForm Noncommercial 1.0.0"
+path = "rust/crates/hns-core/src/dns.rs"
+source_sha256 = "e3338986a75a43fd4a483b89c86a5f1691e4816226f9ac6e9f3093eddc3f24bb"
+copied = false
+
+[[compatibility_pin]]
+repository = "https://github.com/Denuo-Web/hns-dane-browser.git"
+commit = "a71f9ea8dd2e697df6059e8840907f96e6eea2c9"
+license = "PolyForm Noncommercial 1.0.0"
+path = "fixtures/experimental-dns-relay/manifest.json"
+source_sha256 = "b72f84ca688460115995383e7be26482f03cf456f7a82044a5abcf5e1a71f75f"
+copied = false
+
+[[fixture]]
+file = "basic-query.hex"
+wire_bytes = 29
+sha256 = "652d03c67a9f87f86dac4a762a9389dd205f22e867901fa589f6b454dba79ec3"
+valid = true
+
+[[fixture]]
+file = "compressed-a-response-ad.hex"
+wire_bytes = 45
+sha256 = "a11296a77bf52dcb5fea0c3b7e70aa06ca8eca16c41a40ae2275d8d6ff533139"
+valid = true
+note = "AD is deliberately set and remains an untrusted transport claim"
+
+[[fixture]]
+file = "tlsa-response.hex"
+wire_bytes = 82
+sha256 = "e72b6c8af80f19c66a46ab618f99718dec5f1448816f00c2bf24abd4175047f1"
+valid = true
+
+[[fixture]]
+file = "mutation-compression-self-loop.hex"
+wire_bytes = 18
+sha256 = "d1ebb314946627d1a267f9c5eaed69f4935481251898efa9eb7de771ef9df4e6"
+valid = false
+expected_error = "ForwardPointer"
+
+[[fixture]]
+file = "mutation-pointer-out-of-bounds.hex"
+wire_bytes = 18
+sha256 = "650caedcf9cc42fec8df10a82bc765d9eea4174a23283495da50cd78791194a4"
+valid = false
+expected_error = "PointerOutOfBounds"
+
+[[fixture]]
+file = "mutation-count-bomb.hex"
+wire_bytes = 12
+sha256 = "4639e3a94ef9dffc2e003c6bed229775c7092d1af792f1af4e0ddb55407c0c06"
+valid = false
+expected_error = "CountLimit"

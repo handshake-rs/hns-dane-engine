@@ -1,0 +1,12 @@
+[package]
+name = "hns-resolution-policy"
+description = "Persistent fail-closed HNS browser transport policy and provenance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+

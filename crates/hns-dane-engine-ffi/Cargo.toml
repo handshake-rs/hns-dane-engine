@@ -1,0 +1,31 @@
+[package]
+name = "hns-dane-engine-ffi"
+description = "Versioned C ABI for the runtime-independent HNS DANE engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib", "staticlib"]
+
+[dependencies]
+hns-dane-engine = { path = "../hns-dane-engine" }
+hns-dns-wire = { path = "../hns-dns-wire" }
+hns-resolution-policy = { path = "../hns-resolution-policy" }
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
