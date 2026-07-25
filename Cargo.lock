@@ -219,6 +219,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-light-p2p"
+version = "0.1.0"
+dependencies = [
+ "hns-header-consensus",
+ "hns-p2p-wire",
+ "hns-primitives",
+ "thiserror",
+]
+
+[[package]]
+name = "hns-light-sync"
+version = "0.1.0"
+dependencies = [
+ "hns-header-consensus",
+ "hns-light-chain",
+ "hns-p2p-wire",
+ "hns-primitives",
+ "thiserror",
+]
+
+[[package]]
+name = "hns-mining"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-covenants",
+ "hns-encoding",
+ "hns-header-consensus",
+ "hns-primitives",
+ "hns-transaction",
+ "thiserror",
+]
+
+[[package]]
+name = "hns-p2p-wire"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-encoding",
+ "hns-header-consensus",
+ "hns-mining",
+ "hns-primitives",
+ "hns-transaction",
+ "hns-urkel-proof",
+ "thiserror",
+]
+
+[[package]]
 name = "hns-primitives"
 version = "0.1.0"
 dependencies = [
@@ -242,6 +290,17 @@ dependencies = [
  "hns-light-chain",
  "hns-primitives",
  "openssl",
+ "thiserror",
+]
+
+[[package]]
+name = "hns-transaction"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-covenants",
+ "hns-encoding",
+ "hns-primitives",
  "thiserror",
 ]
 

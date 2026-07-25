@@ -1,0 +1,17 @@
+[package]
+name = "hns-light-p2p"
+description = "Bounded standard Handshake light-client peer session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
+hns-p2p-wire = { path = "../../../hns-rs/crates/hns-p2p-wire" }
+hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
+thiserror = "2.0.19"
+
+[lints]
+workspace = true

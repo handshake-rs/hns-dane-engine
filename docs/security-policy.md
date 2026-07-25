@@ -38,9 +38,16 @@ authenticate the TLD DNSKEY. The resolver carries that anchor through every CNAM
 The engine rejects a missing lineage, another Handshake network, a different DNSSEC/DANE validation
 time, or a caller-provided provenance anchor that conflicts with the derived header.
 
-The present chain gate accepts only a single contiguous extension from genesis. It does not yet
-perform peer synchronization or competing-fork selection; production activation remains blocked
-until `hns-light-sync` supplies and selects the best validated chain.
+The standard peer layer admits only bounded HSD version/verack sessions and correlates one
+outstanding header, proof, and ping request at finite deadlines. Multi-peer synchronization
+validates every response on an independent chain clone, requires configurable agreement on the
+unique greatest-work same-base extension, and rejects equal-work ambiguity. A chain is reported
+current only after every selected peer responds, every consensus-valid response returns an empty
+extension, and no non-banned peer advertises a higher height. Consensus-invalid responders may be
+excluded only under the configured agreement and ban policy. Socket dialing, peer discovery,
+durable checkpoints, and download/reorganization from a fork before the current base are not yet
+implemented; production adapters must not treat the in-memory same-base synchronizer as durable
+fork recovery.
 
 The DNS AD bit, Brontide, a relay, an ODoH proxy, and an ODoH target are never validation
 authorities. Transport status is reported separately from evidence status.

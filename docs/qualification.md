@@ -4,8 +4,8 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-features --locked --offline
-  74 unit tests passed
-  11 doc-test targets passed (0 doctests)
+  83 unit tests passed
+  13 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -29,7 +29,15 @@ Covered:
 - canonical shared `hns-rs` network genesis, 236-byte header, proof-of-work, median-time,
   difficulty-transition, and chainwork validation for contiguous light-chain extensions;
 - transactional bounded header batches and retention of the exact 147-entry Handshake retarget
-  context;
+  context, plus a recent-first exponential locator ending at network genesis;
+- standard HSD version/verack admission with protocol/service, self-connection, clock-skew, and
+  handshake-deadline checks; bounded one-at-a-time header/proof/ping requests; exact proof
+  root/key and pong correlation; and response deadlines enforced during frame admission;
+- bounded multi-peer same-base header rounds; independent transactional consensus validation;
+  unique greatest-chainwork selection; configurable peer agreement; equal-work ambiguity
+  rejection; invalid-response scoring/banning; duplicate/stale/deadline defenses; and current-state
+  gating on a complete-response round whose valid peers report no extension and no non-banned peer
+  advertises a higher height;
 - explicit minimum-height, minimum-chainwork, maximum-tip-age, and future-tip currency rejection;
 - strict HSD Urkel inclusion proofs at the exact validated header tree root;
 - strict HSD `NameState` decoding, proof-key/name equality, state-height bounds, canonical compact
@@ -80,8 +88,9 @@ Covered:
 
 Not yet implemented:
 
-- Handshake peer/header transport, fork download, best-chain selection, durable restart state, and
-  checkpoint bootstrap (the current gate validates one contiguous genesis-anchored extension);
+- socket dialing and peer discovery, competing-fork download/reorganization before the current
+  base, durable restart state, and checkpoint bootstrap (current sync selects bounded extensions
+  from one shared validated base);
 - subdelegation discovery and a complete live authoritative DNSSEC walk beyond the on-chain TLD
   DNSKEY path;
 - origin TLS socket/SNI execution (the Rust API checks the adapter-reported exact SNI);

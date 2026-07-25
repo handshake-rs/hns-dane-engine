@@ -5,6 +5,9 @@
 - a strict, allocation-bounded DNS wire codec with compression-loop and bounds defenses;
 - a genesis-anchored Handshake light-chain consensus gate with median-time, difficulty, proof-of-work,
   chainwork, explicit currency, strict Urkel, `NameState`, and HNS resource validation;
+- a bounded standard-HSD peer state machine and multi-peer header synchronizer with strict
+  version/verack admission, correlated finite request deadlines, same-base greatest-chainwork
+  selection, configurable peer agreement, and equal-work fork rejection;
 - a bounded positive/negative cache with qname-free session keys, exact runtime/policy/chain
   generation binding, finite TTLs, byte/entry limits, and LRU eviction;
 - proof-authorized direct authoritative DNS over connected UDP and length-delimited TCP, with
@@ -22,10 +25,11 @@
   states, and degraded/revocation reasons; and
 - a versioned Rust facade and C ABI suitable for Android, Apple, and native-host adapters.
 
-The implemented transport order is direct delegated-authoritative UDP, direct
+The policy transport order is direct delegated-authoritative UDP, direct
 delegated-authoritative TCP, optional authenticated authoritative DoH, then policy-permitted
 Handshake P2P ODoH and P2P DNS Relay. HNS resolution has no operating-system resolver, public
-recursive resolver, public DoH, or WebPKI fallback.
+recursive resolver, public DoH, or WebPKI fallback. Network I/O is currently implemented only for
+direct UDP/TCP; the other candidates remain unavailable rather than falling back.
 
 P2P DNS Relay and P2P ODoH are described as **Denuo Experimental V1 — Not an official Handshake
 protocol assignment**. Their transport cannot establish authenticity. The production Rust path
@@ -35,9 +39,13 @@ authenticates the TLD DNSKEY RRset, locally validates CNAME and TLSA RRsets, che
 SNI, and derives DANE evidence from the server certificate chain. The engine derives its provenance
 anchor from that lineage; callers cannot substitute a separate chain anchor or evidence flag.
 
-The current light-chain gate validates only contiguous extensions of one chain. Peer/header
-transport, fork download and best-chain selection, restart snapshots, and checkpoint bootstrap
-belong to the still-unimplemented `hns-light-p2p` and `hns-light-sync` layers.
+The standard peer and synchronization state machines are runtime independent. They validate
+bounded same-base candidate extensions independently, select the unique greatest-work result, and
+require a complete no-extension round with no higher advertised active peer before reporting
+current: all selected peers must respond, every valid response must report no extension, and
+consensus-invalid responders are excluded only under the configured agreement/ban policy. Socket
+dialing, peer discovery, competing-fork download/reorganization, restart
+snapshots, and checkpoint bootstrap remain adapter/storage work.
 
 ## Build
 

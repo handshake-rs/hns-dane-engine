@@ -35,6 +35,8 @@ pub const MEDIAN_TIME_SPAN: usize = 11;
 pub const REQUIRED_DIFFICULTY_HISTORY: usize = 147;
 /// Default maximum headers accepted in one transactional batch.
 pub const DEFAULT_MAX_HEADERS_PER_BATCH: usize = 4_096;
+/// Maximum exponential locator entries for a 32-bit height plus genesis.
+pub const MAX_LOCATOR_HASHES: usize = 43;
 /// HSD currently assigns resource record tags zero through six.
 const MAX_KNOWN_RESOURCE_KIND: u8 = 6;
 /// Bits assigned in HSD's serialized `NameState` field.
@@ -188,6 +190,33 @@ impl LightChain {
     #[must_use]
     pub const fn tip(&self) -> HeaderEntry {
         self.tip
+    }
+
+    /// Build a standard recent-first exponential block locator ending at genesis.
+    #[must_use]
+    pub fn locator(&self) -> Vec<BlockHash> {
+        let mut locator = Vec::with_capacity(MAX_LOCATOR_HASHES);
+        let mut height = self.tip.height.get();
+        let mut step = 1_u32;
+        loop {
+            let entry = self.entry_at(height).ok();
+            let Some(entry) = entry else {
+                break;
+            };
+            locator.push(entry.hash);
+            if height == 0 {
+                break;
+            }
+            if locator.len() >= 10 {
+                step = step.saturating_mul(2);
+            }
+            height = height.saturating_sub(step);
+        }
+        let genesis = self.network.parameters().genesis_hash;
+        if locator.last().copied() != Some(genesis) {
+            locator.push(genesis);
+        }
+        locator
     }
 
     /// Append one header after all consensus checks.
@@ -1084,6 +1113,13 @@ mod tests {
         }
         assert_eq!(chain.history.len(), REQUIRED_DIFFICULTY_HISTORY);
         assert_eq!(chain.tip().height(), Height::new(160));
+        let locator = chain.locator();
+        assert_eq!(locator.first().copied(), Some(chain.tip().hash()));
+        assert_eq!(
+            locator.last().copied(),
+            Some(Network::Regtest.parameters().genesis_hash)
+        );
+        assert!(locator.len() <= MAX_LOCATOR_HASHES);
     }
 
     #[test]
