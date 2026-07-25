@@ -1,0 +1,11 @@
+[package]
+name = "hns-browser-runtime"
+description = "Session-bound HNS browser authority lifecycle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

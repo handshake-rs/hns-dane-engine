@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 hns-browser-observability = { path = "../hns-browser-observability" }
+hns-browser-runtime = { path = "../hns-browser-runtime" }
 hns-dane = { path = "../hns-dane" }
 hns-dns-wire = { path = "../hns-dns-wire" }
 hns-resolver = { path = "../hns-resolver" }

@@ -4,8 +4,8 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-features --locked --offline
-  83 unit tests passed
-  13 doc-test targets passed (0 doctests)
+  88 unit tests passed
+  14 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -67,6 +67,9 @@ Covered:
 - engine-derived HNS proof, chain-currency, DNSSEC, TLSA, DANE, and SNI evidence; exact
   Handshake-network and validation-time binding; derived rather than caller-selected provenance
   anchors; and distinct ODoH proxy/target identity enforcement;
+- the complete required authority graph, terminal stop behavior, policy-change generation
+  revocation, monotonic event stamps, and rejection of other-session, stale-generation, and future
+  work—including an engine-level cross-session response-replay negative;
 - shared status schema with runtime/policy generations, event sequence, network/chain anchor,
   complete policy, actual transport, bounded identities, registry fingerprint/profile/version,
   HNSR/provider roles and readiness, aggregate rate limits, stable degraded/revocation reasons, and

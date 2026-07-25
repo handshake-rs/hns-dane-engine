@@ -20,6 +20,8 @@
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation;
 - resolution provenance that distinguishes transport from locally verified evidence;
+- a shared session-bound browser authority runtime whose generation/event stamps reject stale
+  policy work, future events, and cross-session attempt replay;
 - bounded shared mobile/Chromium status covering runtime and policy generations, actual transport,
   intermediary identities, registry identity, provider readiness, rate limits, explicit evidence
   states, and degraded/revocation reasons; and

@@ -13,6 +13,7 @@ hns-dns-wire ---> hns-dnssec --------------------------> hns-resolver --+
                                                                         |          |
 hns-resolution-policy -------------------------------------------------+          v
 hns-browser-observability ---------------------------------------------+   hns-dane-engine-ffi
+hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
 hns-transport ---------------------------------------------------------+
 ```
@@ -39,6 +40,10 @@ path validation.
 `hns-dane-engine` binds that evidence to a current policy generation, exact terminal response,
 origin SNI, certificate chain, Handshake network, common validation time, and structured provenance.
 It derives the reported chain anchor from resolver evidence and rejects conflicting caller context.
+`hns-browser-runtime` is the single authority-state graph and monotonic runtime clock. Each
+admitted operation carries the caller-supplied unique runtime session, runtime generation, and
+event sequence; another session, a revoked generation, or a future event is rejected before
+response parsing or completion.
 `hns-browser-observability` validates the shared, name-free mobile/Chromium status contract:
 session/generations/event sequence, policy and actual transport, chain anchor, registry identity,
 HNSR/provider state and readiness, rate-limit saturation, intermediary identities, all seven

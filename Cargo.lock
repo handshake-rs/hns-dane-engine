@@ -118,6 +118,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-browser-runtime"
+version = "0.1.0"
+
+[[package]]
 name = "hns-cache"
 version = "0.1.0"
 dependencies = [
@@ -152,6 +156,7 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "hns-browser-observability",
+ "hns-browser-runtime",
  "hns-covenants",
  "hns-dane",
  "hns-dns-wire",

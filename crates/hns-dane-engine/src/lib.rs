@@ -20,6 +20,8 @@ use hns_browser_observability::{
     BrowserStatus, DegradedReason, ProviderReadiness, RateLimitState, RevocationReason,
     StatusError, StatusInput, TransportIdentities, UnsupportedEvidence,
 };
+pub use hns_browser_runtime::AuthorityState;
+use hns_browser_runtime::{BrowserRuntime, RuntimeError, RuntimeStamp};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
 use hns_resolution_policy::{
@@ -33,38 +35,6 @@ use hns_resolver::ValidatedTlsa;
 pub const ENGINE_API_VERSION: u32 = 1;
 /// Maximum UTF-8 bytes accepted for one transport identity.
 pub const MAX_TRANSPORT_IDENTITY_BYTES: usize = 256;
-
-/// Browser authority state.
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AuthorityState {
-    /// No local state has been opened.
-    Uninitialized = 0,
-    /// Local stores are available.
-    LocalStateOpened = 1,
-    /// Validated headers are synchronizing.
-    HeaderSyncing = 2,
-    /// Validated headers satisfy currency policy.
-    HeaderCurrent = 3,
-    /// Verified Urkel proof service is ready.
-    ProofReady = 4,
-    /// At least one policy-permitted DNS transport is ready.
-    ResolutionTransportReady = 5,
-    /// Current origin DNSSEC evidence is verified.
-    DnssecVerified = 6,
-    /// Current origin DANE evidence is verified.
-    DaneOriginVerified = 7,
-    /// Platform bridge is ready.
-    BrowserBridgeReady = 8,
-    /// Browser engine is active.
-    Active = 9,
-    /// A recoverable prerequisite is unavailable.
-    Degraded = 10,
-    /// Security state or policy was revoked.
-    Revoked = 11,
-    /// Runtime is stopped.
-    Stopped = 12,
-}
 
 /// Engine construction configuration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -128,17 +98,22 @@ pub struct ObservabilityRuntime {
 /// A query and transport admission bound to engine generations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolutionAttempt {
-    runtime_generation: u64,
-    event_sequence: u64,
+    runtime_stamp: RuntimeStamp,
     admission: Admission,
     query: Query,
 }
 
 impl ResolutionAttempt {
+    /// Runtime session at admission.
+    #[must_use]
+    pub const fn runtime_session(&self) -> [u8; 16] {
+        self.runtime_stamp.session()
+    }
+
     /// Runtime generation at admission.
     #[must_use]
     pub const fn runtime_generation(&self) -> u64 {
-        self.runtime_generation
+        self.runtime_stamp.generation()
     }
 
     /// Policy generation at admission.
@@ -163,7 +138,7 @@ impl ResolutionAttempt {
 /// Owned, structurally correlated DNS response.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedResponse {
-    attempt_event_sequence: u64,
+    attempt_stamp: RuntimeStamp,
     message: Message,
     untrusted_ad_claim: bool,
 }
@@ -248,11 +223,8 @@ pub struct DaneCompletion {
 
 #[derive(Debug)]
 struct EngineState {
-    runtime_session: [u8; 16],
-    runtime_generation: u64,
-    event_sequence: u64,
+    runtime: BrowserRuntime,
     network: Network,
-    authority_state: AuthorityState,
     policy: PolicyController,
     last_provenance: Option<ResolutionProvenance>,
     last_evidence: ValidationEvidence,
@@ -270,11 +242,8 @@ impl Engine {
     pub fn new(config: EngineConfig) -> Self {
         Self {
             state: RwLock::new(EngineState {
-                runtime_session: config.runtime_session,
-                runtime_generation: 1,
-                event_sequence: 0,
+                runtime: BrowserRuntime::new(config.runtime_session),
                 network: config.network,
-                authority_state: AuthorityState::Uninitialized,
                 policy: PolicyController::new(config.policy),
                 last_provenance: None,
                 last_evidence: ValidationEvidence::not_attempted(),
@@ -299,13 +268,14 @@ impl Engine {
     /// Read structured status.
     pub fn snapshot(&self) -> Result<EngineSnapshot, EngineError> {
         let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        let runtime = state.runtime.snapshot();
         Ok(EngineSnapshot {
-            schema_version: 1,
-            runtime_session: state.runtime_session,
-            runtime_generation: state.runtime_generation,
-            event_sequence: state.event_sequence,
+            schema_version: runtime.schema_version,
+            runtime_session: runtime.session,
+            runtime_generation: runtime.generation,
+            event_sequence: runtime.event_sequence,
             network: state.network,
-            authority_state: state.authority_state,
+            authority_state: runtime.authority_state,
             policy: state.policy.snapshot(),
         })
     }
@@ -327,7 +297,8 @@ impl Engine {
         runtime: ObservabilityRuntime,
     ) -> Result<BrowserStatus, EngineError> {
         let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
-        match state.authority_state {
+        let runtime_snapshot = state.runtime.snapshot();
+        match runtime_snapshot.authority_state {
             AuthorityState::Degraded if runtime.degraded_reason.is_none() => {
                 return Err(EngineError::MissingObservabilityReason);
             }
@@ -361,9 +332,9 @@ impl Engine {
             }
         });
         BrowserStatus::new(StatusInput {
-            runtime_session: state.runtime_session,
-            runtime_generation: state.runtime_generation,
-            event_sequence: state.event_sequence,
+            runtime_session: runtime_snapshot.session,
+            runtime_generation: runtime_snapshot.generation,
+            event_sequence: runtime_snapshot.event_sequence,
             network: state.network,
             policy: state.policy.snapshot(),
             chain_anchor: provenance.and_then(|provenance| provenance.chain_anchor),
@@ -392,16 +363,15 @@ impl Engine {
     ) -> Result<PolicyTransition, EngineError> {
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
         let changed = state.policy.snapshot().config() != next;
-        if changed && (state.runtime_generation == u64::MAX || state.event_sequence == u64::MAX) {
-            return Err(EngineError::GenerationExhausted);
+        if changed {
+            state
+                .runtime
+                .ensure_policy_change_capacity()
+                .map_err(map_runtime_error)?;
         }
         let transition = state.policy.replace(expected_policy_generation, next)?;
         if transition.changed {
-            state.runtime_generation += 1;
-            state.event_sequence += 1;
-            if state.authority_state != AuthorityState::Stopped {
-                state.authority_state = AuthorityState::Revoked;
-            }
+            state.runtime.policy_changed().map_err(map_runtime_error)?;
             state.last_provenance = None;
             state.last_evidence = ValidationEvidence::revoked();
         }
@@ -427,15 +397,7 @@ impl Engine {
         next: AuthorityState,
     ) -> Result<EngineSnapshot, EngineError> {
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
-        if !valid_authority_transition(state.authority_state, next) {
-            return Err(EngineError::InvalidAuthorityTransition);
-        }
-        let next_event_sequence = state
-            .event_sequence
-            .checked_add(1)
-            .ok_or(EngineError::GenerationExhausted)?;
-        state.authority_state = next;
-        state.event_sequence = next_event_sequence;
+        state.runtime.transition(next).map_err(map_runtime_error)?;
         match next {
             AuthorityState::Degraded => {
                 state.last_provenance = None;
@@ -459,7 +421,7 @@ impl Engine {
     ) -> Result<ResolutionAttempt, EngineError> {
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
         if !matches!(
-            state.authority_state,
+            state.runtime.authority_state(),
             AuthorityState::ResolutionTransportReady
                 | AuthorityState::DnssecVerified
                 | AuthorityState::DaneOriginVerified
@@ -469,13 +431,9 @@ impl Engine {
             return Err(EngineError::AuthorityNotReady);
         }
         let admission = state.policy.admit(transport)?;
-        state.event_sequence = state
-            .event_sequence
-            .checked_add(1)
-            .ok_or(EngineError::GenerationExhausted)?;
+        let runtime_stamp = state.runtime.admit_event().map_err(map_runtime_error)?;
         Ok(ResolutionAttempt {
-            runtime_generation: state.runtime_generation,
-            event_sequence: state.event_sequence,
+            runtime_stamp,
             admission,
             query,
         })
@@ -495,7 +453,7 @@ impl Engine {
         let untrusted_ad_claim = correlated.untrusted_ad_claim();
         drop(state);
         Ok(ParsedResponse {
-            attempt_event_sequence: attempt.event_sequence,
+            attempt_stamp: attempt.runtime_stamp,
             message,
             untrusted_ad_claim,
         })
@@ -515,7 +473,7 @@ impl Engine {
         limits: DaneLimits,
         context: CompletionContext,
     ) -> Result<DaneCompletion, EngineError> {
-        if response.attempt_event_sequence != attempt.event_sequence {
+        if response.attempt_stamp != attempt.runtime_stamp {
             return Err(EngineError::ResponseAttemptMismatch);
         }
         if response.message.header.flags.rcode() != 0 {
@@ -559,7 +517,7 @@ impl Engine {
         input: ValidatedDaneInput<'_>,
         mut context: CompletionContext,
     ) -> Result<DaneCompletion, EngineError> {
-        if response.attempt_event_sequence != attempt.event_sequence {
+        if response.attempt_stamp != attempt.runtime_stamp {
             return Err(EngineError::ResponseAttemptMismatch);
         }
         if response.message.header.flags.rcode() != 0 {
@@ -632,7 +590,7 @@ impl Engine {
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
         ensure_current(&state, attempt)?;
         if !matches!(
-            state.authority_state,
+            state.runtime.authority_state(),
             AuthorityState::DnssecVerified
                 | AuthorityState::DaneOriginVerified
                 | AuthorityState::BrowserBridgeReady
@@ -640,19 +598,21 @@ impl Engine {
         ) {
             return Err(EngineError::AuthorityNotReady);
         }
-        state.event_sequence = state
-            .event_sequence
-            .checked_add(1)
-            .ok_or(EngineError::GenerationExhausted)?;
-        if state.authority_state == AuthorityState::DnssecVerified {
-            state.authority_state = AuthorityState::DaneOriginVerified;
+        if state.runtime.authority_state() == AuthorityState::DnssecVerified {
+            state
+                .runtime
+                .transition(AuthorityState::DaneOriginVerified)
+                .map_err(map_runtime_error)?;
+        } else {
+            state.runtime.admit_event().map_err(map_runtime_error)?;
         }
+        let runtime = state.runtime.snapshot();
         let provenance = ResolutionProvenance {
             schema_version: 1,
-            runtime_session: state.runtime_session,
-            runtime_generation: state.runtime_generation,
+            runtime_session: runtime.session,
+            runtime_generation: runtime.generation,
             policy_generation: attempt.admission.policy_generation,
-            event_sequence: state.event_sequence,
+            event_sequence: runtime.event_sequence,
             network: state.network,
             chain_anchor: context.chain_anchor,
             transport: attempt.admission.transport,
@@ -709,11 +669,19 @@ const fn unavailable_evidence() -> ValidationEvidence {
 }
 
 fn ensure_current(state: &EngineState, attempt: &ResolutionAttempt) -> Result<(), EngineError> {
-    if attempt.runtime_generation != state.runtime_generation {
+    if !state.runtime.admits(attempt.runtime_stamp) {
         return Err(EngineError::StaleRuntimeGeneration);
     }
     state.policy.accept_completion(attempt.admission)?;
     Ok(())
+}
+
+const fn map_runtime_error(error: RuntimeError) -> EngineError {
+    match error {
+        RuntimeError::InvalidAuthorityTransition => EngineError::InvalidAuthorityTransition,
+        RuntimeError::CounterExhausted => EngineError::GenerationExhausted,
+        RuntimeError::Stopped | RuntimeError::AuthorityNotReady => EngineError::AuthorityNotReady,
+    }
 }
 
 fn validate_completion_context(
@@ -765,40 +733,6 @@ fn validate_completion_context(
         ResolutionTransport::Unavailable => return Err(EngineError::InvalidCompletionContext),
     }
     Ok(())
-}
-
-const fn valid_authority_transition(current: AuthorityState, next: AuthorityState) -> bool {
-    use AuthorityState::{
-        Active, BrowserBridgeReady, DaneOriginVerified, Degraded, DnssecVerified, HeaderCurrent,
-        HeaderSyncing, LocalStateOpened, ProofReady, ResolutionTransportReady, Revoked, Stopped,
-        Uninitialized,
-    };
-    matches!(
-        (current, next),
-        (Uninitialized, LocalStateOpened)
-            | (LocalStateOpened | Degraded | Revoked, HeaderSyncing)
-            | (HeaderSyncing, HeaderCurrent)
-            | (HeaderCurrent, ProofReady)
-            | (ProofReady, ResolutionTransportReady)
-            | (ResolutionTransportReady, DnssecVerified)
-            | (DnssecVerified, DaneOriginVerified)
-            | (DaneOriginVerified, BrowserBridgeReady)
-            | (BrowserBridgeReady, Active)
-            | (
-                Uninitialized
-                    | LocalStateOpened
-                    | HeaderSyncing
-                    | HeaderCurrent
-                    | ProofReady
-                    | ResolutionTransportReady
-                    | DnssecVerified
-                    | DaneOriginVerified
-                    | BrowserBridgeReady
-                    | Active,
-                Degraded | Revoked | Stopped
-            )
-            | (Degraded | Revoked, Stopped)
-    )
 }
 
 /// Facade failure.
@@ -971,9 +905,9 @@ mod tests {
     const RESPONSE_WITH_UNTRUSTED_AD: &[u8] =
         b"\x12\x34\x84\x20\x00\x01\x00\x01\x00\x00\x00\x00\x07example\x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x7f\x00\x00\x01";
 
-    fn ready_engine_on(network: Network) -> Engine {
+    fn ready_engine_in_session(runtime_session: [u8; 16], network: Network) -> Engine {
         let engine = Engine::new(EngineConfig {
-            runtime_session: [7; 16],
+            runtime_session,
             network,
             policy: PolicySnapshot::default(),
         });
@@ -988,6 +922,10 @@ mod tests {
             engine.advance_authority_state(state).unwrap();
         }
         engine
+    }
+
+    fn ready_engine_on(network: Network) -> Engine {
+        ready_engine_in_session([7; 16], network)
     }
 
     fn ready_engine() -> Engine {
@@ -1267,6 +1205,26 @@ mod tests {
             engine.snapshot().unwrap().authority_state,
             AuthorityState::DaneOriginVerified
         );
+    }
+
+    #[test]
+    fn rejects_attempt_replay_from_another_runtime_session() {
+        let first = ready_engine_in_session([7; 16], Network::Mainnet);
+        let second = ready_engine_in_session([8; 16], Network::Mainnet);
+        let (query, response, _) = exact_certificate_exchange();
+        let attempt = first
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query)
+            .unwrap();
+        assert_eq!(attempt.runtime_session(), [7; 16]);
+        assert!(
+            first
+                .parse_response(&attempt, &response, ParseLimits::requester())
+                .is_ok()
+        );
+        assert!(matches!(
+            second.parse_response(&attempt, &response, ParseLimits::requester()),
+            Err(EngineError::StaleRuntimeGeneration)
+        ));
     }
 
     #[test]

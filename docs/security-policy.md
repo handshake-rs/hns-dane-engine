@@ -78,5 +78,11 @@ Policy updates increment generations, immediately reject new disabled work, reje
 completions, clear requester selections, and report provider withdrawal/peer renegotiation effects.
 Provider roles default off. HNSR requester and provider roles default off.
 
+Every admitted operation is stamped with the caller-supplied per-start unique runtime session,
+current runtime generation, and monotonic event sequence. Parsing and completion reject another
+session, a revoked generation, or an event that was never admitted. Platform adapters must supply a
+fresh unpredictable session on every engine start; a constant or reused session violates this
+replay-isolation contract.
+
 The persisted policy CRC detects accidental corruption only. Platform adapters must use their normal
 integrity-protected settings or secure storage; the CRC is not a MAC or signature.
