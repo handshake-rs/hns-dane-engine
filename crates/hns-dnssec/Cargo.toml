@@ -1,0 +1,16 @@
+[package]
+name = "hns-dnssec"
+description = "Bounded local DNSSEC validation for Handshake browser resolution"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hns-dns-wire = { path = "../hns-dns-wire" }
+openssl = "0.10.81"
+thiserror = "2.0.19"
+
+[lints]
+workspace = true

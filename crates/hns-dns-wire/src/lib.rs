@@ -178,16 +178,11 @@ impl Name {
         Self { labels: Vec::new() }
     }
 
-    /// Parse an ASCII presentation name. A final dot is optional.
-    pub fn from_ascii(input: &str) -> Result<Self, Error> {
-        let input = input.strip_suffix('.').unwrap_or(input);
-        if input.is_empty() {
-            return Ok(Self::root());
-        }
-
-        let mut labels = Vec::new();
+    /// Construct from opaque labels, validating and canonicalizing ASCII case.
+    pub fn from_labels(labels: Vec<Vec<u8>>) -> Result<Self, Error> {
+        let mut canonical = Vec::with_capacity(labels.len());
         let mut wire_len = 1usize;
-        for label in input.as_bytes().split(|byte| *byte == b'.') {
+        for label in labels {
             if label.is_empty() || label.len() > MAX_LABEL_LEN {
                 return Err(Error::InvalidLabel);
             }
@@ -197,9 +192,25 @@ impl Name {
             if wire_len > MAX_WIRE_NAME_LEN {
                 return Err(Error::NameLimit);
             }
-            labels.push(canonical_label(label));
+            canonical.push(canonical_label(&label));
         }
-        Ok(Self { labels })
+        Ok(Self { labels: canonical })
+    }
+
+    /// Parse an ASCII presentation name. A final dot is optional.
+    pub fn from_ascii(input: &str) -> Result<Self, Error> {
+        let input = input.strip_suffix('.').unwrap_or(input);
+        if input.is_empty() {
+            return Ok(Self::root());
+        }
+
+        Self::from_labels(
+            input
+                .as_bytes()
+                .split(|byte| *byte == b'.')
+                .map(<[u8]>::to_vec)
+                .collect(),
+        )
     }
 
     /// Return the opaque labels in canonical lowercase form.
