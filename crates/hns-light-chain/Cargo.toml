@@ -1,6 +1,6 @@
 [package]
-name = "hns-resolver"
-description = "Locally DNSSEC-validated HNS service and TLSA resolution"
+name = "hns-light-chain"
+description = "Locally validated Handshake header chain and Urkel name-resource anchors"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,17 +8,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hns-dns-wire = { path = "../hns-dns-wire" }
-hns-dnssec = { path = "../hns-dnssec" }
-hns-light-chain = { path = "../hns-light-chain" }
-thiserror = "2.0.19"
+hns-covenants = { path = "../../../hns-rs/crates/hns-covenants" }
+hns-encoding = { path = "../../../hns-rs/crates/hns-encoding" }
+hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
+hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
+hns-urkel-proof = { path = "../../../hns-rs/crates/hns-urkel-proof" }
+thiserror = "2.0.17"
 
 [dev-dependencies]
 blake2 = "0.10.6"
-hns-covenants = { path = "../../../hns-rs/crates/hns-covenants" }
-hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
-hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
-openssl = "0.10.81"
 
 [lints]
 workspace = true

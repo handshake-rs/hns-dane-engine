@@ -30,6 +30,18 @@ signed by a DS-matched zone key before their other keys can validate terminal da
 RRsets are verified independently, loops and ambiguous CNAME/data coexistence fail, and NSEC/NSEC3
 denial uses bounded closest-encloser and wildcard proofs.
 
+The HNS DS set is not caller data. The light-chain gate validates every contiguous header from the
+selected network genesis using shared `hns-rs` consensus code, requires explicit height, chainwork,
+and tip-age currency, verifies a canonical Urkel inclusion proof at that header's exact tree root,
+and strictly decodes the committed name state and resource. A private resource token is consumed to
+authenticate the TLD DNSKEY. The resolver carries that anchor through every CNAME/TLSA response.
+The engine rejects a missing lineage, another Handshake network, a different DNSSEC/DANE validation
+time, or a caller-provided provenance anchor that conflicts with the derived header.
+
+The present chain gate accepts only a single contiguous extension from genesis. It does not yet
+perform peer synchronization or competing-fork selection; production activation remains blocked
+until `hns-light-sync` supplies and selects the best validated chain.
+
 The DNS AD bit, Brontide, a relay, an ODoH proxy, and an ODoH target are never validation
 authorities. Transport status is reported separately from evidence status.
 

@@ -13,10 +13,12 @@
 
 use std::collections::HashSet;
 
-use hns_dns_wire::{CLASS_IN, Message, Name, Query, Rdata, RecordType, ResourceRecord, Tlsa};
+use hns_dns_wire::{CLASS_IN, Ds, Message, Name, Query, Rdata, RecordType, ResourceRecord, Tlsa};
 use hns_dnssec::{
-    AuthenticatedDnskeys, DnssecError, DnssecLimits, VerifiedRrset, verify_rrset_with_keys,
+    AuthenticatedDnskeys, DnssecError, DnssecLimits, VerifiedRrset, authenticate_dnskeys,
+    verify_rrset_with_keys,
 };
+use hns_light_chain::{HnsAnchor, VerifiedHnsResource};
 use thiserror::Error;
 
 /// HTTPS uses TCP TLSA service labels.
@@ -25,6 +27,119 @@ pub const HTTPS_PORT: u16 = 443;
 pub const DEFAULT_MAX_CNAME_HOPS: usize = 16;
 /// Default maximum TLSA alternatives.
 pub const DEFAULT_MAX_TLSA_RECORDS: usize = 64;
+/// HSD's default TTL for records projected from a name resource.
+pub const HNS_RESOURCE_TTL: u32 = 21_600;
+
+/// HNS resource, DS, DNSKEY, and signature evidence for one TLD authority.
+///
+/// Construction starts from a non-forgeable [`VerifiedHnsResource`]. This
+/// keeps arbitrary caller-provided DS records out of the HNS browser path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HnsDnssecAuthority {
+    evidence: HnsAuthorityEvidence,
+    keys: AuthenticatedDnskeys,
+}
+
+impl HnsDnssecAuthority {
+    /// Authenticate a TLD DNSKEY RRset from its current on-chain HNS resource.
+    pub fn authenticate(
+        resource: &VerifiedHnsResource,
+        dnskeys: &[ResourceRecord],
+        signatures: &[ResourceRecord],
+        validation_time: u32,
+        limits: DnssecLimits,
+    ) -> Result<Self, ResolverError> {
+        let anchor = resource.anchor();
+        if anchor.validated_at().get() != u64::from(validation_time)
+            || u64::from(validation_time) > anchor.valid_until().get()
+        {
+            return Err(ResolverError::AnchorTimeMismatch);
+        }
+        let zone = Name::from_labels(vec![resource.name().to_vec()])
+            .map_err(|_| ResolverError::InvalidHnsZone)?;
+        let trusted_ds = resource
+            .resource()
+            .delegation_signers()
+            .map(|ds| ResourceRecord {
+                name: zone.clone(),
+                record_type: RecordType::Ds,
+                class: CLASS_IN,
+                ttl: HNS_RESOURCE_TTL,
+                rdata: Rdata::Ds(Ds {
+                    key_tag: ds.key_tag,
+                    algorithm: ds.algorithm,
+                    digest_type: ds.digest_type,
+                    digest: ds.digest.clone(),
+                }),
+            })
+            .collect::<Vec<_>>();
+        if trusted_ds.is_empty() {
+            return Err(ResolverError::MissingHnsDs);
+        }
+        let keys = authenticate_dnskeys(
+            &zone,
+            &trusted_ds,
+            dnskeys,
+            signatures,
+            validation_time,
+            limits,
+        )?;
+        Ok(Self {
+            evidence: HnsAuthorityEvidence {
+                anchor,
+                zone,
+                validation_time,
+            },
+            keys,
+        })
+    }
+
+    /// Current Handshake chain anchor.
+    #[must_use]
+    pub const fn anchor(&self) -> HnsAnchor {
+        self.evidence.anchor
+    }
+
+    /// Authenticated HNS TLD zone.
+    #[must_use]
+    pub const fn zone(&self) -> &Name {
+        &self.evidence.zone
+    }
+
+    /// Shared local DNSSEC/currency validation time.
+    #[must_use]
+    pub const fn validation_time(&self) -> u32 {
+        self.evidence.validation_time
+    }
+}
+
+/// HNS authority lineage retained by a validated TLSA result.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HnsAuthorityEvidence {
+    anchor: HnsAnchor,
+    zone: Name,
+    validation_time: u32,
+}
+
+impl HnsAuthorityEvidence {
+    /// Current Handshake header and name-tree anchor.
+    #[must_use]
+    pub const fn anchor(&self) -> HnsAnchor {
+        self.anchor
+    }
+
+    /// On-chain DS-authenticated TLD zone.
+    #[must_use]
+    pub const fn zone(&self) -> &Name {
+        &self.zone
+    }
+
+    /// Time used for chain currency and every DNSSEC signature check.
+    #[must_use]
+    pub const fn validation_time(&self) -> u32 {
+        self.validation_time
+    }
+}
 
 /// TLS transport label in a TLSA owner name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -108,6 +223,7 @@ pub struct ValidatedTlsa {
     records: Vec<Tlsa>,
     cname_chain: Vec<VerifiedCname>,
     rrset: VerifiedRrset,
+    hns_authority: Option<HnsAuthorityEvidence>,
 }
 
 impl ValidatedTlsa {
@@ -152,6 +268,12 @@ impl ValidatedTlsa {
     pub const fn rrset(&self) -> &VerifiedRrset {
         &self.rrset
     }
+
+    /// On-chain HNS authority lineage, if this used the HNS-only path.
+    #[must_use]
+    pub const fn hns_authority(&self) -> Option<&HnsAuthorityEvidence> {
+        self.hns_authority.as_ref()
+    }
 }
 
 /// Result of admitting one correlated DNS response.
@@ -160,7 +282,7 @@ pub enum ResolutionStep {
     /// Fetch another class-IN TLSA query for this CNAME target.
     FollowCname(Name),
     /// Terminal local DNSSEC and TLSA evidence.
-    Complete(ValidatedTlsa),
+    Complete(Box<ValidatedTlsa>),
 }
 
 /// Mutable bounded CNAME/TLSA resolution.
@@ -174,6 +296,14 @@ pub struct TlsaResolution {
     cname_chain: Vec<VerifiedCname>,
     completed: bool,
     limits: ResolverLimits,
+    authority_binding: AuthorityBinding,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum AuthorityBinding {
+    Unset,
+    Generic,
+    Hns(HnsAuthorityEvidence),
 }
 
 impl TlsaResolution {
@@ -202,6 +332,7 @@ impl TlsaResolution {
             cname_chain: Vec::new(),
             completed: false,
             limits,
+            authority_binding: AuthorityBinding::Unset,
         })
     }
 
@@ -229,6 +360,42 @@ impl TlsaResolution {
         keysets: &[&AuthenticatedDnskeys],
         validation_time: u32,
     ) -> Result<ResolutionStep, ResolverError> {
+        self.accept_response_inner(
+            query,
+            message,
+            keysets,
+            validation_time,
+            AuthorityBinding::Generic,
+        )
+    }
+
+    /// Validate a response using only an on-chain HNS DS-authenticated keyset.
+    pub fn accept_hns_response(
+        &mut self,
+        query: &Query,
+        message: &Message,
+        authority: &HnsDnssecAuthority,
+    ) -> Result<ResolutionStep, ResolverError> {
+        if !is_suffix(&self.base_domain, authority.zone()) {
+            return Err(ResolverError::HnsZoneMismatch);
+        }
+        self.accept_response_inner(
+            query,
+            message,
+            &[&authority.keys],
+            authority.validation_time(),
+            AuthorityBinding::Hns(authority.evidence.clone()),
+        )
+    }
+
+    fn accept_response_inner(
+        &mut self,
+        query: &Query,
+        message: &Message,
+        keysets: &[&AuthenticatedDnskeys],
+        validation_time: u32,
+        authority_binding: AuthorityBinding,
+    ) -> Result<ResolutionStep, ResolverError> {
         if self.completed {
             return Err(ResolverError::AlreadyComplete);
         }
@@ -241,6 +408,11 @@ impl TlsaResolution {
         query.correlate(message)?;
         if message.header.flags.rcode() != 0 {
             return Err(ResolverError::UnsuccessfulResponse);
+        }
+        match &self.authority_binding {
+            AuthorityBinding::Unset => self.authority_binding = authority_binding,
+            existing if *existing == authority_binding => {}
+            _ => return Err(ResolverError::AuthorityChanged),
         }
 
         loop {
@@ -270,7 +442,7 @@ impl TlsaResolution {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 self.completed = true;
-                return Ok(ResolutionStep::Complete(ValidatedTlsa {
+                return Ok(ResolutionStep::Complete(Box::new(ValidatedTlsa {
                     requested_owner: self.requested_owner.clone(),
                     terminal_owner: self.current_owner.clone(),
                     base_domain: self.base_domain.clone(),
@@ -278,7 +450,11 @@ impl TlsaResolution {
                     records,
                     cname_chain: self.cname_chain.clone(),
                     rrset: verified,
-                }));
+                    hns_authority: match &self.authority_binding {
+                        AuthorityBinding::Hns(evidence) => Some(evidence.clone()),
+                        AuthorityBinding::Unset | AuthorityBinding::Generic => None,
+                    },
+                })));
             }
             if cname_records.len() != 1 {
                 return Err(if cname_records.is_empty() {
@@ -363,6 +539,21 @@ pub enum ResolverError {
     /// Resolution already produced terminal evidence.
     #[error("TLSA resolution is already complete")]
     AlreadyComplete,
+    /// A current HNS resource has no DNSSEC DS record.
+    #[error("verified HNS resource has no DS record")]
+    MissingHnsDs,
+    /// The on-chain HNS label cannot form a DNS zone.
+    #[error("verified HNS name is not a valid DNS zone")]
+    InvalidHnsZone,
+    /// DNSSEC validation time does not equal the chain-currency check time.
+    #[error("DNSSEC time does not match current Handshake anchor time")]
+    AnchorTimeMismatch,
+    /// Requested origin is outside the HNS TLD authority.
+    #[error("requested origin is outside the authenticated HNS zone")]
+    HnsZoneMismatch,
+    /// A multi-response resolution attempted to change its trust authority.
+    #[error("resolution authority changed during CNAME processing")]
+    AuthorityChanged,
 }
 
 fn matching_records(
@@ -471,8 +662,13 @@ fn is_suffix(name: &Name, suffix: &Name) -> bool {
     reason = "tests intentionally fail immediately on invalid local cryptographic fixtures"
 )]
 mod tests {
+    use blake2::Blake2bVar;
+    use blake2::digest::{Update, VariableOutput};
     use hns_dns_wire::{Dnskey, Ds, Flags, Header, Question, Rrsig};
     use hns_dnssec::{ALGORITHM_RSASHA256, authenticate_dnskeys, dnskey_tag, rrsig_signed_data};
+    use hns_header_consensus::{Header as ConsensusHeader, Network as ConsensusNetwork};
+    use hns_light_chain::{ChainLimits, CurrencyPolicy, LightChain};
+    use hns_primitives::{BlockTime, Chainwork, Height, TreeRoot};
     use openssl::hash::{MessageDigest, hash};
     use openssl::pkey::{PKey, Private};
     use openssl::rsa::Rsa;
@@ -514,14 +710,25 @@ mod tests {
         key: &Dnskey,
         key_pair: &PKey<Private>,
     ) -> ResourceRecord {
+        sign_rrset_window(records, signer_name, key, key_pair, 1_000, 2_000)
+    }
+
+    fn sign_rrset_window(
+        records: &[ResourceRecord],
+        signer_name: Name,
+        key: &Dnskey,
+        key_pair: &PKey<Private>,
+        inception: u32,
+        expiration: u32,
+    ) -> ResourceRecord {
         let first = records.first().unwrap();
         let mut signature = Rrsig {
             type_covered: first.record_type,
             algorithm: key.algorithm,
             labels: u8::try_from(first.name.labels().len()).unwrap(),
             original_ttl: first.ttl,
-            expiration: 2_000,
-            inception: 1_000,
+            expiration,
+            inception,
             key_tag: dnskey_tag(key),
             signer: signer_name,
             signature: Vec::new(),
@@ -537,6 +744,72 @@ mod tests {
             ttl: first.ttl,
             rdata: Rdata::Rrsig(signature),
         }
+    }
+
+    fn blake2b_256(parts: &[&[u8]]) -> [u8; 32] {
+        let mut hasher = Blake2bVar::new(32).unwrap();
+        for part in parts {
+            hasher.update(part);
+        }
+        let mut output = [0_u8; 32];
+        hasher.finalize_variable(&mut output).unwrap();
+        output
+    }
+
+    fn verified_hns_resource(ds: &Ds) -> (VerifiedHnsResource, u32) {
+        let genesis_time = ConsensusNetwork::Regtest.parameters().genesis_time;
+        let validation_time = u32::try_from(genesis_time.get() + 100).unwrap();
+        let mut resource = vec![0, 0];
+        resource.extend_from_slice(&ds.key_tag.to_be_bytes());
+        resource.extend_from_slice(&[ds.algorithm, ds.digest_type]);
+        resource.push(u8::try_from(ds.digest.len()).unwrap());
+        resource.extend_from_slice(&ds.digest);
+
+        let mut state = Vec::new();
+        state.push(5);
+        state.extend_from_slice(b"alpha");
+        state.extend_from_slice(&u16::try_from(resource.len()).unwrap().to_le_bytes());
+        state.extend_from_slice(&resource);
+        state.extend_from_slice(&1_u32.to_le_bytes());
+        state.extend_from_slice(&1_u32.to_le_bytes());
+        state.extend_from_slice(&0_u16.to_le_bytes());
+
+        let key = hns_covenants::hash_name(b"alpha").unwrap();
+        let value_hash = blake2b_256(&[&state]);
+        let tree_root = TreeRoot::new(blake2b_256(&[&[0], key.as_bytes(), &value_hash]));
+        let mut proof = Vec::new();
+        proof.extend_from_slice(&0xc000_u16.to_le_bytes());
+        proof.extend_from_slice(&0_u16.to_le_bytes());
+        proof.extend_from_slice(&u16::try_from(state.len()).unwrap().to_le_bytes());
+        proof.extend_from_slice(&state);
+
+        let now = BlockTime::new(u64::from(validation_time));
+        let mut chain =
+            LightChain::from_genesis(ConsensusNetwork::Regtest, now, ChainLimits::default())
+                .unwrap();
+        let mut header = ConsensusHeader {
+            time: BlockTime::new(genesis_time.get() + 1),
+            previous_block: chain.tip().hash(),
+            tree_root,
+            bits: ConsensusNetwork::Regtest.parameters().pow.bits,
+            ..ConsensusHeader::default()
+        };
+        while !header.verify_pow() {
+            header.nonce = header.nonce.checked_add(1).unwrap();
+        }
+        chain.append(&header, now).unwrap();
+        let current = chain
+            .require_current(CurrencyPolicy {
+                now,
+                maximum_tip_age_seconds: 3_600,
+                minimum_height: Height::new(1),
+                minimum_chainwork: Chainwork::ZERO,
+            })
+            .unwrap();
+        (
+            current.verify_name_resource(b"alpha", &proof).unwrap(),
+            validation_time,
+        )
     }
 
     fn keyset() -> (AuthenticatedDnskeys, PKey<Private>, Dnskey) {
@@ -761,6 +1034,88 @@ mod tests {
                 ResolverLimits::default()
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn binds_hns_header_resource_ds_dnskey_and_tlsa_evidence() {
+        let zone = name("alpha.");
+        let rsa = Rsa::generate(1024).unwrap();
+        let key = rsa_dnskey(&rsa);
+        let key_pair = PKey::from_rsa(rsa).unwrap();
+        let dnskeys = vec![ResourceRecord {
+            name: zone.clone(),
+            record_type: RecordType::Dnskey,
+            class: CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Dnskey(key.clone()),
+        }];
+        let mut digest_input = Vec::new();
+        zone.encode(&mut digest_input).unwrap();
+        digest_input.extend_from_slice(&encode_dnskey(&key));
+        let ds = Ds {
+            key_tag: dnskey_tag(&key),
+            algorithm: key.algorithm,
+            digest_type: 2,
+            digest: hash(MessageDigest::sha256(), &digest_input)
+                .unwrap()
+                .to_vec(),
+        };
+        let (resource, validation_time) = verified_hns_resource(&ds);
+        let dnskey_signatures = vec![sign_rrset_window(
+            &dnskeys,
+            zone.clone(),
+            &key,
+            &key_pair,
+            validation_time - 10,
+            validation_time + 10,
+        )];
+        let authority = HnsDnssecAuthority::authenticate(
+            &resource,
+            &dnskeys,
+            &dnskey_signatures,
+            validation_time,
+            DnssecLimits::default(),
+        )
+        .unwrap();
+
+        let mut resolution =
+            TlsaResolution::for_https(name("www.alpha."), ResolverLimits::default()).unwrap();
+        let query = resolution.query(31).unwrap();
+        let tlsa_records = vec![tlsa(query.question.name.clone(), 0x44)];
+        let message = response(
+            &query,
+            vec![
+                tlsa_records.first().unwrap().clone(),
+                sign_rrset_window(
+                    &tlsa_records,
+                    zone.clone(),
+                    &key,
+                    &key_pair,
+                    validation_time - 10,
+                    validation_time + 10,
+                ),
+            ],
+        );
+        let validated = match resolution
+            .accept_hns_response(&query, &message, &authority)
+            .unwrap()
+        {
+            ResolutionStep::Complete(validated) => Some(validated),
+            ResolutionStep::FollowCname(_) => None,
+        }
+        .unwrap();
+        let evidence = validated.hns_authority().unwrap();
+        assert_eq!(evidence.zone(), &zone);
+        assert_eq!(evidence.validation_time(), validation_time);
+        assert_eq!(evidence.anchor(), resource.anchor());
+
+        let mut outside =
+            TlsaResolution::for_https(name("www.other."), ResolverLimits::default()).unwrap();
+        let outside_query = outside.query(32).unwrap();
+        assert_eq!(
+            outside.accept_hns_response(&outside_query, &message, &authority),
+            Err(ResolverError::HnsZoneMismatch)
         );
     }
 }

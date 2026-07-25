@@ -9,6 +9,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -60,6 +69,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -94,6 +104,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hns-covenants"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-encoding",
+ "hns-primitives",
+ "sha3",
+ "thiserror",
+]
+
+[[package]]
 name = "hns-dane"
 version = "0.1.0"
 dependencies = [
@@ -106,9 +133,14 @@ dependencies = [
 name = "hns-dane-engine"
 version = "0.1.0"
 dependencies = [
+ "blake2",
+ "hns-covenants",
  "hns-dane",
  "hns-dns-wire",
  "hns-dnssec",
+ "hns-header-consensus",
+ "hns-light-chain",
+ "hns-primitives",
  "hns-resolution-policy",
  "hns-resolver",
  "openssl",
@@ -138,6 +170,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-encoding"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "hns-header-consensus"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-encoding",
+ "hns-primitives",
+ "sha3",
+ "thiserror",
+]
+
+[[package]]
+name = "hns-light-chain"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-covenants",
+ "hns-encoding",
+ "hns-header-consensus",
+ "hns-primitives",
+ "hns-urkel-proof",
+ "thiserror",
+]
+
+[[package]]
+name = "hns-primitives"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "thiserror",
+]
+
+[[package]]
 name = "hns-resolution-policy"
 version = "0.1.0"
 
@@ -145,10 +216,33 @@ version = "0.1.0"
 name = "hns-resolver"
 version = "0.1.0"
 dependencies = [
+ "blake2",
+ "hns-covenants",
  "hns-dns-wire",
  "hns-dnssec",
+ "hns-header-consensus",
+ "hns-light-chain",
+ "hns-primitives",
  "openssl",
  "thiserror",
+]
+
+[[package]]
+name = "hns-urkel-proof"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-primitives",
+ "thiserror",
+]
+
+[[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures",
 ]
 
 [[package]]
@@ -230,10 +324,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest",
+ "keccak",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"

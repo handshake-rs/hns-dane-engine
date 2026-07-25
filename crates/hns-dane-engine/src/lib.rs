@@ -190,32 +190,10 @@ pub struct LocalDanePrerequisites {
     pub origin_sni: EvidenceState,
 }
 
-/// Local Handshake authority prerequisites for the engine-owned DNSSEC path.
-///
-/// DNSSEC, TLSA, DANE, and origin-SNI evidence are absent because the engine
-/// derives them from [`ValidatedTlsa`], the certificate chain, and the exact
-/// SNI string supplied to the origin transport.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LocalHnsPrerequisites {
-    /// Verified Handshake state and Urkel proof.
-    pub hns_proof: EvidenceState,
-    /// Chain currency sufficiency.
-    pub chain_current: EvidenceState,
-}
-
-impl LocalHnsPrerequisites {
-    const fn fully_verified(self) -> bool {
-        matches!(self.hns_proof, EvidenceState::Verified)
-            && matches!(self.chain_current, EvidenceState::Verified)
-    }
-}
-
 /// Inputs for engine-owned DNSSEC and DANE completion.
 #[derive(Clone, Copy, Debug)]
 pub struct ValidatedDaneInput<'a> {
-    /// Verified local Handshake prerequisites.
-    pub prerequisites: LocalHnsPrerequisites,
-    /// Non-forgeable resolver result.
+    /// Non-forgeable resolver result carrying HNS header-to-DNSSEC lineage.
     pub validated: &'a ValidatedTlsa,
     /// TLS server chain, leaf first.
     pub certificate_chain_der: &'a [&'a [u8]],
@@ -476,7 +454,7 @@ impl Engine {
         attempt: &ResolutionAttempt,
         response: &ParsedResponse,
         input: ValidatedDaneInput<'_>,
-        context: CompletionContext,
+        mut context: CompletionContext,
     ) -> Result<DaneCompletion, EngineError> {
         if response.attempt_event_sequence != attempt.event_sequence {
             return Err(EngineError::ResponseAttemptMismatch);
@@ -490,8 +468,15 @@ impl Engine {
         {
             return Err(EngineError::ExpectedTlsaQuery);
         }
-        if !input.prerequisites.fully_verified() {
-            return Err(EngineError::Policy(PolicyError::UnverifiedEvidence));
+        let hns_authority = input
+            .validated
+            .hns_authority()
+            .ok_or(EngineError::MissingHnsAuthority)?;
+        if input.validation_unix_time != i64::from(hns_authority.validation_time()) {
+            return Err(EngineError::ValidationTimeMismatch);
+        }
+        if network_id(self.snapshot()?.network) != hns_authority.anchor().network().id() {
+            return Err(EngineError::HnsNetworkMismatch);
         }
         if input.origin_sni != input.validated.base_domain_ascii() {
             return Err(EngineError::OriginSniMismatch);
@@ -507,12 +492,23 @@ impl Engine {
             input.validation_unix_time,
             input.limits,
         )?;
+        let derived_anchor = ChainAnchor {
+            height: hns_authority.anchor().height().get(),
+            tree_root: hns_authority.anchor().tree_root().into_bytes(),
+        };
+        if context
+            .chain_anchor
+            .is_some_and(|provided| provided != derived_anchor)
+        {
+            return Err(EngineError::ChainAnchorMismatch);
+        }
+        context.chain_anchor = Some(derived_anchor);
         let evidence = ValidationEvidence {
-            hns_proof: input.prerequisites.hns_proof,
+            hns_proof: EvidenceState::Verified,
             dnssec: EvidenceState::Verified,
             tlsa: EvidenceState::Verified,
             dane: EvidenceState::Verified,
-            chain_current: input.prerequisites.chain_current,
+            chain_current: EvidenceState::Verified,
             origin_sni: EvidenceState::Verified,
         };
         let provenance = self.complete_resolution(attempt, response, evidence, context)?;
@@ -585,6 +581,15 @@ fn exact_tlsa_answers(attempt: &ResolutionAttempt, response: &ParsedResponse) ->
             _ => None,
         })
         .collect()
+}
+
+const fn network_id(network: Network) -> u8 {
+    match network {
+        Network::Mainnet => 0,
+        Network::Testnet => 1,
+        Network::Regtest => 2,
+        Network::Simnet => 3,
+    }
 }
 
 fn ensure_current(state: &EngineState, attempt: &ResolutionAttempt) -> Result<(), EngineError> {
@@ -712,6 +717,14 @@ pub enum EngineError {
     ResponseEvidenceMismatch,
     /// Actual origin SNI differs from the original TLSA base domain.
     OriginSniMismatch,
+    /// Resolver evidence was not rooted in a current verified HNS resource.
+    MissingHnsAuthority,
+    /// DNSSEC/certificate time differs from the HNS authority validation time.
+    ValidationTimeMismatch,
+    /// Resolver evidence belongs to another Handshake network.
+    HnsNetworkMismatch,
+    /// Caller-supplied provenance conflicts with the derived HNS anchor.
+    ChainAnchorMismatch,
     /// DNS wire failure.
     Wire(hns_dns_wire::Error),
     /// Local TLSA/DANE matching failure.
@@ -757,6 +770,17 @@ impl fmt::Display for EngineError {
             Self::OriginSniMismatch => {
                 formatter.write_str("origin SNI does not match the TLSA base domain")
             }
+            Self::MissingHnsAuthority => {
+                formatter.write_str("validated TLSA lacks on-chain HNS authority evidence")
+            }
+            Self::ValidationTimeMismatch => formatter
+                .write_str("DANE validation time does not match HNS DNSSEC validation time"),
+            Self::HnsNetworkMismatch => {
+                formatter.write_str("HNS authority evidence belongs to another network")
+            }
+            Self::ChainAnchorMismatch => {
+                formatter.write_str("completion context conflicts with derived HNS chain anchor")
+            }
             Self::Wire(error) => write!(formatter, "DNS wire error: {error}"),
             Self::Dane(error) => write!(formatter, "DANE error: {error}"),
             Self::Policy(error) => write!(formatter, "policy error: {error}"),
@@ -800,12 +824,15 @@ impl From<PolicyError> for EngineError {
 )]
 mod tests {
     use super::*;
+    use blake2::Blake2bVar;
+    use blake2::digest::{Update, VariableOutput};
     use hns_dns_wire::{Dnskey, Ds, Flags, Header, Name, ResourceRecord, Rrsig};
-    use hns_dnssec::{
-        ALGORITHM_RSASHA256, DnssecLimits, authenticate_dnskeys, dnskey_tag, rrsig_signed_data,
-    };
+    use hns_dnssec::{ALGORITHM_RSASHA256, DnssecLimits, dnskey_tag, rrsig_signed_data};
+    use hns_header_consensus::{Header as ConsensusHeader, Network as ConsensusNetwork};
+    use hns_light_chain::{ChainLimits, CurrencyPolicy, LightChain, VerifiedHnsResource};
+    use hns_primitives::{BlockTime, Chainwork, Height, TreeRoot};
     use hns_resolution_policy::{DnsRelayRequesterPolicy, EvidenceState, ObliviousDnsPolicy};
-    use hns_resolver::{ResolutionStep, ResolverLimits, TlsaResolution};
+    use hns_resolver::{HnsDnssecAuthority, ResolutionStep, ResolverLimits, TlsaResolution};
     use openssl::hash::{MessageDigest, hash};
     use openssl::pkey::{PKey, Private};
     use openssl::rsa::Rsa;
@@ -814,10 +841,11 @@ mod tests {
     const RESPONSE_WITH_UNTRUSTED_AD: &[u8] =
         b"\x12\x34\x84\x20\x00\x01\x00\x01\x00\x00\x00\x00\x07example\x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x7f\x00\x00\x01";
 
-    fn ready_engine() -> Engine {
+    fn ready_engine_on(network: Network) -> Engine {
         let engine = Engine::new(EngineConfig {
             runtime_session: [7; 16],
-            ..EngineConfig::default()
+            network,
+            policy: PolicySnapshot::default(),
         });
         for state in [
             AuthorityState::LocalStateOpened,
@@ -830,6 +858,10 @@ mod tests {
             engine.advance_authority_state(state).unwrap();
         }
         engine
+    }
+
+    fn ready_engine() -> Engine {
+        ready_engine_on(Network::Mainnet)
     }
 
     fn decode_hex(input: &str) -> Vec<u8> {
@@ -878,11 +910,13 @@ mod tests {
         }
     }
 
-    fn sign_rrset(
+    fn sign_rrset_window(
         records: &[ResourceRecord],
         signer_name: Name,
         key: &Dnskey,
         key_pair: &PKey<Private>,
+        inception: u32,
+        expiration: u32,
     ) -> ResourceRecord {
         let first = records.first().unwrap();
         let mut signature = Rrsig {
@@ -890,8 +924,8 @@ mod tests {
             algorithm: key.algorithm,
             labels: u8::try_from(first.name.labels().len()).unwrap(),
             original_ttl: first.ttl,
-            expiration: 2_000,
-            inception: 1_000,
+            expiration,
+            inception,
             key_tag: dnskey_tag(key),
             signer: signer_name,
             signature: Vec::new(),
@@ -909,8 +943,73 @@ mod tests {
         }
     }
 
-    fn authenticated_example_keys() -> (hns_dnssec::AuthenticatedDnskeys, PKey<Private>, Dnskey) {
-        let zone = Name::from_ascii("example.").unwrap();
+    fn blake2b_256(parts: &[&[u8]]) -> [u8; 32] {
+        let mut hasher = Blake2bVar::new(32).unwrap();
+        for part in parts {
+            hasher.update(part);
+        }
+        let mut output = [0_u8; 32];
+        hasher.finalize_variable(&mut output).unwrap();
+        output
+    }
+
+    fn verified_hns_resource(ds: &Ds) -> (VerifiedHnsResource, u32) {
+        let genesis_time = ConsensusNetwork::Regtest.parameters().genesis_time;
+        let validation_time = u32::try_from(genesis_time.get() + 100).unwrap();
+        let mut resource = vec![0, 0];
+        resource.extend_from_slice(&ds.key_tag.to_be_bytes());
+        resource.extend_from_slice(&[ds.algorithm, ds.digest_type]);
+        resource.push(u8::try_from(ds.digest.len()).unwrap());
+        resource.extend_from_slice(&ds.digest);
+        let mut state = Vec::new();
+        state.push(5);
+        state.extend_from_slice(b"alpha");
+        state.extend_from_slice(&u16::try_from(resource.len()).unwrap().to_le_bytes());
+        state.extend_from_slice(&resource);
+        state.extend_from_slice(&1_u32.to_le_bytes());
+        state.extend_from_slice(&1_u32.to_le_bytes());
+        state.extend_from_slice(&0_u16.to_le_bytes());
+
+        let key = hns_covenants::hash_name(b"alpha").unwrap();
+        let value_hash = blake2b_256(&[&state]);
+        let tree_root = TreeRoot::new(blake2b_256(&[&[0], key.as_bytes(), &value_hash]));
+        let mut proof = Vec::new();
+        proof.extend_from_slice(&0xc000_u16.to_le_bytes());
+        proof.extend_from_slice(&0_u16.to_le_bytes());
+        proof.extend_from_slice(&u16::try_from(state.len()).unwrap().to_le_bytes());
+        proof.extend_from_slice(&state);
+
+        let now = BlockTime::new(u64::from(validation_time));
+        let mut chain =
+            LightChain::from_genesis(ConsensusNetwork::Regtest, now, ChainLimits::default())
+                .unwrap();
+        let mut header = ConsensusHeader {
+            time: BlockTime::new(genesis_time.get() + 1),
+            previous_block: chain.tip().hash(),
+            tree_root,
+            bits: ConsensusNetwork::Regtest.parameters().pow.bits,
+            ..ConsensusHeader::default()
+        };
+        while !header.verify_pow() {
+            header.nonce = header.nonce.checked_add(1).unwrap();
+        }
+        chain.append(&header, now).unwrap();
+        let current = chain
+            .require_current(CurrencyPolicy {
+                now,
+                maximum_tip_age_seconds: 3_600,
+                minimum_height: Height::new(1),
+                minimum_chainwork: Chainwork::ZERO,
+            })
+            .unwrap();
+        (
+            current.verify_name_resource(b"alpha", &proof).unwrap(),
+            validation_time,
+        )
+    }
+
+    fn authenticated_hns_authority() -> (HnsDnssecAuthority, PKey<Private>, Dnskey, u32) {
+        let zone = Name::from_ascii("alpha.").unwrap();
         let rsa = Rsa::generate(1024).unwrap();
         let key = rsa_dnskey(&rsa);
         let key_pair = PKey::from_rsa(rsa).unwrap();
@@ -921,7 +1020,6 @@ mod tests {
             ttl: 300,
             rdata: Rdata::Dnskey(key.clone()),
         }];
-        let signatures = vec![sign_rrset(&dnskeys, zone.clone(), &key, &key_pair)];
         let mut key_rdata = Vec::new();
         key_rdata.extend_from_slice(&key.flags.to_be_bytes());
         key_rdata.push(key.protocol);
@@ -930,32 +1028,35 @@ mod tests {
         let mut digest_input = Vec::new();
         zone.encode(&mut digest_input).unwrap();
         digest_input.extend_from_slice(&key_rdata);
-        let ds = vec![ResourceRecord {
-            name: zone.clone(),
-            record_type: RecordType::Ds,
-            class: hns_dns_wire::CLASS_IN,
-            ttl: 300,
-            rdata: Rdata::Ds(Ds {
-                key_tag: dnskey_tag(&key),
-                algorithm: key.algorithm,
-                digest_type: 2,
-                digest: hash(MessageDigest::sha256(), &digest_input)
-                    .unwrap()
-                    .to_vec(),
-            }),
-        }];
+        let ds = Ds {
+            key_tag: dnskey_tag(&key),
+            algorithm: key.algorithm,
+            digest_type: 2,
+            digest: hash(MessageDigest::sha256(), &digest_input)
+                .unwrap()
+                .to_vec(),
+        };
+        let (resource, validation_time) = verified_hns_resource(&ds);
+        let signatures = vec![sign_rrset_window(
+            &dnskeys,
+            zone,
+            &key,
+            &key_pair,
+            validation_time - 10,
+            validation_time + 10,
+        )];
         (
-            authenticate_dnskeys(
-                &zone,
-                &ds,
+            HnsDnssecAuthority::authenticate(
+                &resource,
                 &dnskeys,
                 &signatures,
-                1_500,
+                validation_time,
                 DnssecLimits::default(),
             )
             .unwrap(),
             key_pair,
             key,
+            validation_time,
         )
     }
 
@@ -1044,11 +1145,11 @@ mod tests {
         reason = "the end-to-end test keeps DNSSEC, resolver, SNI, and DANE evidence in one flow"
     )]
     fn engine_consumes_local_dnssec_tlsa_and_rejects_sni_mismatch() {
-        let engine = ready_engine();
+        let engine = ready_engine_on(Network::Regtest);
         let certificate = certificate();
-        let (keys, key_pair, key) = authenticated_example_keys();
+        let (authority, key_pair, key, validation_time) = authenticated_hns_authority();
         let mut resolution = TlsaResolution::for_https(
-            Name::from_ascii("example.").unwrap(),
+            Name::from_ascii("alpha.").unwrap(),
             ResolverLimits::default(),
         )
         .unwrap();
@@ -1077,11 +1178,13 @@ mod tests {
             questions: vec![query.question.clone()],
             answers: vec![
                 tlsa_records.first().unwrap().clone(),
-                sign_rrset(
+                sign_rrset_window(
                     &tlsa_records,
-                    Name::from_ascii("example.").unwrap(),
+                    Name::from_ascii("alpha.").unwrap(),
                     &key,
                     &key_pair,
+                    validation_time - 10,
+                    validation_time + 10,
                 ),
             ],
             authorities: Vec::new(),
@@ -1096,7 +1199,7 @@ mod tests {
             .parse_response(&attempt, &response, ParseLimits::requester())
             .unwrap();
         let validated = match resolution
-            .accept_response(&query, parsed.message(), &[&keys], 1_500)
+            .accept_hns_response(&query, parsed.message(), &authority)
             .unwrap()
         {
             ResolutionStep::Complete(validated) => Some(validated),
@@ -1104,20 +1207,15 @@ mod tests {
         }
         .unwrap();
         let chain = [&certificate[..]];
-        let prerequisites = LocalHnsPrerequisites {
-            hns_proof: EvidenceState::Verified,
-            chain_current: EvidenceState::Verified,
-        };
         assert!(matches!(
             engine.complete_resolution_with_validated_tlsa(
                 &attempt,
                 &parsed,
                 ValidatedDaneInput {
-                    prerequisites,
                     validated: &validated,
                     certificate_chain_der: &chain,
-                    origin_sni: "wrong.example",
-                    validation_unix_time: i64::MAX,
+                    origin_sni: "wrong.alpha",
+                    validation_unix_time: i64::from(validation_time),
                     limits: DaneLimits::default(),
                 },
                 CompletionContext::default(),
@@ -1129,11 +1227,10 @@ mod tests {
                 &attempt,
                 &parsed,
                 ValidatedDaneInput {
-                    prerequisites,
                     validated: &validated,
                     certificate_chain_der: &chain,
-                    origin_sni: "example",
-                    validation_unix_time: i64::MAX,
+                    origin_sni: "alpha",
+                    validation_unix_time: i64::from(validation_time),
                     limits: DaneLimits::default(),
                 },
                 CompletionContext::default(),
@@ -1141,6 +1238,13 @@ mod tests {
             .unwrap();
         assert!(completed.provenance.evidence.fully_verified());
         assert!(completed.provenance.untrusted_ad_claim);
+        assert_eq!(
+            completed.provenance.chain_anchor,
+            Some(ChainAnchor {
+                height: 1,
+                tree_root: authority.anchor().tree_root().into_bytes(),
+            })
+        );
         assert_eq!(
             completed.dane_match.usage(),
             hns_dane::CertificateUsage::DaneEe

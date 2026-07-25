@@ -3,6 +3,8 @@
 `hns-dane-engine` is a runtime-independent foundation for Handshake browser resolution. It provides:
 
 - a strict, allocation-bounded DNS wire codec with compression-loop and bounds defenses;
+- a genesis-anchored Handshake light-chain consensus gate with median-time, difficulty, proof-of-work,
+  chainwork, explicit currency, strict Urkel, `NameState`, and HNS resource validation;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;
@@ -19,16 +21,22 @@ recursive resolver, public DoH, or WebPKI fallback.
 
 P2P DNS Relay and P2P ODoH are described as **Denuo Experimental V1 — Not an official Handshake
 protocol assignment**. Their transport cannot establish authenticity. The production Rust path
-consumes DS-authenticated DNSKEY sets, locally validates CNAME and TLSA RRsets, checks the exact
-origin SNI, and derives DANE evidence from the server certificate chain. Handshake proof and chain
-currency are still supplied by the not-yet-integrated light-chain layer.
+validates shared `hns-rs` headers from the selected network genesis, verifies the exact HSD Urkel
+proof and committed `NameState`, derives the initial DS set from that private proof token,
+authenticates the TLD DNSKEY RRset, locally validates CNAME and TLSA RRsets, checks the exact origin
+SNI, and derives DANE evidence from the server certificate chain. The engine derives its provenance
+anchor from that lineage; callers cannot substitute a separate chain anchor or evidence flag.
+
+The current light-chain gate validates only contiguous extensions of one chain. Peer/header
+transport, fork download and best-chain selection, restart snapshots, and checkpoint bootstrap
+belong to the still-unimplemented `hns-light-p2p` and `hns-light-sync` layers.
 
 ## Build
 
 ```sh
-cargo test --workspace
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo build --workspace --release
+cargo test --workspace --all-features --locked --offline
+cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
+cargo build --workspace --all-features --release --locked --offline
 cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
 ```
 
