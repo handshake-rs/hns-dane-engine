@@ -57,6 +57,12 @@ negative TTLs have separate finite maxima. Entry count, per-value size, total va
 state are bounded; expired or generation-mismatched entries are removed before any value is
 returned. Cache metrics contain no qnames or values.
 
+Direct UDP/TCP destinations are derived only from current proof-authenticated HNS resources. Glue
+must be in bailiwick; mainnet/testnet addresses must be globally routable and use port 53.
+Nonstandard ports are accepted only for explicit regtest loopback fixtures. Every exchange
+rechecks the anchor validity window and exact query TLD before socket I/O, uses finite timeouts and
+message bounds, sends a non-recursive DNSSEC query, and parses/correlates the complete response.
+
 The only HNS resolution candidates are direct delegated-authoritative UDP/TCP, explicitly
 authenticated authoritative DoH, Denuo Experimental V1 P2P ODoH, and Denuo Experimental V1 P2P DNS
 Relay. The policy model contains no operating-system or public-recursive fallback variant.

@@ -12,6 +12,7 @@ hns-dns-wire ---> hns-dnssec --------------------------> hns-resolver --+
 hns-resolution-policy -------------------------------------------------+          v
 hns-browser-observability ---------------------------------------------+   hns-dane-engine-ffi
 hns-cache -------------------------------------------------------------+
+hns-transport ---------------------------------------------------------+
 ```
 
 `hns-dns-wire` parses and emits DNS without I/O. `hns-resolution-policy` owns typed persistent
@@ -37,6 +38,12 @@ last current-generation provenance and clears it on degradation or revocation.
 results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
 height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched
 entries before returning them; metrics contain only counts and byte totals.
+`hns-transport` derives immutable direct-DNS endpoints only from a current private HNS resource
+token. Mainnet/testnet accept globally routable in-bailiwick glue or synth addresses on port 53;
+nonstandard loopback ports require an explicit regtest-fixture policy. Connected UDP and
+length-delimited TCP use strict non-recursive DNSSEC queries, finite timeouts and message bounds,
+cooperative lifecycle cancellation, exact response correlation, and request-time anchor/TLD
+authorization.
 `hns-dane-engine-ffi` contains the narrowly audited unsafe pointer boundary and versioned C ABI.
 Adapters own sockets, clocks, secure storage, threads, UI, and platform lifecycle.
 
@@ -45,9 +52,9 @@ SQLite, operating-system DNS, or a particular network stack. Callers can execute
 state machines under their native runtime.
 
 This foundation does not yet implement peer/header transport, fork download and best-chain
-selection, restart checkpoints, origin TLS socket execution, network transports, or platform
-bridges. The current light-chain instance begins at genesis and admits a single contiguous
-extension; `hns-light-sync` must own competing-chain selection before production live sync. PKIX
-usages 0/1 intentionally have no WebPKI path. The existing C ABI still exposes the earlier
-single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI
-v2/mobile integration.
+selection, restart checkpoints, authenticated authoritative DoH, P2P relay/ODoH/HNSR transports,
+origin TLS socket execution, or platform bridges. The current light-chain instance begins at
+genesis and admits a single contiguous extension; `hns-light-sync` must own competing-chain
+selection before production live sync. PKIX usages 0/1 intentionally have no WebPKI path. The
+existing C ABI still exposes the earlier single-response DANE-EE entry point; the full
+header-to-Urkel-to-DNSSEC Rust path is pending ABI v2/mobile integration.

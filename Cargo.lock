@@ -246,6 +246,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-transport"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "hns-covenants",
+ "hns-dns-wire",
+ "hns-header-consensus",
+ "hns-light-chain",
+ "hns-primitives",
+ "thiserror",
+]
+
+[[package]]
 name = "hns-urkel-proof"
 version = "0.1.0"
 dependencies = [

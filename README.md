@@ -7,6 +7,9 @@
   chainwork, explicit currency, strict Urkel, `NameState`, and HNS resource validation;
 - a bounded positive/negative cache with qname-free session keys, exact runtime/policy/chain
   generation binding, finite TTLs, byte/entry limits, and LRU eviction;
+- proof-authorized direct authoritative DNS over connected UDP and length-delimited TCP, with
+  finite timeouts, lifecycle cancellation, strict query/response correlation, current-anchor and
+  exact-TLD binding, public-address enforcement, and regtest-only loopback fixture ports;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;

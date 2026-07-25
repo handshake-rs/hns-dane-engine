@@ -4,8 +4,8 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-features --locked --offline
-  70 unit tests passed
-  10 doc-test targets passed (0 doctests)
+  74 unit tests passed
+  11 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -68,6 +68,10 @@ Covered:
 - qname-free secret-derived cache keys bound to network, runtime generation, policy generation,
   chain height/tree root, qtype, and canonical DNS name; bounded positive/negative TTLs; exact
   entry/value/total-byte limits; LRU eviction; and remove-before-use expiry/stale handling;
+- proof-derived in-bailiwick authoritative endpoints; mainnet/testnet public-address and port-53
+  enforcement; explicit regtest-only loopback fixture ports; exact HNS TLD and request-time anchor
+  binding; finite socket/message bounds; connected UDP source filtering; exact TCP length framing;
+  lifecycle cancellation; and strict DNS response correlation;
 - explicit browser authority states;
 - C layout assertions, ownership functions, policy exchange, transport planning, query admission,
   end-to-end local DANE matching, caller-DANE-bit rejection, response correlation, and panic
@@ -81,7 +85,7 @@ Not yet implemented:
 - subdelegation discovery and a complete live authoritative DNSSEC walk beyond the on-chain TLD
   DNSKEY path;
 - origin TLS socket/SNI execution (the Rust API checks the adapter-reported exact SNI);
-- UDP, TCP, authoritative DoH, P2P DNS Relay, ODoH, or HNSR network transports;
+- authenticated authoritative DoH, P2P DNS Relay, ODoH, or HNSR network transports;
 - filesystem/mobile preferences adapters and atomic durable writes;
 - registry fingerprint negotiation and HSD draft-PR cross-language execution;
 - platform bridges, loopback proxy, local CA, mobile ABI packaging, and Chromium native host;

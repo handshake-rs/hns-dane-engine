@@ -1,0 +1,22 @@
+[package]
+name = "hns-transport"
+description = "Proof-authorized direct Handshake DNS transports"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hns-covenants = { path = "../../../hns-rs/crates/hns-covenants" }
+hns-dns-wire = { path = "../hns-dns-wire" }
+hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
+hns-light-chain = { path = "../hns-light-chain" }
+hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
+thiserror = "2.0.19"
+
+[dev-dependencies]
+blake2 = "0.10.6"
+
+[lints]
+workspace = true
