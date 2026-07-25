@@ -1,6 +1,6 @@
 [package]
-name = "hns-dane"
-description = "Bounded local TLSA DANE-EE matching for HNS origins"
+name = "hns-resolver"
+description = "Locally DNSSEC-validated HNS service and TLSA resolution"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,8 +9,11 @@ repository.workspace = true
 
 [dependencies]
 hns-dns-wire = { path = "../hns-dns-wire" }
+hns-dnssec = { path = "../hns-dnssec" }
+thiserror = "2.0.19"
+
+[dev-dependencies]
 openssl = "0.10.81"
-sha2 = { version = "0.10.9", default-features = false }
 
 [lints]
 workspace = true

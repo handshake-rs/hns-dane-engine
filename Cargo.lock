@@ -98,6 +98,7 @@ name = "hns-dane"
 version = "0.1.0"
 dependencies = [
  "hns-dns-wire",
+ "openssl",
  "sha2",
 ]
 
@@ -107,7 +108,10 @@ version = "0.1.0"
 dependencies = [
  "hns-dane",
  "hns-dns-wire",
+ "hns-dnssec",
  "hns-resolution-policy",
+ "hns-resolver",
+ "openssl",
 ]
 
 [[package]]
@@ -136,6 +140,16 @@ dependencies = [
 [[package]]
 name = "hns-resolution-policy"
 version = "0.1.0"
+
+[[package]]
+name = "hns-resolver"
+version = "0.1.0"
+dependencies = [
+ "hns-dns-wire",
+ "hns-dnssec",
+ "openssl",
+ "thiserror",
+]
 
 [[package]]
 name = "libc"

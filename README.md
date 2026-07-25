@@ -4,8 +4,10 @@
 
 - a strict, allocation-bounded DNS wire codec with compression-loop and bounds defenses;
 - typed DNSSEC and TLSA resource records;
-- bounded local DANE-EE matching for full certificates and SPKI using exact, SHA-256, or SHA-512
-  associations;
+- local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
+- bounded, DNSSEC-verified CNAME chasing for TLSA;
+- local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
+  SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation;
 - resolution provenance that distinguishes transport from locally verified evidence; and
 - a versioned Rust facade and C ABI suitable for Android, Apple, and native-host adapters.
@@ -16,9 +18,10 @@ Handshake P2P ODoH and P2P DNS Relay. HNS resolution has no operating-system res
 recursive resolver, public DoH, or WebPKI fallback.
 
 P2P DNS Relay and P2P ODoH are described as **Denuo Experimental V1 — Not an official Handshake
-protocol assignment**. Their transport cannot establish authenticity. Callers supply prerequisite
-local Handshake-state, DNSSEC, chain-currency, and SNI verdicts; the engine itself derives TLSA and
-DANE evidence from the correlated response and presented certificate.
+protocol assignment**. Their transport cannot establish authenticity. The production Rust path
+consumes DS-authenticated DNSKEY sets, locally validates CNAME and TLSA RRsets, checks the exact
+origin SNI, and derives DANE evidence from the server certificate chain. Handshake proof and chain
+currency are still supplied by the not-yet-integrated light-chain layer.
 
 ## Build
 

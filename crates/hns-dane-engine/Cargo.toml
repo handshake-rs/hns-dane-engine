@@ -10,7 +10,12 @@ repository.workspace = true
 [dependencies]
 hns-dane = { path = "../hns-dane" }
 hns-dns-wire = { path = "../hns-dns-wire" }
+hns-resolver = { path = "../hns-resolver" }
 hns-resolution-policy = { path = "../hns-resolution-policy" }
+
+[dev-dependencies]
+hns-dnssec = { path = "../hns-dnssec" }
+openssl = "0.10.81"
 
 [lints]
 workspace = true

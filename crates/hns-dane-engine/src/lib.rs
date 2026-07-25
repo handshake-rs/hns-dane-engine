@@ -16,13 +16,14 @@
 use std::fmt;
 use std::sync::RwLock;
 
-use hns_dane::{DaneLimits, DaneMatch, verify_dane_ee};
+use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
 use hns_resolution_policy::{
     Admission, ChainAnchor, EvidenceState, Network, PolicyConfig, PolicyController, PolicyError,
     PolicySnapshot, PolicyTransition, ResolutionProvenance, ResolutionTransport, TransportPlan,
     ValidationEvidence,
 };
+use hns_resolver::ValidatedTlsa;
 
 /// Stable Rust facade API version.
 pub const ENGINE_API_VERSION: u32 = 1;
@@ -187,6 +188,43 @@ pub struct LocalDanePrerequisites {
     pub chain_current: EvidenceState,
     /// Origin SNI match for the presented TLS certificate.
     pub origin_sni: EvidenceState,
+}
+
+/// Local Handshake authority prerequisites for the engine-owned DNSSEC path.
+///
+/// DNSSEC, TLSA, DANE, and origin-SNI evidence are absent because the engine
+/// derives them from [`ValidatedTlsa`], the certificate chain, and the exact
+/// SNI string supplied to the origin transport.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalHnsPrerequisites {
+    /// Verified Handshake state and Urkel proof.
+    pub hns_proof: EvidenceState,
+    /// Chain currency sufficiency.
+    pub chain_current: EvidenceState,
+}
+
+impl LocalHnsPrerequisites {
+    const fn fully_verified(self) -> bool {
+        matches!(self.hns_proof, EvidenceState::Verified)
+            && matches!(self.chain_current, EvidenceState::Verified)
+    }
+}
+
+/// Inputs for engine-owned DNSSEC and DANE completion.
+#[derive(Clone, Copy, Debug)]
+pub struct ValidatedDaneInput<'a> {
+    /// Verified local Handshake prerequisites.
+    pub prerequisites: LocalHnsPrerequisites,
+    /// Non-forgeable resolver result.
+    pub validated: &'a ValidatedTlsa,
+    /// TLS server chain, leaf first.
+    pub certificate_chain_der: &'a [&'a [u8]],
+    /// Exact SNI sent to the TLS origin.
+    pub origin_sni: &'a str,
+    /// Explicit certificate validation time for DANE-TA.
+    pub validation_unix_time: i64,
+    /// DANE resource bounds.
+    pub limits: DaneLimits,
 }
 
 impl LocalDanePrerequisites {
@@ -427,6 +465,63 @@ impl Engine {
         })
     }
 
+    /// Complete from non-forgeable local DNSSEC/TLSA evidence.
+    ///
+    /// The terminal response must carry the exact RRset represented by
+    /// `validated`. The supplied origin SNI must equal the original TLSA base
+    /// domain. DANE-EE or DANE-TA matching is then performed locally with no
+    /// WebPKI fallback.
+    pub fn complete_resolution_with_validated_tlsa(
+        &self,
+        attempt: &ResolutionAttempt,
+        response: &ParsedResponse,
+        input: ValidatedDaneInput<'_>,
+        context: CompletionContext,
+    ) -> Result<DaneCompletion, EngineError> {
+        if response.attempt_event_sequence != attempt.event_sequence {
+            return Err(EngineError::ResponseAttemptMismatch);
+        }
+        if response.message.header.flags.rcode() != 0 {
+            return Err(EngineError::UnsuccessfulDnsResponse);
+        }
+        if attempt.query.question.record_type != RecordType::Tlsa
+            || attempt.query.question.class != hns_dns_wire::CLASS_IN
+            || attempt.query.question.name != *input.validated.terminal_owner()
+        {
+            return Err(EngineError::ExpectedTlsaQuery);
+        }
+        if !input.prerequisites.fully_verified() {
+            return Err(EngineError::Policy(PolicyError::UnverifiedEvidence));
+        }
+        if input.origin_sni != input.validated.base_domain_ascii() {
+            return Err(EngineError::OriginSniMismatch);
+        }
+        let response_records = exact_tlsa_answers(attempt, response);
+        if response_records != input.validated.records() {
+            return Err(EngineError::ResponseEvidenceMismatch);
+        }
+        let dane_match = verify_dane_chain(
+            input.certificate_chain_der,
+            input.validated.base_domain_ascii(),
+            input.validated.records(),
+            input.validation_unix_time,
+            input.limits,
+        )?;
+        let evidence = ValidationEvidence {
+            hns_proof: input.prerequisites.hns_proof,
+            dnssec: EvidenceState::Verified,
+            tlsa: EvidenceState::Verified,
+            dane: EvidenceState::Verified,
+            chain_current: input.prerequisites.chain_current,
+            origin_sni: EvidenceState::Verified,
+        };
+        let provenance = self.complete_resolution(attempt, response, evidence, context)?;
+        Ok(DaneCompletion {
+            provenance,
+            dane_match,
+        })
+    }
+
     fn complete_resolution(
         &self,
         attempt: &ResolutionAttempt,
@@ -613,6 +708,10 @@ pub enum EngineError {
     ProxyTargetNotSeparated,
     /// Completion context conflicts with the admitted transport.
     InvalidCompletionContext,
+    /// Locally validated TLSA evidence does not match the terminal response.
+    ResponseEvidenceMismatch,
+    /// Actual origin SNI differs from the original TLSA base domain.
+    OriginSniMismatch,
     /// DNS wire failure.
     Wire(hns_dns_wire::Error),
     /// Local TLSA/DANE matching failure.
@@ -651,6 +750,12 @@ impl fmt::Display for EngineError {
             }
             Self::InvalidCompletionContext => {
                 formatter.write_str("completion context conflicts with selected transport")
+            }
+            Self::ResponseEvidenceMismatch => {
+                formatter.write_str("validated TLSA evidence does not match terminal response")
+            }
+            Self::OriginSniMismatch => {
+                formatter.write_str("origin SNI does not match the TLSA base domain")
             }
             Self::Wire(error) => write!(formatter, "DNS wire error: {error}"),
             Self::Dane(error) => write!(formatter, "DANE error: {error}"),
@@ -695,8 +800,16 @@ impl From<PolicyError> for EngineError {
 )]
 mod tests {
     use super::*;
-    use hns_dns_wire::{Flags, Header, Name, ResourceRecord};
+    use hns_dns_wire::{Dnskey, Ds, Flags, Header, Name, ResourceRecord, Rrsig};
+    use hns_dnssec::{
+        ALGORITHM_RSASHA256, DnssecLimits, authenticate_dnskeys, dnskey_tag, rrsig_signed_data,
+    };
     use hns_resolution_policy::{DnsRelayRequesterPolicy, EvidenceState, ObliviousDnsPolicy};
+    use hns_resolver::{ResolutionStep, ResolverLimits, TlsaResolution};
+    use openssl::hash::{MessageDigest, hash};
+    use openssl::pkey::{PKey, Private};
+    use openssl::rsa::Rsa;
+    use openssl::sign::Signer;
 
     const RESPONSE_WITH_UNTRUSTED_AD: &[u8] =
         b"\x12\x34\x84\x20\x00\x01\x00\x01\x00\x00\x00\x00\x07example\x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x7f\x00\x00\x01";
@@ -748,6 +861,102 @@ mod tests {
             chain_current: EvidenceState::Verified,
             origin_sni: EvidenceState::Verified,
         }
+    }
+
+    fn rsa_dnskey(rsa: &Rsa<Private>) -> Dnskey {
+        let exponent = rsa.e().to_vec();
+        let modulus = rsa.n().to_vec();
+        let mut public_key = Vec::new();
+        public_key.push(u8::try_from(exponent.len()).unwrap());
+        public_key.extend_from_slice(&exponent);
+        public_key.extend_from_slice(&modulus);
+        Dnskey {
+            flags: 257,
+            protocol: 3,
+            algorithm: ALGORITHM_RSASHA256,
+            public_key,
+        }
+    }
+
+    fn sign_rrset(
+        records: &[ResourceRecord],
+        signer_name: Name,
+        key: &Dnskey,
+        key_pair: &PKey<Private>,
+    ) -> ResourceRecord {
+        let first = records.first().unwrap();
+        let mut signature = Rrsig {
+            type_covered: first.record_type,
+            algorithm: key.algorithm,
+            labels: u8::try_from(first.name.labels().len()).unwrap(),
+            original_ttl: first.ttl,
+            expiration: 2_000,
+            inception: 1_000,
+            key_tag: dnskey_tag(key),
+            signer: signer_name,
+            signature: Vec::new(),
+        };
+        let signed = rrsig_signed_data(records, &signature, 1024 * 1024).unwrap();
+        let mut crypto_signer = Signer::new(MessageDigest::sha256(), key_pair).unwrap();
+        crypto_signer.update(&signed).unwrap();
+        signature.signature = crypto_signer.sign_to_vec().unwrap();
+        ResourceRecord {
+            name: first.name.clone(),
+            record_type: RecordType::Rrsig,
+            class: hns_dns_wire::CLASS_IN,
+            ttl: first.ttl,
+            rdata: Rdata::Rrsig(signature),
+        }
+    }
+
+    fn authenticated_example_keys() -> (hns_dnssec::AuthenticatedDnskeys, PKey<Private>, Dnskey) {
+        let zone = Name::from_ascii("example.").unwrap();
+        let rsa = Rsa::generate(1024).unwrap();
+        let key = rsa_dnskey(&rsa);
+        let key_pair = PKey::from_rsa(rsa).unwrap();
+        let dnskeys = vec![ResourceRecord {
+            name: zone.clone(),
+            record_type: RecordType::Dnskey,
+            class: hns_dns_wire::CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Dnskey(key.clone()),
+        }];
+        let signatures = vec![sign_rrset(&dnskeys, zone.clone(), &key, &key_pair)];
+        let mut key_rdata = Vec::new();
+        key_rdata.extend_from_slice(&key.flags.to_be_bytes());
+        key_rdata.push(key.protocol);
+        key_rdata.push(key.algorithm);
+        key_rdata.extend_from_slice(&key.public_key);
+        let mut digest_input = Vec::new();
+        zone.encode(&mut digest_input).unwrap();
+        digest_input.extend_from_slice(&key_rdata);
+        let ds = vec![ResourceRecord {
+            name: zone.clone(),
+            record_type: RecordType::Ds,
+            class: hns_dns_wire::CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Ds(Ds {
+                key_tag: dnskey_tag(&key),
+                algorithm: key.algorithm,
+                digest_type: 2,
+                digest: hash(MessageDigest::sha256(), &digest_input)
+                    .unwrap()
+                    .to_vec(),
+            }),
+        }];
+        (
+            authenticate_dnskeys(
+                &zone,
+                &ds,
+                &dnskeys,
+                &signatures,
+                1_500,
+                DnssecLimits::default(),
+            )
+            .unwrap(),
+            key_pair,
+            key,
+        )
     }
 
     fn tlsa_exchange(tlsa: Tlsa) -> (Query, Vec<u8>) {
@@ -826,6 +1035,115 @@ mod tests {
         assert_eq!(
             engine.snapshot().unwrap().authority_state,
             AuthorityState::DaneOriginVerified
+        );
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the end-to-end test keeps DNSSEC, resolver, SNI, and DANE evidence in one flow"
+    )]
+    fn engine_consumes_local_dnssec_tlsa_and_rejects_sni_mismatch() {
+        let engine = ready_engine();
+        let certificate = certificate();
+        let (keys, key_pair, key) = authenticated_example_keys();
+        let mut resolution = TlsaResolution::for_https(
+            Name::from_ascii("example.").unwrap(),
+            ResolverLimits::default(),
+        )
+        .unwrap();
+        let query = resolution.query(0x4242).unwrap();
+        let tlsa_records = vec![ResourceRecord {
+            name: query.question.name.clone(),
+            record_type: RecordType::Tlsa,
+            class: hns_dns_wire::CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Tlsa(Tlsa {
+                usage: 3,
+                selector: 0,
+                matching_type: 0,
+                association_data: certificate.clone(),
+            }),
+        }];
+        let response = Message {
+            header: Header {
+                id: query.id,
+                flags: Flags::from_bits(0x8420),
+                question_count: 1,
+                answer_count: 2,
+                authority_count: 0,
+                additional_count: 0,
+            },
+            questions: vec![query.question.clone()],
+            answers: vec![
+                tlsa_records.first().unwrap().clone(),
+                sign_rrset(
+                    &tlsa_records,
+                    Name::from_ascii("example.").unwrap(),
+                    &key,
+                    &key_pair,
+                ),
+            ],
+            authorities: Vec::new(),
+            additionals: Vec::new(),
+        }
+        .encode(u16::MAX.into())
+        .unwrap();
+        let attempt = engine
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query.clone())
+            .unwrap();
+        let parsed = engine
+            .parse_response(&attempt, &response, ParseLimits::requester())
+            .unwrap();
+        let validated = match resolution
+            .accept_response(&query, parsed.message(), &[&keys], 1_500)
+            .unwrap()
+        {
+            ResolutionStep::Complete(validated) => Some(validated),
+            ResolutionStep::FollowCname(_) => None,
+        }
+        .unwrap();
+        let chain = [&certificate[..]];
+        let prerequisites = LocalHnsPrerequisites {
+            hns_proof: EvidenceState::Verified,
+            chain_current: EvidenceState::Verified,
+        };
+        assert!(matches!(
+            engine.complete_resolution_with_validated_tlsa(
+                &attempt,
+                &parsed,
+                ValidatedDaneInput {
+                    prerequisites,
+                    validated: &validated,
+                    certificate_chain_der: &chain,
+                    origin_sni: "wrong.example",
+                    validation_unix_time: i64::MAX,
+                    limits: DaneLimits::default(),
+                },
+                CompletionContext::default(),
+            ),
+            Err(EngineError::OriginSniMismatch)
+        ));
+        let completed = engine
+            .complete_resolution_with_validated_tlsa(
+                &attempt,
+                &parsed,
+                ValidatedDaneInput {
+                    prerequisites,
+                    validated: &validated,
+                    certificate_chain_der: &chain,
+                    origin_sni: "example",
+                    validation_unix_time: i64::MAX,
+                    limits: DaneLimits::default(),
+                },
+                CompletionContext::default(),
+            )
+            .unwrap();
+        assert!(completed.provenance.evidence.fully_verified());
+        assert!(completed.provenance.untrusted_ad_claim);
+        assert_eq!(
+            completed.dane_match.usage(),
+            hns_dane::CertificateUsage::DaneEe
         );
     }
 

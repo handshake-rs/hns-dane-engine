@@ -78,17 +78,96 @@ impl Default for DnssecLimits {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedRrset {
     /// Canonical RRset owner.
-    pub owner: Name,
+    owner: Name,
     /// Covered resource type.
-    pub record_type: RecordType,
+    record_type: RecordType,
     /// DNSKEY tag.
-    pub key_tag: u16,
+    key_tag: u16,
     /// DNSSEC algorithm.
-    pub algorithm: u8,
+    algorithm: u8,
     /// Signature inception time.
-    pub inception: u32,
+    inception: u32,
     /// Signature expiration time.
-    pub expiration: u32,
+    expiration: u32,
+}
+
+impl VerifiedRrset {
+    /// Canonical RRset owner.
+    #[must_use]
+    pub const fn owner(&self) -> &Name {
+        &self.owner
+    }
+
+    /// Covered resource type.
+    #[must_use]
+    pub const fn record_type(&self) -> RecordType {
+        self.record_type
+    }
+
+    /// Authenticating DNSKEY tag.
+    #[must_use]
+    pub const fn key_tag(&self) -> u16 {
+        self.key_tag
+    }
+
+    /// Authenticating DNSSEC algorithm.
+    #[must_use]
+    pub const fn algorithm(&self) -> u8 {
+        self.algorithm
+    }
+
+    /// Signature inception time.
+    #[must_use]
+    pub const fn inception(&self) -> u32 {
+        self.inception
+    }
+
+    /// Signature expiration time.
+    #[must_use]
+    pub const fn expiration(&self) -> u32 {
+        self.expiration
+    }
+}
+
+/// A DNSKEY RRset authenticated through a local DS chain.
+///
+/// Fields are private so safe callers cannot manufacture local DNSSEC
+/// evidence. Use [`authenticate_dnskeys`] or [`authenticate_child_dnskeys`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticatedDnskeys {
+    zone: Name,
+    records: Vec<ResourceRecord>,
+    delegation_key_tag: u16,
+    delegation_algorithm: u8,
+}
+
+impl AuthenticatedDnskeys {
+    /// Authenticated zone apex.
+    #[must_use]
+    pub const fn zone(&self) -> &Name {
+        &self.zone
+    }
+
+    /// DS-authenticated key tag.
+    #[must_use]
+    pub const fn delegation_key_tag(&self) -> u16 {
+        self.delegation_key_tag
+    }
+
+    /// DS-authenticated DNSSEC algorithm.
+    #[must_use]
+    pub const fn delegation_algorithm(&self) -> u8 {
+        self.delegation_algorithm
+    }
+}
+
+/// Borrowed data records plus their covering RRSIG records.
+#[derive(Clone, Copy, Debug)]
+pub struct SignedRrset<'a> {
+    /// Data records.
+    pub records: &'a [ResourceRecord],
+    /// Covering RRSIG records.
+    pub signatures: &'a [ResourceRecord],
 }
 
 /// Authenticated denial result.
@@ -193,7 +272,7 @@ pub fn verify_rrset(
             continue;
         }
         saw_supported = true;
-        let signed = canonical_signed_data(records, signature, limits.max_signed_data_len)?;
+        let signed = rrsig_signed_data(records, signature, limits.max_signed_data_len)?;
         for key_record in keys {
             let Some(key) = dnskey_for(key_record, &signature.signer) else {
                 continue;
@@ -236,6 +315,109 @@ pub fn verify_rrset(
     } else {
         Err(DnssecError::SignatureMismatch)
     }
+}
+
+/// Produce RFC 4034 canonical bytes covered by an RRSIG.
+///
+/// This is exposed for deterministic fixture generation and authoritative
+/// tooling. Verification callers should normally use [`verify_rrset`].
+pub fn rrsig_signed_data(
+    records: &[ResourceRecord],
+    signature: &Rrsig,
+    maximum: usize,
+) -> Result<Vec<u8>, DnssecError> {
+    canonical_signed_data(records, signature, maximum)
+}
+
+/// Authenticate a zone DNSKEY RRset from already trusted DS records.
+///
+/// The caller must obtain `trusted_ds` from a locally verified parent RRset
+/// or a locally verified Handshake name resource. For child delegations,
+/// prefer [`authenticate_child_dnskeys`], which verifies that parent step.
+pub fn authenticate_dnskeys(
+    zone: &Name,
+    trusted_ds: &[ResourceRecord],
+    dnskeys: &[ResourceRecord],
+    signatures: &[ResourceRecord],
+    validation_time: u32,
+    limits: DnssecLimits,
+) -> Result<AuthenticatedDnskeys, DnssecError> {
+    if dnskeys.is_empty() {
+        return Err(DnssecError::EmptyRrset);
+    }
+    let mut saw_ds_match = false;
+    for key_record in dnskeys {
+        let Some(key) = dnskey_for(key_record, zone) else {
+            continue;
+        };
+        if key.flags & 0x0100 == 0 || verify_ds(zone, key, trusted_ds).is_err() {
+            continue;
+        }
+        saw_ds_match = true;
+        let key_tag = dnskey_tag(key);
+        let covering = signatures
+            .iter()
+            .filter(|record| {
+                rrsig_for(record, zone, RecordType::Dnskey).is_some_and(|signature| {
+                    signature.key_tag == key_tag && signature.algorithm == key.algorithm
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if verify_rrset(dnskeys, &covering, dnskeys, validation_time, limits).is_ok() {
+            return Ok(AuthenticatedDnskeys {
+                zone: zone.clone(),
+                records: dnskeys.to_vec(),
+                delegation_key_tag: key_tag,
+                delegation_algorithm: key.algorithm,
+            });
+        }
+    }
+    if saw_ds_match {
+        Err(DnssecError::SignatureMismatch)
+    } else {
+        Err(DnssecError::DsMismatch)
+    }
+}
+
+/// Verify an RRset with a DS-authenticated zone keyset.
+pub fn verify_rrset_with_keys(
+    keys: &AuthenticatedDnskeys,
+    records: &[ResourceRecord],
+    signatures: &[ResourceRecord],
+    validation_time: u32,
+    limits: DnssecLimits,
+) -> Result<VerifiedRrset, DnssecError> {
+    verify_rrset(records, signatures, &keys.records, validation_time, limits)
+}
+
+/// Authenticate a child delegation and its DNSKEY RRset from parent keys.
+pub fn authenticate_child_dnskeys(
+    parent: &AuthenticatedDnskeys,
+    child_zone: &Name,
+    child_ds: SignedRrset<'_>,
+    child_dnskeys: SignedRrset<'_>,
+    validation_time: u32,
+    limits: DnssecLimits,
+) -> Result<AuthenticatedDnskeys, DnssecError> {
+    let verified = verify_rrset_with_keys(
+        parent,
+        child_ds.records,
+        child_ds.signatures,
+        validation_time,
+        limits,
+    )?;
+    if verified.owner() != child_zone || verified.record_type() != RecordType::Ds {
+        return Err(DnssecError::RrsetMismatch);
+    }
+    authenticate_dnskeys(
+        child_zone,
+        child_ds.records,
+        child_dnskeys.records,
+        child_dnskeys.signatures,
+        validation_time,
+        limits,
+    )
 }
 
 /// Verify that at least one class-IN DS record authenticates a DNSKEY.
@@ -1024,6 +1206,42 @@ mod tests {
         }
     }
 
+    fn sign_rrset(
+        records: &[ResourceRecord],
+        signer_name: Name,
+        key: &Dnskey,
+        key_pair: &PKey<openssl::pkey::Private>,
+    ) -> ResourceRecord {
+        let owner = records.first().unwrap().name.clone();
+        let mut signature = Rrsig {
+            type_covered: records.first().unwrap().record_type,
+            algorithm: key.algorithm,
+            labels: u8::try_from(owner.labels().len()).unwrap(),
+            original_ttl: records.first().unwrap().ttl,
+            expiration: 2_000,
+            inception: 1_000,
+            key_tag: dnskey_tag(key),
+            signer: signer_name,
+            signature: Vec::new(),
+        };
+        let signed = rrsig_signed_data(
+            records,
+            &signature,
+            DnssecLimits::default().max_signed_data_len,
+        )
+        .unwrap();
+        let mut crypto_signer = Signer::new(MessageDigest::sha256(), key_pair).unwrap();
+        crypto_signer.update(&signed).unwrap();
+        signature.signature = crypto_signer.sign_to_vec().unwrap();
+        ResourceRecord {
+            name: owner,
+            record_type: RecordType::Rrsig,
+            class: CLASS_IN,
+            ttl: signature.original_ttl,
+            rdata: Rdata::Rrsig(signature),
+        }
+    }
+
     fn signed_fixture() -> (
         Vec<ResourceRecord>,
         Vec<ResourceRecord>,
@@ -1034,34 +1252,8 @@ mod tests {
         let records = vec![a_record(&owner)];
         let rsa = Rsa::generate(1024).unwrap();
         let key = rsa_dnskey(&rsa);
-        let mut signature = Rrsig {
-            type_covered: RecordType::A,
-            algorithm: ALGORITHM_RSASHA256,
-            labels: 2,
-            original_ttl: 300,
-            expiration: 2_000,
-            inception: 1_000,
-            key_tag: dnskey_tag(&key),
-            signer: signer_name.clone(),
-            signature: Vec::new(),
-        };
-        let signed = canonical_signed_data(
-            &records,
-            &signature,
-            DnssecLimits::default().max_signed_data_len,
-        )
-        .unwrap();
         let key_pair = PKey::from_rsa(rsa).unwrap();
-        let mut crypto_signer = Signer::new(MessageDigest::sha256(), &key_pair).unwrap();
-        crypto_signer.update(&signed).unwrap();
-        signature.signature = crypto_signer.sign_to_vec().unwrap();
-        let signatures = vec![ResourceRecord {
-            name: owner,
-            record_type: RecordType::Rrsig,
-            class: CLASS_IN,
-            ttl: 300,
-            rdata: Rdata::Rrsig(signature),
-        }];
+        let signatures = vec![sign_rrset(&records, signer_name.clone(), &key, &key_pair)];
         let keys = vec![ResourceRecord {
             name: signer_name,
             record_type: RecordType::Dnskey,
@@ -1073,12 +1265,69 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_keyset_verifies_terminal_rrsets() {
+        let zone = name("example.");
+        let rsa = Rsa::generate(1024).unwrap();
+        let key = rsa_dnskey(&rsa);
+        let key_pair = PKey::from_rsa(rsa).unwrap();
+        let dnskeys = vec![ResourceRecord {
+            name: zone.clone(),
+            record_type: RecordType::Dnskey,
+            class: CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Dnskey(key.clone()),
+        }];
+        let dnskey_signatures = vec![sign_rrset(&dnskeys, zone.clone(), &key, &key_pair)];
+        let mut digest_input = Vec::new();
+        zone.encode(&mut digest_input).unwrap();
+        digest_input.extend_from_slice(&encode_dnskey(&key));
+        let ds = vec![ResourceRecord {
+            name: zone.clone(),
+            record_type: RecordType::Ds,
+            class: CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Ds(Ds {
+                key_tag: dnskey_tag(&key),
+                algorithm: key.algorithm,
+                digest_type: 2,
+                digest: hash(MessageDigest::sha256(), &digest_input)
+                    .unwrap()
+                    .to_vec(),
+            }),
+        }];
+        let authenticated = authenticate_dnskeys(
+            &zone,
+            &ds,
+            &dnskeys,
+            &dnskey_signatures,
+            1_500,
+            DnssecLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(authenticated.zone(), &zone);
+        assert_eq!(authenticated.delegation_key_tag(), dnskey_tag(&key));
+
+        let records = vec![a_record(&name("www.example."))];
+        let signatures = vec![sign_rrset(&records, zone, &key, &key_pair)];
+        let verified = verify_rrset_with_keys(
+            &authenticated,
+            &records,
+            &signatures,
+            1_500,
+            DnssecLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(verified.record_type(), RecordType::A);
+        assert_eq!(verified.owner(), &name("www.example."));
+    }
+
+    #[test]
     fn validates_rrset_and_rejects_mutation_or_time_failure() {
         let (records, signatures, keys) = signed_fixture();
         let verified =
             verify_rrset(&records, &signatures, &keys, 1_500, DnssecLimits::default()).unwrap();
-        assert_eq!(verified.owner, name("www.example."));
-        assert_eq!(verified.record_type, RecordType::A);
+        assert_eq!(verified.owner(), &name("www.example."));
+        assert_eq!(verified.record_type(), RecordType::A);
 
         let mut mutated = records.clone();
         let record = mutated.first_mut().unwrap();

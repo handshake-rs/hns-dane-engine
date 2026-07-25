@@ -15,6 +15,10 @@
 use std::fmt;
 
 use hns_dns_wire::Tlsa;
+use openssl::stack::Stack;
+use openssl::x509::store::X509StoreBuilder;
+use openssl::x509::verify::{X509CheckFlags, X509VerifyFlags, X509VerifyParam};
+use openssl::x509::{X509, X509StoreContext};
 use sha2::{Digest, Sha256, Sha512};
 
 /// Default maximum DER certificate size.
@@ -35,6 +39,8 @@ pub struct DaneLimits {
     pub max_tlsa_records: usize,
     /// Maximum association bytes in one TLSA record.
     pub max_association_len: usize,
+    /// Maximum certificates accepted from one TLS server.
+    pub max_chain_certificates: usize,
 }
 
 impl Default for DaneLimits {
@@ -44,6 +50,7 @@ impl Default for DaneLimits {
             max_spki_len: DEFAULT_MAX_SPKI_LEN,
             max_tlsa_records: 64,
             max_association_len: MAX_TLSA_ASSOCIATION_LEN,
+            max_chain_certificates: 16,
         }
     }
 }
@@ -52,6 +59,9 @@ impl Default for DaneLimits {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CertificateUsage {
+    /// DANE trust anchor: a locally DNSSEC-authenticated record anchors a
+    /// complete private PKIX path without consulting WebPKI.
+    DaneTa = 2,
     /// DANE end entity: the locally DNSSEC-authenticated record pins the leaf.
     DaneEe = 3,
 }
@@ -137,6 +147,12 @@ pub enum DaneError {
     InvalidAssociationLength,
     /// Every record was valid but none matched the presented certificate.
     Mismatch,
+    /// The supplied server certificate chain is empty or exceeds its bound.
+    ChainLength,
+    /// DANE-TA path, validity-time, or server-name validation failed.
+    ChainValidation,
+    /// The TLSA base domain is empty, contains NUL, or cannot be checked.
+    InvalidServerName,
 }
 
 impl fmt::Display for DaneError {
@@ -160,6 +176,11 @@ impl fmt::Display for DaneError {
                 formatter.write_str("invalid TLSA association-data length")
             }
             Self::Mismatch => formatter.write_str("TLSA records do not match certificate"),
+            Self::ChainLength => formatter.write_str("certificate chain exceeds configured bounds"),
+            Self::ChainValidation => {
+                formatter.write_str("DANE-TA certificate path validation failed")
+            }
+            Self::InvalidServerName => formatter.write_str("invalid DANE TLSA base domain"),
         }
     }
 }
@@ -190,6 +211,12 @@ pub fn verify_dane_ee(
         .iter()
         .map(|record| parse_record(record, limits))
         .collect::<Result<Vec<_>, _>>()?;
+    if let Some(record) = parsed_records
+        .iter()
+        .find(|record| record.usage != CertificateUsage::DaneEe)
+    {
+        return Err(DaneError::UnsupportedUsage(record.usage as u8));
+    }
     let spki = extract_subject_public_key_info(certificate_der)?;
     if spki.len() > limits.max_spki_len {
         return Err(DaneError::SpkiLength);
@@ -200,13 +227,156 @@ pub fn verify_dane_ee(
         if material.matches(*record) {
             return Ok(DaneMatch {
                 record_index,
-                usage: CertificateUsage::DaneEe,
+                usage: record.usage,
                 selector: record.selector,
                 matching_type: record.matching_type,
             });
         }
     }
     Err(DaneError::Mismatch)
+}
+
+/// Verify a TLS server certificate chain against DANE-EE or DANE-TA records.
+///
+/// DANE-EE matches only the leaf and, per RFC 7671, deliberately ignores
+/// certificate names, validity dates, and public trust stores. DANE-TA builds
+/// a private path rooted only in the matching TLSA trust anchor, validates at
+/// `validation_unix_time`, and requires the TLSA base domain in the leaf.
+/// WebPKI roots are never loaded.
+pub fn verify_dane_chain(
+    certificate_chain_der: &[&[u8]],
+    tlsa_base_domain: &str,
+    records: &[Tlsa],
+    validation_unix_time: i64,
+    limits: DaneLimits,
+) -> Result<DaneMatch, DaneError> {
+    validate_chain_inputs(certificate_chain_der, tlsa_base_domain, records, limits)?;
+
+    let parsed_records = records
+        .iter()
+        .map(|record| parse_record(record, limits))
+        .collect::<Result<Vec<_>, _>>()?;
+    let leaf = certificate_chain_der
+        .first()
+        .copied()
+        .ok_or(DaneError::ChainLength)?;
+    let leaf_spki = extract_subject_public_key_info(leaf)?;
+    if leaf_spki.len() > limits.max_spki_len {
+        return Err(DaneError::SpkiLength);
+    }
+    let leaf_material = MatchMaterial::new(leaf, leaf_spki);
+    for (record_index, record) in parsed_records.iter().copied().enumerate() {
+        if record.usage == CertificateUsage::DaneEe && leaf_material.matches(record) {
+            return Ok(DaneMatch {
+                record_index,
+                usage: record.usage,
+                selector: record.selector,
+                matching_type: record.matching_type,
+            });
+        }
+    }
+
+    let parsed_chain = certificate_chain_der
+        .iter()
+        .map(|certificate| X509::from_der(certificate).map_err(|_| DaneError::MalformedCertificate))
+        .collect::<Result<Vec<_>, _>>()?;
+    let leaf_certificate = parsed_chain.first().ok_or(DaneError::ChainLength)?;
+    let mut saw_ta_match = false;
+    for (record_index, record) in parsed_records.iter().copied().enumerate() {
+        if record.usage != CertificateUsage::DaneTa {
+            continue;
+        }
+        let anchor_der = if record.selector == Selector::FullCertificate
+            && record.matching_type == MatchingType::Exact
+        {
+            if !constant_time_eq(record.association_data, leaf)
+                && certificate_chain_der
+                    .iter()
+                    .all(|certificate| !constant_time_eq(record.association_data, certificate))
+            {
+                // RFC 7671 permits a full-certificate DANE-TA association to
+                // carry the trust anchor even when the server omits it.
+                record.association_data
+            } else {
+                certificate_chain_der
+                    .iter()
+                    .copied()
+                    .find(|certificate| constant_time_eq(record.association_data, certificate))
+                    .ok_or(DaneError::Mismatch)?
+            }
+        } else {
+            let mut matched = None;
+            for certificate in certificate_chain_der {
+                let spki = extract_subject_public_key_info(certificate)?;
+                if spki.len() > limits.max_spki_len {
+                    return Err(DaneError::SpkiLength);
+                }
+                if MatchMaterial::new(certificate, spki).matches(record) {
+                    matched = Some(*certificate);
+                    break;
+                }
+            }
+            let Some(matched) = matched else {
+                continue;
+            };
+            matched
+        };
+        let anchor = X509::from_der(anchor_der).map_err(|_| DaneError::MalformedCertificate)?;
+        saw_ta_match = true;
+        if validate_private_chain(
+            leaf_certificate,
+            &parsed_chain,
+            &anchor,
+            anchor_der,
+            tlsa_base_domain,
+            validation_unix_time,
+            limits,
+        ) {
+            return Ok(DaneMatch {
+                record_index,
+                usage: record.usage,
+                selector: record.selector,
+                matching_type: record.matching_type,
+            });
+        }
+    }
+    if saw_ta_match {
+        Err(DaneError::ChainValidation)
+    } else {
+        Err(DaneError::Mismatch)
+    }
+}
+
+fn validate_chain_inputs(
+    certificate_chain_der: &[&[u8]],
+    tlsa_base_domain: &str,
+    records: &[Tlsa],
+    limits: DaneLimits,
+) -> Result<(), DaneError> {
+    if certificate_chain_der.is_empty()
+        || certificate_chain_der.len() > limits.max_chain_certificates
+    {
+        return Err(DaneError::ChainLength);
+    }
+    if tlsa_base_domain.is_empty()
+        || tlsa_base_domain.len() > 253
+        || tlsa_base_domain.as_bytes().contains(&0)
+    {
+        return Err(DaneError::InvalidServerName);
+    }
+    if certificate_chain_der
+        .iter()
+        .any(|certificate| certificate.is_empty() || certificate.len() > limits.max_certificate_len)
+    {
+        return Err(DaneError::CertificateLength);
+    }
+    if records.is_empty() {
+        return Err(DaneError::MissingTlsa);
+    }
+    if records.len() > limits.max_tlsa_records {
+        return Err(DaneError::TooManyTlsaRecords);
+    }
+    Ok(())
 }
 
 /// Extract the exact DER `SubjectPublicKeyInfo` TLV from a leaf certificate.
@@ -248,15 +418,18 @@ pub fn extract_subject_public_key_info(certificate_der: &[u8]) -> Result<&[u8], 
 
 #[derive(Clone, Copy)]
 struct ParsedRecord<'a> {
+    usage: CertificateUsage,
     selector: Selector,
     matching_type: MatchingType,
     association_data: &'a [u8],
 }
 
 fn parse_record(record: &Tlsa, limits: DaneLimits) -> Result<ParsedRecord<'_>, DaneError> {
-    if record.usage != CertificateUsage::DaneEe as u8 {
-        return Err(DaneError::UnsupportedUsage(record.usage));
-    }
+    let usage = match record.usage {
+        2 => CertificateUsage::DaneTa,
+        3 => CertificateUsage::DaneEe,
+        value => return Err(DaneError::UnsupportedUsage(value)),
+    };
     let selector = match record.selector {
         0 => Selector::FullCertificate,
         1 => Selector::SubjectPublicKeyInfo,
@@ -277,6 +450,7 @@ fn parse_record(record: &Tlsa, limits: DaneLimits) -> Result<ParsedRecord<'_>, D
         return Err(DaneError::InvalidAssociationLength);
     }
     Ok(ParsedRecord {
+        usage,
         selector,
         matching_type,
         association_data: &record.association_data,
@@ -315,6 +489,52 @@ impl<'a> MatchMaterial<'a> {
         };
         constant_time_eq(candidate, record.association_data)
     }
+}
+
+fn validate_private_chain(
+    leaf: &X509,
+    presented_chain: &[X509],
+    anchor: &X509,
+    anchor_der: &[u8],
+    server_name: &str,
+    validation_unix_time: i64,
+    limits: DaneLimits,
+) -> bool {
+    let result = (|| {
+        let mut store_builder = X509StoreBuilder::new()?;
+        store_builder.add_cert(anchor.clone())?;
+        let mut parameters = X509VerifyParam::new()?;
+        parameters.set_flags(
+            X509VerifyFlags::PARTIAL_CHAIN
+                | X509VerifyFlags::TRUSTED_FIRST
+                | X509VerifyFlags::X509_STRICT,
+        )?;
+        parameters.set_depth(
+            i32::try_from(limits.max_chain_certificates)
+                .map_err(|_| openssl::error::ErrorStack::get())?,
+        );
+        parameters.set_hostflags(X509CheckFlags::NO_PARTIAL_WILDCARDS);
+        parameters.set_host(server_name)?;
+        parameters.set_time(validation_unix_time);
+        store_builder.set_param(&parameters)?;
+        let store = store_builder.build();
+
+        let mut untrusted = Stack::new()?;
+        for certificate in presented_chain.iter().skip(1) {
+            let der = certificate.to_der()?;
+            if !constant_time_eq(&der, anchor_der) {
+                untrusted.push(certificate.clone())?;
+            }
+        }
+        let mut context = X509StoreContext::new()?;
+        context.init(
+            &store,
+            leaf,
+            &untrusted,
+            openssl::x509::X509StoreContextRef::verify_cert,
+        )
+    })();
+    matches!(result, Ok(true))
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
@@ -565,6 +785,17 @@ fn validate_tbs_tail(reader: &mut DerReader<'_>) -> Result<(), DaneError> {
     reason = "tests intentionally fail immediately on malformed fixed fixtures"
 )]
 mod tests {
+    use openssl::asn1::Asn1Time;
+    use openssl::bn::BigNum;
+    use openssl::hash::MessageDigest;
+    use openssl::pkey::{PKey, Private};
+    use openssl::rsa::Rsa;
+    use openssl::x509::extension::{
+        AuthorityKeyIdentifier, BasicConstraints, ExtendedKeyUsage, KeyUsage,
+        SubjectAlternativeName, SubjectKeyIdentifier,
+    };
+    use openssl::x509::{X509, X509NameBuilder};
+
     use super::*;
 
     fn decode_hex(input: &str) -> Vec<u8> {
@@ -581,6 +812,109 @@ mod tests {
                 u8::try_from((high << 4) | low).unwrap()
             })
             .collect()
+    }
+
+    fn serial(value: u32) -> openssl::asn1::Asn1Integer {
+        BigNum::from_u32(value).unwrap().to_asn1_integer().unwrap()
+    }
+
+    fn certificate_chain() -> (Vec<u8>, Vec<u8>) {
+        let root_key = PKey::from_rsa(Rsa::generate(2048).unwrap()).unwrap();
+        let mut root_name = X509NameBuilder::new().unwrap();
+        root_name
+            .append_entry_by_text("CN", "DANE Test Root")
+            .unwrap();
+        let root_name = root_name.build();
+        let mut root_builder = X509::builder().unwrap();
+        root_builder.set_version(2).unwrap();
+        root_builder.set_serial_number(&serial(1)).unwrap();
+        root_builder.set_subject_name(&root_name).unwrap();
+        root_builder.set_issuer_name(&root_name).unwrap();
+        root_builder.set_pubkey(&root_key).unwrap();
+        root_builder
+            .set_not_before(&Asn1Time::from_unix(1_600_000_000).unwrap())
+            .unwrap();
+        root_builder
+            .set_not_after(&Asn1Time::from_unix(1_900_000_000).unwrap())
+            .unwrap();
+        root_builder
+            .append_extension(BasicConstraints::new().critical().ca().build().unwrap())
+            .unwrap();
+        root_builder
+            .append_extension(
+                KeyUsage::new()
+                    .critical()
+                    .key_cert_sign()
+                    .crl_sign()
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
+        let root_subject_key = SubjectKeyIdentifier::new()
+            .build(&root_builder.x509v3_context(None, None))
+            .unwrap();
+        root_builder.append_extension(root_subject_key).unwrap();
+        root_builder
+            .sign(&root_key, MessageDigest::sha256())
+            .unwrap();
+        let root = root_builder.build();
+
+        let leaf_key: PKey<Private> = PKey::from_rsa(Rsa::generate(2048).unwrap()).unwrap();
+        let mut leaf_name = X509NameBuilder::new().unwrap();
+        leaf_name
+            .append_entry_by_text("CN", "service.example")
+            .unwrap();
+        let leaf_name = leaf_name.build();
+        let mut leaf_builder = X509::builder().unwrap();
+        leaf_builder.set_version(2).unwrap();
+        leaf_builder.set_serial_number(&serial(2)).unwrap();
+        leaf_builder.set_subject_name(&leaf_name).unwrap();
+        leaf_builder.set_issuer_name(root.subject_name()).unwrap();
+        leaf_builder.set_pubkey(&leaf_key).unwrap();
+        leaf_builder
+            .set_not_before(&Asn1Time::from_unix(1_600_000_000).unwrap())
+            .unwrap();
+        leaf_builder
+            .set_not_after(&Asn1Time::from_unix(1_900_000_000).unwrap())
+            .unwrap();
+        leaf_builder
+            .append_extension(BasicConstraints::new().critical().build().unwrap())
+            .unwrap();
+        leaf_builder
+            .append_extension(
+                KeyUsage::new()
+                    .critical()
+                    .digital_signature()
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
+        leaf_builder
+            .append_extension(ExtendedKeyUsage::new().server_auth().build().unwrap())
+            .unwrap();
+        let subject_alternative_name = SubjectAlternativeName::new()
+            .dns("service.example")
+            .build(&leaf_builder.x509v3_context(Some(&root), None))
+            .unwrap();
+        leaf_builder
+            .append_extension(subject_alternative_name)
+            .unwrap();
+        let authority_key = AuthorityKeyIdentifier::new()
+            .keyid(true)
+            .build(&leaf_builder.x509v3_context(Some(&root), None))
+            .unwrap();
+        leaf_builder.append_extension(authority_key).unwrap();
+        let leaf_subject_key = SubjectKeyIdentifier::new()
+            .build(&leaf_builder.x509v3_context(Some(&root), None))
+            .unwrap();
+        leaf_builder.append_extension(leaf_subject_key).unwrap();
+        leaf_builder
+            .sign(&root_key, MessageDigest::sha256())
+            .unwrap();
+        (
+            leaf_builder.build().to_der().unwrap(),
+            root.to_der().unwrap(),
+        )
     }
 
     fn certificate() -> Vec<u8> {
@@ -671,6 +1005,116 @@ mod tests {
 
         assert_eq!(
             verify_dane_ee(&mutated, &[tlsa], DaneLimits::default()),
+            Err(DaneError::Mismatch)
+        );
+    }
+
+    #[test]
+    fn dane_ta_builds_only_the_dnssec_selected_private_chain() {
+        let (leaf, root) = certificate_chain();
+        let exact_anchor = Tlsa {
+            usage: 2,
+            selector: 0,
+            matching_type: 0,
+            association_data: root.clone(),
+        };
+        let matched = verify_dane_chain(
+            &[&leaf],
+            "service.example",
+            std::slice::from_ref(&exact_anchor),
+            1_750_000_000,
+            DaneLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(matched.usage(), CertificateUsage::DaneTa);
+        assert_eq!(matched.selector(), Selector::FullCertificate);
+
+        assert_eq!(
+            verify_dane_chain(
+                &[&leaf],
+                "wrong.example",
+                std::slice::from_ref(&exact_anchor),
+                1_750_000_000,
+                DaneLimits::default(),
+            ),
+            Err(DaneError::ChainValidation)
+        );
+        assert_eq!(
+            verify_dane_chain(
+                &[&leaf],
+                "service.example",
+                std::slice::from_ref(&exact_anchor),
+                2_000_000_000,
+                DaneLimits::default(),
+            ),
+            Err(DaneError::ChainValidation)
+        );
+    }
+
+    #[test]
+    fn dane_ta_digest_requires_the_anchor_in_the_server_chain() {
+        let (leaf, root) = certificate_chain();
+        let root_spki = extract_subject_public_key_info(&root).unwrap();
+        let digest_anchor = Tlsa {
+            usage: 2,
+            selector: 1,
+            matching_type: 1,
+            association_data: Sha256::digest(root_spki).to_vec(),
+        };
+        let matched = verify_dane_chain(
+            &[&leaf, &root],
+            "service.example",
+            std::slice::from_ref(&digest_anchor),
+            1_750_000_000,
+            DaneLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(matched.usage(), CertificateUsage::DaneTa);
+        assert_eq!(matched.selector(), Selector::SubjectPublicKeyInfo);
+
+        assert_eq!(
+            verify_dane_chain(
+                &[&leaf],
+                "service.example",
+                std::slice::from_ref(&digest_anchor),
+                1_750_000_000,
+                DaneLimits::default(),
+            ),
+            Err(DaneError::Mismatch)
+        );
+    }
+
+    #[test]
+    fn dane_ee_ignores_pkix_name_time_and_public_roots() {
+        let (leaf, _) = certificate_chain();
+        let leaf_record = Tlsa {
+            usage: 3,
+            selector: 0,
+            matching_type: 0,
+            association_data: leaf.clone(),
+        };
+        let matched = verify_dane_chain(
+            &[&leaf],
+            "unrelated.example",
+            std::slice::from_ref(&leaf_record),
+            i64::MAX,
+            DaneLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(matched.usage(), CertificateUsage::DaneEe);
+
+        let wrong_record = Tlsa {
+            association_data: vec![0; leaf.len()],
+            ..leaf_record
+        };
+        assert_eq!(
+            verify_dane_chain(
+                &[&leaf],
+                "service.example",
+                &[wrong_record],
+                1_750_000_000,
+                DaneLimits::default(),
+            ),
             Err(DaneError::Mismatch)
         );
     }
