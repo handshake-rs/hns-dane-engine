@@ -1,6 +1,6 @@
 [package]
-name = "hns-dane-engine"
-description = "Runtime-independent HNS browser engine facade"
+name = "hns-dane"
+description = "Bounded local TLSA DANE-EE matching for HNS origins"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hns-dane = { path = "../hns-dane" }
 hns-dns-wire = { path = "../hns-dns-wire" }
-hns-resolution-policy = { path = "../hns-resolution-policy" }
+sha2 = { version = "0.10.9", default-features = false }
 
 [lints]
 workspace = true
+

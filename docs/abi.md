@@ -17,9 +17,17 @@ completion requires distinct proxy and target identities. Direct-relay completio
 peer identity. Fixed buffers bound identity allocation at the ABI edge.
 
 `HnsDaneResultV1.untrusted_ad_claim` reports only what arrived on the wire. It never substitutes for
-the six required local evidence bits.
+local evidence. `hns_dane_engine_v1_validate_response` borrows both the correlated DNS response and
+the presented leaf-certificate DER. Its prerequisite mask contains only HNS proof, DNSSEC, chain
+currency, and origin-SNI bits (`0x33` when all are verified). Bits for TLSA or DANE are invalid:
+those results are computed inside Rust and returned as `tlsa_record_index`, `tlsa_usage`,
+`tlsa_selector`, and `tlsa_matching_type`.
+
+The function accepts only a class-IN TLSA attempt and uses same-owner TLSA answers from that
+correlated response. The caller must keep the response, certificate, context, and output storage
+valid for the duration of the call. The default certificate limit is 256 KiB, although DNS wire
+limits normally constrain each association to less than 64 KiB.
 
 The policy blob is a 32-byte versioned representation with a CRC-32 corruption check. CRC is not an
 authentication mechanism: platform adapters must store the blob in their normal integrity-protected
 settings or secure storage and use optimistic generation matching on updates.
-

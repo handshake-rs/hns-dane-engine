@@ -15,20 +15,21 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::slice;
 use std::str;
 
+use hns_dane::DaneLimits;
 use hns_dane_engine::{
-    AuthorityState, CompletionContext, Engine, EngineConfig, EngineError, ResolutionAttempt,
+    AuthorityState, CompletionContext, Engine, EngineConfig, EngineError, LocalDanePrerequisites,
+    ResolutionAttempt,
 };
 use hns_dns_wire::{Name, ParseLimits, Query, RecordType};
 use hns_resolution_policy::{
     DnsRelayRequesterPolicy, EvidenceState, HnsrPolicy, Network, ObliviousDnsPolicy, PolicyConfig,
-    PolicyError, PolicySnapshot, ProviderPolicy, ResolutionTransport, ValidationEvidence,
-    WireProfile,
+    PolicyError, PolicySnapshot, ProviderPolicy, ResolutionTransport, WireProfile,
 };
 
 /// C ABI version implemented by this library.
 pub const ABI_VERSION: u32 = 1;
-/// All six local evidence bits required for successful HNS HTTPS validation.
-pub const EVIDENCE_ALL_VERIFIED: u32 = 0x3f;
+/// All caller-supplied prerequisite bits required before local DANE matching.
+pub const PREREQUISITES_ALL_VERIFIED: u32 = 0x33;
 /// Maximum bytes in each fixed-size C transport identity.
 pub const ABI_IDENTITY_CAPACITY: usize = 128;
 
@@ -195,8 +196,16 @@ pub struct HnsDaneResultV1 {
     pub event_sequence: u64,
     /// Parsed answer count.
     pub answer_count: u16,
+    /// Index in the exact-owner TLSA RRset that matched.
+    pub tlsa_record_index: u16,
+    /// Matched TLSA certificate usage.
+    pub tlsa_usage: u8,
+    /// Matched TLSA selector.
+    pub tlsa_selector: u8,
+    /// Matched TLSA association matching type.
+    pub tlsa_matching_type: u8,
     /// Reserved and zero.
-    pub reserved: [u8; 6],
+    pub reserved: u8,
 }
 
 /// Return the ABI version without dereferencing caller memory.
@@ -527,28 +536,32 @@ pub unsafe extern "C" fn hns_dane_engine_v1_admit(
     })
 }
 
-/// Parse, correlate, and locally validate one DNS response.
+/// Parse, correlate, and locally match one TLSA response and certificate.
 ///
-/// `evidence_mask` bits 0 through 5 represent HNS proof, DNSSEC, TLSA, DANE,
-/// chain currency, and SNI respectively. Every bit must be set for success.
+/// `prerequisite_mask` bits 0, 1, 4, and 5 represent HNS proof, DNSSEC, chain
+/// currency, and SNI respectively. TLSA and DANE cannot be asserted by the
+/// caller: they are derived from the correlated response and certificate.
 /// `context` may be null only for a direct transport.
 ///
 /// # Safety
 ///
 /// `engine` and `attempt` must be live handles. `response` must reference
-/// `response_len` readable bytes. `output` must be writable.
+/// `response_len` readable bytes. `certificate_der` must reference
+/// `certificate_der_len` readable bytes. `output` must be writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
     engine: *const HnsDaneEngine,
     attempt: *const HnsDaneAttempt,
     response: *const u8,
     response_len: usize,
+    certificate_der: *const u8,
+    certificate_der_len: usize,
     context: *const HnsDaneTransportContextV1,
-    evidence_mask: u32,
+    prerequisite_mask: u32,
     output: *mut HnsDaneResultV1,
 ) -> i32 {
     ffi_guard(|| {
-        if response.is_null() || output.is_null() {
+        if response.is_null() || certificate_der.is_null() || output.is_null() {
             return Err(HnsDaneStatus::NullPointer);
         }
         // SAFETY: The caller contract requires live engine and attempt handles.
@@ -557,11 +570,13 @@ pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
         let attempt = unsafe { attempt_ref(attempt)? };
         // SAFETY: response is required to reference response_len readable bytes.
         let bytes = unsafe { slice::from_raw_parts(response, response_len) };
+        // SAFETY: certificate_der must reference certificate_der_len readable bytes.
+        let certificate = unsafe { slice::from_raw_parts(certificate_der, certificate_der_len) };
         let parsed = engine
             .engine
             .parse_response(&attempt.attempt, bytes, ParseLimits::requester())
             .map_err(map_engine_error)?;
-        let evidence = evidence_from_mask(evidence_mask);
+        let prerequisites = prerequisites_from_mask(prerequisite_mask)?;
         let context = if context.is_null() {
             CompletionContext::default()
         } else {
@@ -570,10 +585,20 @@ pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
         };
         let answer_count =
             u16::try_from(parsed.message().answers.len()).map_err(|_| HnsDaneStatus::Internal)?;
-        let provenance = engine
+        let completed = engine
             .engine
-            .complete_resolution(&attempt.attempt, &parsed, evidence, context)
+            .complete_resolution_with_local_dane(
+                &attempt.attempt,
+                &parsed,
+                prerequisites,
+                certificate,
+                DaneLimits::default(),
+                context,
+            )
             .map_err(map_engine_error)?;
+        let provenance = completed.provenance;
+        let record_index = u16::try_from(completed.dane_match.record_index())
+            .map_err(|_| HnsDaneStatus::Internal)?;
         let result = HnsDaneResultV1 {
             struct_size: size_u32::<HnsDaneResultV1>()?,
             schema_version: provenance.schema_version,
@@ -583,7 +608,11 @@ pub unsafe extern "C" fn hns_dane_engine_v1_validate_response(
             policy_generation: provenance.policy_generation,
             event_sequence: provenance.event_sequence,
             answer_count,
-            reserved: [0; 6],
+            tlsa_record_index: record_index,
+            tlsa_usage: completed.dane_match.usage() as u8,
+            tlsa_selector: completed.dane_match.selector() as u8,
+            tlsa_matching_type: completed.dane_match.matching_type() as u8,
+            reserved: 0,
         };
         // SAFETY: output is required writable by the caller contract.
         unsafe {
@@ -749,22 +778,24 @@ fn effects_to_bits(effects: hns_resolution_policy::PolicyChangeEffects) -> u32 {
     })
 }
 
-fn evidence_from_mask(mask: u32) -> ValidationEvidence {
-    const fn state(mask: u32, bit: u32) -> EvidenceState {
-        if mask & bit != 0 {
-            EvidenceState::Verified
-        } else {
-            EvidenceState::Unavailable
-        }
+const fn evidence_state(mask: u32, bit: u32) -> EvidenceState {
+    if mask & bit != 0 {
+        EvidenceState::Verified
+    } else {
+        EvidenceState::Unavailable
     }
-    ValidationEvidence {
-        hns_proof: state(mask, 1 << 0),
-        dnssec: state(mask, 1 << 1),
-        tlsa: state(mask, 1 << 2),
-        dane: state(mask, 1 << 3),
-        chain_current: state(mask, 1 << 4),
-        origin_sni: state(mask, 1 << 5),
+}
+
+fn prerequisites_from_mask(mask: u32) -> Result<LocalDanePrerequisites, HnsDaneStatus> {
+    if mask & !PREREQUISITES_ALL_VERIFIED != 0 {
+        return Err(HnsDaneStatus::InvalidArgument);
     }
+    Ok(LocalDanePrerequisites {
+        hns_proof: evidence_state(mask, 1 << 0),
+        dnssec: evidence_state(mask, 1 << 1),
+        chain_current: evidence_state(mask, 1 << 4),
+        origin_sni: evidence_state(mask, 1 << 5),
+    })
 }
 
 fn context_from_ffi(
@@ -834,8 +865,12 @@ fn map_engine_error(error: EngineError) -> HnsDaneStatus {
             HnsDaneStatus::AuthorityNotReady
         }
         EngineError::StaleRuntimeGeneration => HnsDaneStatus::StaleGeneration,
-        EngineError::ResponseAttemptMismatch | EngineError::Wire(_) => HnsDaneStatus::DnsRejected,
-        EngineError::MissingTransportIdentity
+        EngineError::ResponseAttemptMismatch
+        | EngineError::UnsuccessfulDnsResponse
+        | EngineError::Wire(_) => HnsDaneStatus::DnsRejected,
+        EngineError::Dane(_) => HnsDaneStatus::EvidenceRejected,
+        EngineError::ExpectedTlsaQuery
+        | EngineError::MissingTransportIdentity
         | EngineError::InvalidTransportIdentity
         | EngineError::ProxyTargetNotSeparated
         | EngineError::InvalidCompletionContext => HnsDaneStatus::InvalidArgument,
@@ -847,13 +882,31 @@ fn map_engine_error(error: EngineError) -> HnsDaneStatus {
 #[cfg(test)]
 #[allow(
     clippy::borrow_as_ptr,
+    clippy::too_many_lines,
     clippy::undocumented_unsafe_blocks,
     clippy::unwrap_used,
-    reason = "tests pass stack addresses to the audited ABI and fail immediately on invariants"
+    reason = "tests pass stack addresses through complete audited ABI flows and fail immediately on invariants"
 )]
 mod tests {
     use super::*;
+    use hns_dns_wire::{Flags, Header, Message, Rdata, ResourceRecord, Tlsa};
     use std::ptr;
+
+    fn decode_hex(input: &str) -> Vec<u8> {
+        let compact: Vec<u8> = input
+            .bytes()
+            .filter(|byte| !byte.is_ascii_whitespace())
+            .collect();
+        assert!(compact.len().is_multiple_of(2));
+        compact
+            .chunks_exact(2)
+            .map(|pair| {
+                let high = (pair[0] as char).to_digit(16).unwrap();
+                let low = (pair[1] as char).to_digit(16).unwrap();
+                u8::try_from((high << 4) | low).unwrap()
+            })
+            .collect()
+    }
 
     #[test]
     fn c_abi_policy_round_trip_and_provider_default() {
@@ -922,5 +975,137 @@ mod tests {
         let decoded = context_from_ffi(&context).unwrap();
         assert_eq!(decoded.proxy_identity.as_deref(), Some("proxy"));
         assert_eq!(decoded.target_identity.as_deref(), Some("target"));
+    }
+
+    #[test]
+    fn c_abi_derives_dane_match_and_rejects_caller_dane_bits() {
+        let session = [3u8; 16];
+        let mut engine = ptr::null_mut();
+        // SAFETY: All pointers reference live local storage of documented sizes.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v1_create(
+                    session.as_ptr(),
+                    Network::Mainnet as u8,
+                    ptr::null(),
+                    0,
+                    &mut engine,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        for state in 1..=6 {
+            // SAFETY: engine is live and each state is the next valid transition.
+            assert_eq!(
+                unsafe { hns_dane_engine_v1_advance_authority(engine, state) },
+                HnsDaneStatus::Ok.code()
+            );
+        }
+
+        let owner = b"_443._tcp.example";
+        let mut attempt = ptr::null_mut();
+        // SAFETY: engine and output are live; owner is readable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v1_admit(
+                    engine,
+                    ResolutionTransport::DirectAuthoritativeTcp as u8,
+                    0x2345,
+                    owner.as_ptr(),
+                    owner.len(),
+                    RecordType::Tlsa.code(),
+                    &mut attempt,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+
+        let certificate = decode_hex(include_str!(
+            "../../../fixtures/dane/self-signed-cert.der.hex"
+        ));
+        let query = Query::new(
+            0x2345,
+            Name::from_ascii("_443._tcp.example").unwrap(),
+            RecordType::Tlsa,
+        )
+        .unwrap();
+        let response = Message {
+            header: Header {
+                id: query.id,
+                flags: Flags::from_bits(0x8400),
+                question_count: 1,
+                answer_count: 1,
+                authority_count: 0,
+                additional_count: 0,
+            },
+            questions: vec![query.question.clone()],
+            answers: vec![ResourceRecord {
+                name: query.question.name,
+                record_type: RecordType::Tlsa,
+                class: hns_dns_wire::CLASS_IN,
+                ttl: 300,
+                rdata: Rdata::Tlsa(Tlsa {
+                    usage: 3,
+                    selector: 0,
+                    matching_type: 0,
+                    association_data: certificate.clone(),
+                }),
+            }],
+            authorities: Vec::new(),
+            additionals: Vec::new(),
+        }
+        .encode(u16::MAX.into())
+        .unwrap();
+        let mut result = HnsDaneResultV1::default();
+
+        // SAFETY: Every pointer references readable/writable local storage.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v1_validate_response(
+                    engine,
+                    attempt,
+                    response.as_ptr(),
+                    response.len(),
+                    certificate.as_ptr(),
+                    certificate.len(),
+                    ptr::null(),
+                    0x3f,
+                    &mut result,
+                )
+            },
+            HnsDaneStatus::InvalidArgument.code()
+        );
+        // SAFETY: Every pointer references readable/writable local storage.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v1_validate_response(
+                    engine,
+                    attempt,
+                    response.as_ptr(),
+                    response.len(),
+                    certificate.as_ptr(),
+                    certificate.len(),
+                    ptr::null(),
+                    PREREQUISITES_ALL_VERIFIED,
+                    &mut result,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(result.tlsa_record_index, 0);
+        assert_eq!(result.tlsa_usage, 3);
+        assert_eq!(result.tlsa_selector, 0);
+        assert_eq!(result.tlsa_matching_type, 0);
+
+        // SAFETY: handles are the live allocations returned above.
+        assert_eq!(
+            unsafe { hns_dane_engine_v1_attempt_destroy(attempt) },
+            HnsDaneStatus::Ok.code()
+        );
+        // SAFETY: handle is the live allocation returned above.
+        assert_eq!(
+            unsafe { hns_dane_engine_v1_destroy(engine) },
+            HnsDaneStatus::Ok.code()
+        );
     }
 }

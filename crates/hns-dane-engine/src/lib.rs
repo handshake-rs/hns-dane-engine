@@ -1,7 +1,8 @@
 //! Runtime-independent HNS browser engine facade.
 //!
-//! Native adapters supply transport bytes and local cryptographic verdicts.
-//! The engine supplies deterministic state, query correlation, policy
+//! Native adapters supply transport bytes, a presented leaf certificate, and
+//! prerequisite local cryptographic verdicts. The engine supplies
+//! deterministic state, query correlation, local DANE-EE matching, policy
 //! generation revocation, and structured provenance.
 
 #![forbid(unsafe_code)]
@@ -15,10 +16,12 @@
 use std::fmt;
 use std::sync::RwLock;
 
-use hns_dns_wire::{Message, ParseLimits, Query};
+use hns_dane::{DaneLimits, DaneMatch, verify_dane_ee};
+use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
 use hns_resolution_policy::{
-    Admission, ChainAnchor, Network, PolicyConfig, PolicyController, PolicyError, PolicySnapshot,
-    PolicyTransition, ResolutionProvenance, ResolutionTransport, TransportPlan, ValidationEvidence,
+    Admission, ChainAnchor, EvidenceState, Network, PolicyConfig, PolicyController, PolicyError,
+    PolicySnapshot, PolicyTransition, ResolutionProvenance, ResolutionTransport, TransportPlan,
+    ValidationEvidence,
 };
 
 /// Stable Rust facade API version.
@@ -168,6 +171,40 @@ pub struct CompletionContext {
     pub target_identity: Option<String>,
     /// Whether ODoH privacy downgraded to direct relay.
     pub direct_relay_fallback: bool,
+}
+
+/// Local evidence required before the engine performs TLSA/DANE matching.
+///
+/// TLSA and DANE fields are deliberately absent: the engine derives them from
+/// the correlated response and presented certificate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalDanePrerequisites {
+    /// Verified Handshake state and Urkel proof.
+    pub hns_proof: EvidenceState,
+    /// Locally verified DNSSEC chain covering the correlated TLSA RRset.
+    pub dnssec: EvidenceState,
+    /// Chain currency sufficiency.
+    pub chain_current: EvidenceState,
+    /// Origin SNI match for the presented TLS certificate.
+    pub origin_sni: EvidenceState,
+}
+
+impl LocalDanePrerequisites {
+    const fn fully_verified(self) -> bool {
+        matches!(self.hns_proof, EvidenceState::Verified)
+            && matches!(self.dnssec, EvidenceState::Verified)
+            && matches!(self.chain_current, EvidenceState::Verified)
+            && matches!(self.origin_sni, EvidenceState::Verified)
+    }
+}
+
+/// Completed provenance plus the locally matched TLSA record details.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DaneCompletion {
+    /// Fully verified HNS HTTPS provenance.
+    pub provenance: ResolutionProvenance,
+    /// Match derived locally from the correlated TLSA answer and certificate.
+    pub dane_match: DaneMatch,
 }
 
 #[derive(Debug)]
@@ -345,20 +382,58 @@ impl Engine {
         })
     }
 
-    /// Complete a response only with fully verified local evidence.
-    pub fn complete_resolution(
+    /// Complete a TLSA response after matching its RRset to the leaf certificate.
+    ///
+    /// The query must be an exact class-IN TLSA query. Only same-owner TLSA
+    /// answers from the already correlated response are considered; CNAME
+    /// chasing and fallback trust paths are intentionally absent.
+    pub fn complete_resolution_with_local_dane(
+        &self,
+        attempt: &ResolutionAttempt,
+        response: &ParsedResponse,
+        prerequisites: LocalDanePrerequisites,
+        certificate_der: &[u8],
+        limits: DaneLimits,
+        context: CompletionContext,
+    ) -> Result<DaneCompletion, EngineError> {
+        if response.attempt_event_sequence != attempt.event_sequence {
+            return Err(EngineError::ResponseAttemptMismatch);
+        }
+        if response.message.header.flags.rcode() != 0 {
+            return Err(EngineError::UnsuccessfulDnsResponse);
+        }
+        if attempt.query.question.record_type != RecordType::Tlsa
+            || attempt.query.question.class != hns_dns_wire::CLASS_IN
+        {
+            return Err(EngineError::ExpectedTlsaQuery);
+        }
+        if !prerequisites.fully_verified() {
+            return Err(EngineError::Policy(PolicyError::UnverifiedEvidence));
+        }
+        let records = exact_tlsa_answers(attempt, response);
+        let dane_match = verify_dane_ee(certificate_der, &records, limits)?;
+        let evidence = ValidationEvidence {
+            hns_proof: prerequisites.hns_proof,
+            dnssec: prerequisites.dnssec,
+            tlsa: EvidenceState::Verified,
+            dane: EvidenceState::Verified,
+            chain_current: prerequisites.chain_current,
+            origin_sni: prerequisites.origin_sni,
+        };
+        let provenance = self.complete_resolution(attempt, response, evidence, context)?;
+        Ok(DaneCompletion {
+            provenance,
+            dane_match,
+        })
+    }
+
+    fn complete_resolution(
         &self,
         attempt: &ResolutionAttempt,
         response: &ParsedResponse,
         evidence: ValidationEvidence,
         context: CompletionContext,
     ) -> Result<ResolutionProvenance, EngineError> {
-        if response.attempt_event_sequence != attempt.event_sequence {
-            return Err(EngineError::ResponseAttemptMismatch);
-        }
-        if !evidence.fully_verified() {
-            return Err(EngineError::Policy(PolicyError::UnverifiedEvidence));
-        }
         validate_completion_context(attempt.transport(), &context)?;
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
         ensure_current(&state, attempt)?;
@@ -398,6 +473,23 @@ impl Engine {
         provenance.require_verified_hns_https()?;
         Ok(provenance)
     }
+}
+
+fn exact_tlsa_answers(attempt: &ResolutionAttempt, response: &ParsedResponse) -> Vec<Tlsa> {
+    response
+        .message
+        .answers
+        .iter()
+        .filter(|record| {
+            record.name == attempt.query.question.name
+                && record.record_type == RecordType::Tlsa
+                && record.class == attempt.query.question.class
+        })
+        .filter_map(|record| match &record.rdata {
+            Rdata::Tlsa(tlsa) => Some(tlsa.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn ensure_current(state: &EngineState, attempt: &ResolutionAttempt) -> Result<(), EngineError> {
@@ -509,6 +601,10 @@ pub enum EngineError {
     StaleRuntimeGeneration,
     /// Parsed response belongs to another attempt.
     ResponseAttemptMismatch,
+    /// A TLSA response carried a nonzero DNS response code.
+    UnsuccessfulDnsResponse,
+    /// Completion was attempted for a query other than class-IN TLSA.
+    ExpectedTlsaQuery,
     /// An intermediary path omitted its required identity.
     MissingTransportIdentity,
     /// An intermediary identity is empty or exceeds its bound.
@@ -519,6 +615,8 @@ pub enum EngineError {
     InvalidCompletionContext,
     /// DNS wire failure.
     Wire(hns_dns_wire::Error),
+    /// Local TLSA/DANE matching failure.
+    Dane(hns_dane::DaneError),
     /// Policy failure.
     Policy(PolicyError),
 }
@@ -536,6 +634,12 @@ impl fmt::Display for EngineError {
             Self::ResponseAttemptMismatch => {
                 formatter.write_str("DNS response and resolution attempt mismatch")
             }
+            Self::UnsuccessfulDnsResponse => {
+                formatter.write_str("TLSA response has a nonzero DNS response code")
+            }
+            Self::ExpectedTlsaQuery => {
+                formatter.write_str("local DANE completion requires a class-IN TLSA query")
+            }
             Self::MissingTransportIdentity => {
                 formatter.write_str("required transport identity is missing")
             }
@@ -549,6 +653,7 @@ impl fmt::Display for EngineError {
                 formatter.write_str("completion context conflicts with selected transport")
             }
             Self::Wire(error) => write!(formatter, "DNS wire error: {error}"),
+            Self::Dane(error) => write!(formatter, "DANE error: {error}"),
             Self::Policy(error) => write!(formatter, "policy error: {error}"),
         }
     }
@@ -558,6 +663,7 @@ impl std::error::Error for EngineError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Wire(error) => Some(error),
+            Self::Dane(error) => Some(error),
             Self::Policy(error) => Some(error),
             _ => None,
         }
@@ -567,6 +673,12 @@ impl std::error::Error for EngineError {
 impl From<hns_dns_wire::Error> for EngineError {
     fn from(value: hns_dns_wire::Error) -> Self {
         Self::Wire(value)
+    }
+}
+
+impl From<hns_dane::DaneError> for EngineError {
+    fn from(value: hns_dane::DaneError) -> Self {
+        Self::Dane(value)
     }
 }
 
@@ -583,7 +695,7 @@ impl From<PolicyError> for EngineError {
 )]
 mod tests {
     use super::*;
-    use hns_dns_wire::{Name, RecordType};
+    use hns_dns_wire::{Flags, Header, Name, ResourceRecord};
     use hns_resolution_policy::{DnsRelayRequesterPolicy, EvidenceState, ObliviousDnsPolicy};
 
     const RESPONSE_WITH_UNTRUSTED_AD: &[u8] =
@@ -607,37 +719,97 @@ mod tests {
         engine
     }
 
-    fn verified_evidence() -> ValidationEvidence {
-        ValidationEvidence {
+    fn decode_hex(input: &str) -> Vec<u8> {
+        let compact: Vec<u8> = input
+            .bytes()
+            .filter(|byte| !byte.is_ascii_whitespace())
+            .collect();
+        assert!(compact.len().is_multiple_of(2));
+        compact
+            .chunks_exact(2)
+            .map(|pair| {
+                let high = char::from(*pair.first().unwrap()).to_digit(16).unwrap();
+                let low = char::from(*pair.get(1).unwrap()).to_digit(16).unwrap();
+                u8::try_from((high << 4) | low).unwrap()
+            })
+            .collect()
+    }
+
+    fn certificate() -> Vec<u8> {
+        decode_hex(include_str!(
+            "../../../fixtures/dane/self-signed-cert.der.hex"
+        ))
+    }
+
+    fn verified_prerequisites() -> LocalDanePrerequisites {
+        LocalDanePrerequisites {
             hns_proof: EvidenceState::Verified,
             dnssec: EvidenceState::Verified,
-            tlsa: EvidenceState::Verified,
-            dane: EvidenceState::Verified,
             chain_current: EvidenceState::Verified,
             origin_sni: EvidenceState::Verified,
         }
     }
 
+    fn tlsa_exchange(tlsa: Tlsa) -> (Query, Vec<u8>) {
+        let query = Query::new(
+            0x1234,
+            Name::from_ascii("_443._tcp.example").unwrap(),
+            RecordType::Tlsa,
+        )
+        .unwrap();
+        let response = Message {
+            header: Header {
+                id: query.id,
+                flags: Flags::from_bits(0x8420),
+                question_count: 1,
+                answer_count: 1,
+                authority_count: 0,
+                additional_count: 0,
+            },
+            questions: vec![query.question.clone()],
+            answers: vec![ResourceRecord {
+                name: query.question.name.clone(),
+                record_type: RecordType::Tlsa,
+                class: hns_dns_wire::CLASS_IN,
+                ttl: 300,
+                rdata: Rdata::Tlsa(tlsa),
+            }],
+            authorities: Vec::new(),
+            additionals: Vec::new(),
+        }
+        .encode(u16::MAX.into())
+        .unwrap();
+        (query, response)
+    }
+
+    fn exact_certificate_exchange() -> (Query, Vec<u8>, Vec<u8>) {
+        let certificate = certificate();
+        let (query, response) = tlsa_exchange(Tlsa {
+            usage: 3,
+            selector: 0,
+            matching_type: 0,
+            association_data: certificate.clone(),
+        });
+        (query, response, certificate)
+    }
+
     #[test]
-    fn correlates_then_requires_local_evidence() {
+    fn correlates_then_derives_local_dane_evidence() {
         let engine = ready_engine();
-        let query =
-            Query::new(0x1234, Name::from_ascii("example").unwrap(), RecordType::A).unwrap();
+        let (query, response, certificate) = exact_certificate_exchange();
         let attempt = engine
             .admit_resolution(ResolutionTransport::HandshakeP2pOdoh, query)
             .unwrap();
         let parsed = engine
-            .parse_response(
-                &attempt,
-                RESPONSE_WITH_UNTRUSTED_AD,
-                ParseLimits::requester(),
-            )
+            .parse_response(&attempt, &response, ParseLimits::requester())
             .unwrap();
-        let provenance = engine
-            .complete_resolution(
+        let completed = engine
+            .complete_resolution_with_local_dane(
                 &attempt,
                 &parsed,
-                verified_evidence(),
+                verified_prerequisites(),
+                &certificate,
+                DaneLimits::default(),
                 CompletionContext {
                     proxy_identity: Some("proxy-peer".to_owned()),
                     target_identity: Some("target-peer".to_owned()),
@@ -646,12 +818,116 @@ mod tests {
             )
             .unwrap();
 
-        assert!(provenance.untrusted_ad_claim);
-        assert!(provenance.evidence.fully_verified());
+        assert!(completed.provenance.untrusted_ad_claim);
+        assert!(completed.provenance.evidence.fully_verified());
+        assert_eq!(completed.dane_match.record_index(), 0);
+        assert_eq!(completed.dane_match.selector() as u8, 0);
+        assert_eq!(completed.dane_match.matching_type() as u8, 0);
         assert_eq!(
             engine.snapshot().unwrap().authority_state,
             AuthorityState::DaneOriginVerified
         );
+    }
+
+    #[test]
+    fn rejects_non_tlsa_queries_wrong_owner_and_certificate_mismatch() {
+        let engine = ready_engine();
+        let query =
+            Query::new(0x1234, Name::from_ascii("example").unwrap(), RecordType::A).unwrap();
+        let attempt = engine
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query)
+            .unwrap();
+        let parsed = engine
+            .parse_response(
+                &attempt,
+                RESPONSE_WITH_UNTRUSTED_AD,
+                ParseLimits::requester(),
+            )
+            .unwrap();
+        assert!(matches!(
+            engine.complete_resolution_with_local_dane(
+                &attempt,
+                &parsed,
+                verified_prerequisites(),
+                &certificate(),
+                DaneLimits::default(),
+                CompletionContext::default(),
+            ),
+            Err(EngineError::ExpectedTlsaQuery)
+        ));
+
+        let certificate = certificate();
+        let (query, mut response) = tlsa_exchange(Tlsa {
+            usage: 3,
+            selector: 0,
+            matching_type: 0,
+            association_data: certificate.clone(),
+        });
+        *response.get_mut(3).unwrap() |= 3;
+        let attempt = engine
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query)
+            .unwrap();
+        let parsed = engine
+            .parse_response(&attempt, &response, ParseLimits::requester())
+            .unwrap();
+        assert!(matches!(
+            engine.complete_resolution_with_local_dane(
+                &attempt,
+                &parsed,
+                verified_prerequisites(),
+                &certificate,
+                DaneLimits::default(),
+                CompletionContext::default(),
+            ),
+            Err(EngineError::UnsuccessfulDnsResponse)
+        ));
+
+        let (query, mut response) = tlsa_exchange(Tlsa {
+            usage: 3,
+            selector: 0,
+            matching_type: 0,
+            association_data: certificate.clone(),
+        });
+        let answer_owner_first_byte = 12 + query.question.name.wire_len() + 4 + 1;
+        *response.get_mut(answer_owner_first_byte).unwrap() = b'x';
+        let attempt = engine
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query)
+            .unwrap();
+        let parsed = engine
+            .parse_response(&attempt, &response, ParseLimits::requester())
+            .unwrap();
+        assert!(matches!(
+            engine.complete_resolution_with_local_dane(
+                &attempt,
+                &parsed,
+                verified_prerequisites(),
+                &certificate,
+                DaneLimits::default(),
+                CompletionContext::default(),
+            ),
+            Err(EngineError::Dane(hns_dane::DaneError::MissingTlsa))
+        ));
+
+        let (query, response, mut wrong_certificate) = exact_certificate_exchange();
+        let last = wrong_certificate.len() - 1;
+        *wrong_certificate.get_mut(last).unwrap() ^= 1;
+        let attempt = engine
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query)
+            .unwrap();
+        let parsed = engine
+            .parse_response(&attempt, &response, ParseLimits::requester())
+            .unwrap();
+        assert!(matches!(
+            engine.complete_resolution_with_local_dane(
+                &attempt,
+                &parsed,
+                verified_prerequisites(),
+                &wrong_certificate,
+                DaneLimits::default(),
+                CompletionContext::default(),
+            ),
+            Err(EngineError::Dane(hns_dane::DaneError::Mismatch))
+        ));
     }
 
     #[test]
@@ -680,33 +956,32 @@ mod tests {
     #[test]
     fn odoh_completion_requires_distinct_bounded_identities() {
         let engine = ready_engine();
-        let query =
-            Query::new(0x1234, Name::from_ascii("example").unwrap(), RecordType::A).unwrap();
+        let (query, response, certificate) = exact_certificate_exchange();
         let attempt = engine
             .admit_resolution(ResolutionTransport::HandshakeP2pOdoh, query)
             .unwrap();
         let parsed = engine
-            .parse_response(
-                &attempt,
-                RESPONSE_WITH_UNTRUSTED_AD,
-                ParseLimits::requester(),
-            )
+            .parse_response(&attempt, &response, ParseLimits::requester())
             .unwrap();
 
         assert!(matches!(
-            engine.complete_resolution(
+            engine.complete_resolution_with_local_dane(
                 &attempt,
                 &parsed,
-                verified_evidence(),
+                verified_prerequisites(),
+                &certificate,
+                DaneLimits::default(),
                 CompletionContext::default()
             ),
             Err(EngineError::MissingTransportIdentity)
         ));
         assert!(matches!(
-            engine.complete_resolution(
+            engine.complete_resolution_with_local_dane(
                 &attempt,
                 &parsed,
-                verified_evidence(),
+                verified_prerequisites(),
+                &certificate,
+                DaneLimits::default(),
                 CompletionContext {
                     proxy_identity: Some("same-peer".to_owned()),
                     target_identity: Some("same-peer".to_owned()),
@@ -716,10 +991,12 @@ mod tests {
             Err(EngineError::ProxyTargetNotSeparated)
         ));
         assert!(matches!(
-            engine.complete_resolution(
+            engine.complete_resolution_with_local_dane(
                 &attempt,
                 &parsed,
-                verified_evidence(),
+                verified_prerequisites(),
+                &certificate,
+                DaneLimits::default(),
                 CompletionContext {
                     proxy_identity: Some("p".repeat(MAX_TRANSPORT_IDENTITY_BYTES + 1)),
                     target_identity: Some("target".to_owned()),

@@ -14,6 +14,9 @@ No source was copied. The local DNS vectors are independently generated protocol
 manifest pins inspected paths and hashes so compatibility can be reproduced without claiming code
 provenance.
 
+The DANE certificate/SPKI fixtures were generated locally with OpenSSL 3.5.6. Their decoded sizes
+and SHA-256 hashes are pinned in `fixtures/dane/manifest.toml`; no private key is tracked.
+
 HSD source SHA-256 values:
 
 - `test/dns-test.js`: `dc86df3f7e56b638a99b9243936560ca252ead18bbfcf10e751419957b651ed4`
@@ -24,4 +27,3 @@ Browser source SHA-256 values:
 - `rust/crates/hns-core/src/dns.rs`: `e3338986a75a43fd4a483b89c86a5f1691e4816226f9ac6e9f3093eddc3f24bb`
 - `fixtures/experimental-dns-relay/manifest.json`:
   `b72f84ca688460115995383e7be26482f03cf456f7a82044a5abcf5e1a71f75f`
-

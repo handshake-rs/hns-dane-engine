@@ -14,8 +14,8 @@ static int check_prototypes(HnsDaneEngine *engine, HnsDaneAttempt *attempt) {
   (void)hns_dane_engine_v1_transport_count(engine, &count);
   (void)hns_dane_engine_v1_transport_at(engine, 0, &transport);
   (void)hns_dane_engine_v1_validate_response(
-      engine, attempt, NULL, 0, &context, HNS_DANE_EVIDENCE_ALL_VERIFIED,
-      &result);
+      engine, attempt, NULL, 0, NULL, 0, &context,
+      HNS_DANE_PREREQUISITES_ALL_VERIFIED, &result);
   return (int)transport;
 }
 

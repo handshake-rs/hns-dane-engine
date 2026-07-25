@@ -9,6 +9,18 @@ For an HNS HTTPS origin, success requires all of:
 5. local DANE origin validation, including SNI; and
 6. an admission token from the current runtime and policy generations.
 
+Local matching accepts only TLSA DANE-EE usage 3. It supports full-certificate selector 0 and SPKI
+selector 1 with exact, SHA-256, and SHA-512 matching types 0, 1, and 2. Every record in the
+exact-owner RRset is checked for supported fields and association length before any match is
+accepted. Certificate DER, extracted SPKI, RRset count, and association data are bounded. Empty,
+unsupported, malformed, oversized, or nonmatching inputs fail closed.
+
+PKIX usages 0/1 are rejected because there is no WebPKI trust path. DANE-TA usage 2 is rejected
+until a local chain-signature validator exists. There is no network, WebPKI, public DNS, or
+operating-system fallback. The DER reader extracts the exact SPKI from the presented leaf; it is not
+a substitute for certificate-signature, validity-time, or SNI validation, which remain explicit
+prerequisites.
+
 The DNS AD bit, Brontide, a relay, an ODoH proxy, and an ODoH target are never validation
 authorities. Transport status is reported separately from evidence status.
 

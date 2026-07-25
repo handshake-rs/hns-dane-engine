@@ -11,6 +11,7 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib", "staticlib"]
 
 [dependencies]
+hns-dane = { path = "../hns-dane" }
 hns-dane-engine = { path = "../hns-dane-engine" }
 hns-dns-wire = { path = "../hns-dns-wire" }
 hns-resolution-policy = { path = "../hns-resolution-policy" }

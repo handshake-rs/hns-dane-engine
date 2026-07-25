@@ -1,0 +1,16 @@
+schema = 1
+encoding = "lowercase hex; whitespace ignored"
+generator = "OpenSSL 3.5.6 7 Apr 2026"
+
+[[fixture]]
+file = "self-signed-cert.der.hex"
+der_bytes = 787
+sha256 = "370c7bf4710d723e1ade024d5249ba35817cdf36ddb1452a2a9b5b259c76ce53"
+subject = "CN=dane.fixture"
+private_key_included = false
+
+[[fixture]]
+file = "self-signed-spki.der.hex"
+der_bytes = 294
+sha256 = "7d755e346cecc283fabfb4204edae885240e1dad902946d9236dca4491ca4a76"
+derived_from = "self-signed-cert.der.hex"

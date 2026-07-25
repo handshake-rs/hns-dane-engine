@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/hns-dane",
     "crates/hns-dane-engine",
     "crates/hns-dane-engine-ffi",
     "crates/hns-dns-wire",

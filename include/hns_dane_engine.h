@@ -9,7 +9,11 @@ extern "C" {
 #endif
 
 #define HNS_DANE_ENGINE_ABI_VERSION 1u
-#define HNS_DANE_EVIDENCE_ALL_VERIFIED 0x3fu
+#define HNS_DANE_PREREQUISITE_HNS_PROOF (1u << 0)
+#define HNS_DANE_PREREQUISITE_DNSSEC (1u << 1)
+#define HNS_DANE_PREREQUISITE_CHAIN_CURRENT (1u << 4)
+#define HNS_DANE_PREREQUISITE_ORIGIN_SNI (1u << 5)
+#define HNS_DANE_PREREQUISITES_ALL_VERIFIED 0x33u
 #define HNS_DANE_IDENTITY_CAPACITY 128u
 
 #define HNS_DANE_OK 0
@@ -56,7 +60,11 @@ typedef struct HnsDaneResultV1 {
   uint64_t policy_generation;
   uint64_t event_sequence;
   uint16_t answer_count;
-  uint8_t reserved[6];
+  uint16_t tlsa_record_index;
+  uint8_t tlsa_usage;
+  uint8_t tlsa_selector;
+  uint8_t tlsa_matching_type;
+  uint8_t reserved;
 } HnsDaneResultV1;
 
 typedef struct HnsDaneTransportContextV1 {
@@ -123,16 +131,19 @@ int32_t hns_dane_engine_v1_admit(
     HnsDaneAttempt **output);
 
 /*
- * evidence_mask bits: HNS proof, DNSSEC, TLSA, DANE, chain currency, SNI.
- * DNS AD is returned only as an untrusted claim.
+ * prerequisite_mask bits: HNS proof (0), DNSSEC (1), chain currency (4), and
+ * origin SNI (5). TLSA/DANE are matched locally and cannot be asserted here.
+ * DNS AD is returned only as an untrusted wire claim.
  */
 int32_t hns_dane_engine_v1_validate_response(
     const HnsDaneEngine *engine,
     const HnsDaneAttempt *attempt,
     const uint8_t *response,
     size_t response_len,
+    const uint8_t *certificate_der,
+    size_t certificate_der_len,
     const HnsDaneTransportContextV1 *context,
-    uint32_t evidence_mask,
+    uint32_t prerequisite_mask,
     HnsDaneResultV1 *output);
 
 #ifdef __cplusplus
