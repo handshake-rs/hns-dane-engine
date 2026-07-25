@@ -7,6 +7,8 @@ hns-rs P2P/header crates ---> hns-light-p2p ---+
                                                +--> hns-light-sync ---+
 hns-rs header/covenant/Urkel crates ---> hns-light-chain ------------+
                                                                       |
+hns-icann-dane ------------------------------------------------------>+
+                                                                      |
 hns-dns-wire ---> hns-dnssec --------------------------> hns-resolver --+
        |                                                               |
        +---------------------------------> hns-dane ------------------->+--> hns-dane-engine
@@ -39,6 +41,12 @@ configurable agreement, scores consensus-invalid responses, and rejects equal-wo
 `HeaderCurrent` additionally requires every selected peer to answer, every consensus-valid response
 to report an empty extension, and no non-banned peer to advertise a higher height.
 `hns-dnssec` validates RRsets, DS-authenticated DNSKEY chains, and NSEC/NSEC3 denial locally.
+`hns-icann-dane` is the shared browser-shell-independent ICANN policy boundary. It derives the
+absolute TLSA owner from the canonical origin host, effective port, and TCP/UDP/SCTP transport,
+then reduces authenticated validating-DoH evidence to DANE enforcement, WebPKI after authenticated
+absence, or WebPKI after a proven insecure delegation. Unauthenticated resolver channels,
+validation bypass, bogus/indeterminate DNSSEC, and contradictory presence/denial evidence are
+terminal errors.
 `hns-resolver` accepts the initial DS set only from that private HNS resource token, authenticates
 the TLD DNSKEY, follows bounded DNSSEC-verified CNAMEs, and returns a non-forgeable terminal TLSA
 result carrying the chain lineage. `hns-dane` performs DANE-EE matching and private-root DANE-TA

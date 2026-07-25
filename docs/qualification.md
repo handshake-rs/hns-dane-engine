@@ -4,10 +4,10 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-targets --all-features --locked --offline
-  115 unit tests passed
+  122 unit tests passed
 
 cargo test --workspace --doc --all-features --locked --offline
-  18 doc-test targets passed (0 doctests)
+  19 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -28,6 +28,10 @@ Covered:
 - typed A, AAAA, NS, CNAME, SOA, MX, TXT, SRV, DS, DNSKEY, RRSIG, NSEC, NSEC3, TLSA, and OPT;
 - DNSSEC bitmap and EDNS framing validation, including strict-query ECS rejection;
 - the AD bit retained only as an untrusted claim;
+- shared automatic ICANN TLSA owner derivation across nondefault ports and TCP/UDP/SCTP, plus typed
+  validating-DoH decisions that enforce secure presence, permit WebPKI only for authenticated
+  absence or insecure delegation, ignore unsigned TLSA bytes, and keep unauthenticated,
+  bypassed, bogus, indeterminate, incomplete, or contradictory evidence fail-closed;
 - canonical shared `hns-rs` network genesis, 236-byte header, proof-of-work, median-time,
   difficulty-transition, and chainwork validation for contiguous light-chain extensions;
 - transactional bounded header batches and retention of the exact 147-entry Handshake retarget
@@ -129,6 +133,8 @@ Not yet implemented:
 - subdelegation discovery and a complete live authoritative DNSSEC walk beyond the on-chain TLD
   DNSKEY path;
 - origin TLS socket/SNI execution (the Rust API checks the adapter-reported exact SNI);
+- live validating ICANN DoH I/O and browser request-surface wiring (the shared owner/evidence
+  decision contract is implemented here and must be consumed by each platform adapter);
 - authenticated authoritative DoH, HNSR transport, HIP-76/77 provider roles, and the native
   Brontide socket adapter for the implemented HIP-76/77 requester boundary;
 - filesystem/mobile preferences adapters and atomic durable writes;

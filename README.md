@@ -23,6 +23,10 @@
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;
+- a shared automatic ICANN DANE contract that derives the TLSA owner from the
+  canonical host, effective port, and transport; enforces secure TLSA
+  presence; permits WebPKI only after authenticated absence or a proven
+  insecure delegation; and keeps bogus/indeterminate DNSSEC fail-closed;
 - local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation;
@@ -46,6 +50,11 @@ recursive resolver, public DoH, or WebPKI fallback. Direct UDP/TCP own their soc
 HIP-76/77 own the complete authenticated request/response boundary but consume a platform-supplied
 established Brontide exchange; authenticated authoritative DoH and HNSR remain unavailable rather
 than silently falling back.
+
+The ICANN browser path is separate from HNS authority. `hns-icann-dane`
+consumes typed evidence from a TLS-authenticated validating ICANN DoH adapter.
+It never treats a resolver error or bogus DNSSEC as “no TLSA,” and it ignores
+unsigned TLSA bytes when an insecure delegation retains WebPKI.
 
 P2P DNS Relay and P2P ODoH are described as **Denuo Experimental V1 — Not an official Handshake
 protocol assignment**. Their transport cannot establish authenticity. The production Rust path

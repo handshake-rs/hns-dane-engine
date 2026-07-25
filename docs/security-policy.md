@@ -14,6 +14,16 @@ from that engine's latest strict completion. The authorization binds the exact n
 runtime session/generation, policy generation, event sequence, and current chain-anchor validity
 window. Legacy completions based on caller-supplied prerequisite verdicts cannot mint one.
 
+For an ICANN HTTPS or WSS origin, the shared policy derives
+`_<effective-port>._<transport>.<canonical-host>.` without a hostname allowlist. The browser adapter
+queries that owner through its TLS-authenticated validating ICANN DoH resolver with DNSSEC records
+requested and checking enabled. Secure TLSA presence selects mandatory DANE. Authenticated denial
+or a proven insecure delegation retains WebPKI; unsigned TLSA bytes are ignored. An
+unauthenticated resolver channel, validation bypass, missing authenticated denial, contradictory
+evidence, bogus DNSSEC, an indeterminate result, or any transport/HTTP/DNS parsing failure is
+terminal and can never be relabeled as “no TLSA.” This policy must be invoked at the common request
+boundary used by navigations, redirects, subresources, Service Workers, downloads, and WebSockets.
+
 Local matching accepts DANE-EE usage 3 and DANE-TA usage 2. It supports full-certificate selector 0
 and SPKI selector 1 with exact, SHA-256, and SHA-512 matching types 0, 1, and 2. Every terminal
 record is checked for supported fields and association length before any match is accepted.
@@ -21,7 +31,8 @@ Certificate DER, extracted SPKI, chain length, RRset count, association data, CN
 records, and signed bytes are bounded. Empty, unsupported, malformed, oversized, unsigned, expired,
 or nonmatching inputs fail closed.
 
-PKIX usages 0/1 are rejected because there is no WebPKI trust path. DANE-TA builds a private X.509
+On the HNS/private-DANE path, PKIX usages 0/1 are rejected because there is no WebPKI trust path.
+DANE-TA builds a private X.509
 path rooted only in the DNSSEC-selected trust anchor, checks certificate signatures, validity at an
 explicit time, strict server-name matching, and chain bounds. It never loads a platform or public
 root store. In accordance with RFC 7671, DANE-EE treats the DNSSEC-signed TLSA binding—not leaf

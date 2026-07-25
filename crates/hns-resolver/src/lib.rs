@@ -18,8 +18,12 @@ use hns_dnssec::{
     AuthenticatedDnskeys, DnssecError, DnssecLimits, VerifiedRrset, authenticate_dnskeys,
     verify_rrset_with_keys,
 };
+use hns_icann_dane::TlsaOwner;
 use hns_light_chain::{HnsAnchor, VerifiedHnsResource};
 use thiserror::Error;
+
+/// TLSA service transport shared with automatic ICANN DANE discovery.
+pub use hns_icann_dane::TlsaTransport as ServiceTransport;
 
 /// HTTPS uses TCP TLSA service labels.
 pub const HTTPS_PORT: u16 = 443;
@@ -138,27 +142,6 @@ impl HnsAuthorityEvidence {
     #[must_use]
     pub const fn validation_time(&self) -> u32 {
         self.validation_time
-    }
-}
-
-/// TLS transport label in a TLSA owner name.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ServiceTransport {
-    /// `_tcp`.
-    Tcp,
-    /// `_udp`.
-    Udp,
-    /// `_sctp`.
-    Sctp,
-}
-
-impl ServiceTransport {
-    const fn label(self) -> &'static [u8] {
-        match self {
-            Self::Tcp => b"_tcp",
-            Self::Udp => b"_udp",
-            Self::Sctp => b"_sctp",
-        }
     }
 }
 
@@ -315,12 +298,10 @@ impl TlsaResolution {
         limits: ResolverLimits,
     ) -> Result<Self, ResolverError> {
         let base_domain_ascii = ascii_host(&base_domain)?;
-        let mut labels = Vec::with_capacity(base_domain.labels().len().saturating_add(2));
-        labels.push(format!("_{port}").into_bytes());
-        labels.push(transport.label().to_vec());
-        labels.extend_from_slice(base_domain.labels());
-        let requested_owner =
-            Name::from_labels(labels).map_err(|_| ResolverError::InvalidServiceName)?;
+        let service_owner = TlsaOwner::derive(&base_domain_ascii, port, transport)
+            .map_err(|_| ResolverError::InvalidServiceName)?;
+        let requested_owner = Name::from_ascii(service_owner.resolver_name())
+            .map_err(|_| ResolverError::InvalidServiceName)?;
         let mut visited = HashSet::new();
         visited.insert(requested_owner.clone());
         Ok(Self {

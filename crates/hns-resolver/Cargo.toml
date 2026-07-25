@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 hns-dns-wire = { path = "../hns-dns-wire" }
 hns-dnssec = { path = "../hns-dnssec" }
+hns-icann-dane = { path = "../hns-icann-dane" }
 hns-light-chain = { path = "../hns-light-chain" }
 thiserror = "2.0.19"
 

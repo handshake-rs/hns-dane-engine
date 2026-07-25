@@ -625,6 +625,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-icann-dane"
+version = "0.1.0"
+
+[[package]]
 name = "hns-light-chain"
 version = "0.1.0"
 dependencies = [
@@ -765,6 +769,7 @@ dependencies = [
  "hns-dns-wire",
  "hns-dnssec",
  "hns-header-consensus",
+ "hns-icann-dane",
  "hns-light-chain",
  "hns-primitives",
  "openssl",

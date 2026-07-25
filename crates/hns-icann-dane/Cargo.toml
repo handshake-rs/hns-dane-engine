@@ -1,0 +1,11 @@
+[package]
+name = "hns-icann-dane"
+description = "Shared browser policy for automatic DANE discovery through validating ICANN DoH"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
