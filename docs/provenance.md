@@ -6,8 +6,15 @@ Compatibility was inspected against these immutable inputs:
 
 | Input | Commit | License | Relevant paths |
 | --- | --- | --- | --- |
+| handshake-rs/hns-rs | `dde2da81f29df935f043978a6d517c1d60ceff31` | MIT OR Apache-2.0 | Nine direct workspace dependencies and the locked eleven-package closure |
 | handshake-org/hsd | `698e252ebc7b5c1dd0a9587e342fdd153d020ae4` | MIT | `test/dns-test.js`, `test/resource-test.js` |
 | Denuo-Web/hns-dane-browser | `a71f9ea8dd2e697df6059e8840907f96e6eea2c9` | PolyForm Noncommercial 1.0.0 | `rust/crates/hns-core/src/dns.rs`, `fixtures/experimental-dns-relay/manifest.json` |
+
+The `hns-rs` input is executable source, not only a compatibility reference.
+The root manifest and `Cargo.lock` pin its exact canonical Git revision.
+`scripts/verify_cargo_source_policy.py` independently verifies that the direct
+and transitive package sets, URL, revision, consumer locations, and lock
+sources match the reviewed graph. MeshMine is not a dependency.
 
 The browser source has a license incompatible with copying it into this dual-licensed workspace.
 No source was copied. The local DNS vectors are independently generated protocol fixtures. The

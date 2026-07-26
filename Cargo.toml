@@ -30,6 +30,17 @@ rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/handshake-rs/hns-dane-engine"
 
+[workspace.dependencies]
+hns-covenants = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-dns-relay-protocol = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-encoding = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-header-consensus = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-odoh-protocol = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-p2p-experimental = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-p2p-wire = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-primitives = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+hns-urkel-proof = { git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

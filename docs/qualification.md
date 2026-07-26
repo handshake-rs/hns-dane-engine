@@ -1,13 +1,33 @@
 # Foundation qualification
 
-Qualification is run with the repository's locked dependency graph and no network access:
+After one source-policy-verified fetch, Cargo metadata, tests, lint, and builds
+run with the repository's locked dependency graph and no network access.
+`cargo-deny` may separately refresh its advisory database:
 
 ```text
+python3 -m unittest -v tests/test_cargo_source_policy.py
+  12 tests passed
+
+python3 scripts/verify_cargo_source_policy.py
+  exact canonical hns-rs source and repository-local paths passed
+
+cargo +1.89.0 metadata --locked --offline --format-version 1
+  passed from a standalone checkout with no sibling hns-rs tree
+
+cargo +1.89.0 deny --locked check --config deny.toml
+  advisories, licenses, bans, and sources passed
+
 cargo test --workspace --all-targets --all-features --locked --offline
   144 unit tests passed
 
 cargo test --workspace --doc --all-features --locked --offline
   20 doc-test targets passed (0 doctests)
+
+cargo test --workspace --all-features --locked --offline
+  144 unit tests passed
+
+cargo test --workspace --locked --offline
+  144 unit tests passed
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -21,6 +41,11 @@ cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
 
 Covered:
 
+- independently cloneable Cargo resolution with nine reviewed direct
+  `hns-rs` packages and the exact eleven-package locked closure at
+  `dde2da81f29df935f043978a6d517c1d60ceff31`; rejection of mutable or
+  noncanonical Git sources, aliases, unreviewed consumers/packages, lock
+  drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;
 - bounded questions, records, RDATA, labels, expanded names, and compression jumps;
 - backward-only compression pointers with self/forward, out-of-bounds, and cycle defenses;

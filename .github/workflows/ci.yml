@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualification:
+    name: Standalone engine qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.89.0
+
+      - name: Install pinned cargo-deny
+        run: cargo +1.89.0 install cargo-deny --version 0.19.9 --locked
+
+      - name: Verify source policy before fetching dependencies
+        run: |
+          python3 -m unittest -v tests/test_cargo_source_policy.py
+          python3 scripts/verify_cargo_source_policy.py
+
+      - name: Fetch the locked dependency graph
+        run: cargo +1.89.0 fetch --locked
+
+      - name: Run the complete locked qualification gate
+        run: ./scripts/check.sh

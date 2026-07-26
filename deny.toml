@@ -1,0 +1,25 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = ["https://github.com/handshake-rs/hns-rs.git"]

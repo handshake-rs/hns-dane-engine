@@ -10,12 +10,12 @@ publish = false
 
 [dependencies]
 blake2 = "0.10.6"
-hns-covenants = { path = "../../../hns-rs/crates/hns-covenants" }
+hns-covenants.workspace = true
 hns-dns-wire = { path = "../hns-dns-wire" }
 hns-dnssec = { path = "../hns-dnssec" }
-hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
+hns-header-consensus.workspace = true
 hns-light-chain = { path = "../hns-light-chain" }
-hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
+hns-primitives.workspace = true
 hns-resolver = { path = "../hns-resolver" }
 openssl = "0.10.81"
 thiserror = "2.0.19"

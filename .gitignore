@@ -1,4 +1,5 @@
 /target/
 *.profraw
 *.profdata
-
+__pycache__/
+*.pyc

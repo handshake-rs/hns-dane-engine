@@ -131,6 +131,15 @@ The dependency boundary is deliberate: these crates do not depend on Tokio, JNI,
 SQLite, operating-system DNS, or a particular network stack. Callers can execute the deterministic
 state machines under their native runtime.
 
+The `hns-rs` edge is canonical and immutable rather than a workspace-layout
+assumption. Nine direct packages inherit a single exact
+`https://github.com/handshake-rs/hns-rs.git` revision from the root manifest;
+Cargo resolves their two additional transitive packages from that same Git
+checkout. All other path dependencies must remain inside this repository.
+Consequently, the dependency direction is independently cloneable
+`hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports
+MeshMine nor requires an adjacent source tree.
+
 This foundation does not yet implement P2P socket dialing or peer discovery,
 download/reorganization from a fork predating the current tip, durable restart checkpoints,
 authenticated authoritative DoH, an HNSR requester, HIP-76/77 provider roles, origin TLS socket

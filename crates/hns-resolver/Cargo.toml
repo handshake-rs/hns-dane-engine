@@ -16,9 +16,9 @@ thiserror = "2.0.19"
 
 [dev-dependencies]
 blake2 = "0.10.6"
-hns-covenants = { path = "../../../hns-rs/crates/hns-covenants" }
-hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
-hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
+hns-covenants.workspace = true
+hns-header-consensus.workspace = true
+hns-primitives.workspace = true
 openssl = "0.10.81"
 
 [lints]

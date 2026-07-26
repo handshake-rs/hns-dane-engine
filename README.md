@@ -106,15 +106,24 @@ server. Native hosts still own the listener, HTTP response I/O, per-install loca
 issuance, and tunnel lifecycle. They must not open an origin connection until the crate returns an
 exact-host `TunnelGrant`.
 
+The repository is a standalone Cargo checkout. Its nine direct `hns-rs`
+packages inherit one canonical Git source pinned to commit
+`dde2da81f29df935f043978a6d517c1d60ceff31`; the lockfile binds those packages
+and the two-package transitive closure to the same revision. No sibling
+`hns-rs` checkout is required. A tested repository policy rejects unreviewed
+Git dependencies, noncanonical URLs, mutable selectors, lockfile drift,
+dependency aliases, and path dependencies that escape this repository. See
+`docs/supply-chain.md`.
+
 ## Build
 
 ```sh
-cargo test --workspace --all-features --locked --offline
-cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
-cargo build --workspace --all-features --release --locked --offline
-cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
+cargo +1.89.0 fetch --locked
+cargo +1.89.0 install cargo-deny --version 0.19.9 --locked
+./scripts/check.sh
 ```
 
 The minimum supported compiler is Rust 1.89.0. See `docs/architecture.md`,
-`docs/security-policy.md`, `docs/abi.md`, `docs/provenance.md`, and `docs/qualification.md` for
-boundaries, pinned compatibility inputs, exact coverage, and remaining work.
+`docs/security-policy.md`, `docs/abi.md`, `docs/provenance.md`,
+`docs/supply-chain.md`, and `docs/qualification.md` for boundaries, pinned
+compatibility inputs, exact coverage, and remaining work.

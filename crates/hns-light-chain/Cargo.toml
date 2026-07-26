@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hns-covenants = { path = "../../../hns-rs/crates/hns-covenants" }
-hns-encoding = { path = "../../../hns-rs/crates/hns-encoding" }
-hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
-hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
-hns-urkel-proof = { path = "../../../hns-rs/crates/hns-urkel-proof" }
+hns-covenants.workspace = true
+hns-encoding.workspace = true
+hns-header-consensus.workspace = true
+hns-primitives.workspace = true
+hns-urkel-proof.workspace = true
 thiserror = "2.0.17"
 
 [dev-dependencies]

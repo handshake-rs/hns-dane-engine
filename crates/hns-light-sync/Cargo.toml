@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-hns-header-consensus = { path = "../../../hns-rs/crates/hns-header-consensus" }
+hns-header-consensus.workspace = true
 hns-light-chain = { path = "../hns-light-chain" }
-hns-p2p-wire = { path = "../../../hns-rs/crates/hns-p2p-wire" }
-hns-primitives = { path = "../../../hns-rs/crates/hns-primitives" }
+hns-p2p-wire.workspace = true
+hns-primitives.workspace = true
 thiserror = "2.0.19"
 
 [lints]
