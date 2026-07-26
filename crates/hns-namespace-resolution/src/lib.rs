@@ -426,7 +426,8 @@ pub struct ServiceBindingInput {
     pub service_target: CanonicalHost,
     /// Canonical sorted mandatory parameter keys.
     pub mandatory_keys: Vec<u16>,
-    /// Advertised ALPN identifiers.
+    /// Raw advertised ALPN identifiers. Implicit scheme defaults are not
+    /// inserted into this list.
     pub advertised_alpn: Vec<Vec<u8>>,
     /// Protocol selected from the browser capability set.
     pub selected_protocol: ApplicationProtocol,
@@ -563,7 +564,8 @@ impl ServiceBinding {
         &self.mandatory_keys
     }
 
-    /// Advertised ALPN identifiers.
+    /// Raw advertised ALPN identifiers. Implicit scheme defaults are not
+    /// inserted into this list.
     #[must_use]
     pub fn advertised_alpn(&self) -> &[Vec<u8>] {
         &self.advertised_alpn
@@ -634,8 +636,8 @@ fn selected_alpn_is_valid(
     parameters: &[ServiceParameter],
 ) -> bool {
     let no_default_alpn = service_parameter(parameters, 2).is_some();
-    if advertised.is_empty() {
-        return !no_default_alpn && selected != ApplicationProtocol::Http3;
+    if selected == ApplicationProtocol::Http11 && !no_default_alpn {
+        return true;
     }
     advertised.iter().any(|identifier| match selected {
         ApplicationProtocol::Http11 => identifier.as_slice() == b"http/1.1",
@@ -2794,6 +2796,34 @@ mod tests {
         ServiceBinding::new(service_input(port, protocol)).unwrap()
     }
 
+    fn default_http11_service_input(
+        advertised_alpn: &[&[u8]],
+        no_default_alpn: bool,
+    ) -> ServiceBindingInput {
+        let advertised_alpn = advertised_alpn
+            .iter()
+            .map(|identifier| identifier.to_vec())
+            .collect::<Vec<_>>();
+        let mut alpn_wire = Vec::new();
+        for identifier in &advertised_alpn {
+            alpn_wire.push(u8::try_from(identifier.len()).unwrap());
+            alpn_wire.extend_from_slice(identifier);
+        }
+        let mut input = service_input(443, ApplicationProtocol::Http11);
+        input.advertised_alpn = advertised_alpn;
+        *input
+            .parameters
+            .iter_mut()
+            .find(|parameter| parameter.key() == 1)
+            .expect("ALPN parameter") = ServiceParameter::new(1, alpn_wire).unwrap();
+        if no_default_alpn {
+            input
+                .parameters
+                .push(ServiceParameter::new(2, Vec::new()).unwrap());
+        }
+        input
+    }
+
     fn plan(namespace: Namespace, endpoint_last_octet: u8) -> ValidatedOriginPlan {
         let origin = host("www.example");
         let terminal = host("edge.example");
@@ -3201,6 +3231,102 @@ mod tests {
         );
         input.transport = ServiceTransport::Udp;
         assert!(ServiceBinding::new(input).is_ok());
+    }
+
+    #[test]
+    fn http11_default_is_valid_with_nonempty_raw_alpn() {
+        let input = default_http11_service_input(&[b"h3", b"h2"], false);
+        let binding = ServiceBinding::new(input).unwrap();
+
+        assert_eq!(binding.advertised_alpn(), &[b"h3".to_vec(), b"h2".to_vec()]);
+        assert_eq!(
+            service_parameter(binding.parameters(), 1),
+            Some([2, b'h', b'3', 2, b'h', b'2'].as_slice())
+        );
+        assert_eq!(binding.selected_protocol(), ApplicationProtocol::Http11);
+    }
+
+    #[test]
+    fn no_default_alpn_requires_explicit_http11() {
+        assert_eq!(
+            ServiceBinding::new(default_http11_service_input(&[b"h3", b"h2"], true)),
+            Err(ValidationError::InvalidPlan)
+        );
+
+        let binding = ServiceBinding::new(default_http11_service_input(
+            &[b"h3", b"h2", b"http/1.1"],
+            true,
+        ))
+        .unwrap();
+        assert_eq!(binding.selected_protocol(), ApplicationProtocol::Http11);
+    }
+
+    #[test]
+    fn http2_and_http3_require_explicit_raw_alpn_ids() {
+        let mut http2 = default_http11_service_input(&[b"h3"], false);
+        http2.selected_protocol = ApplicationProtocol::Http2;
+        assert_eq!(
+            ServiceBinding::new(http2),
+            Err(ValidationError::InvalidPlan)
+        );
+
+        let mut http3 = default_http11_service_input(&[b"h2"], false);
+        http3.selected_protocol = ApplicationProtocol::Http3;
+        http3.transport = ServiceTransport::Udp;
+        assert_eq!(
+            ServiceBinding::new(http3),
+            Err(ValidationError::InvalidPlan)
+        );
+    }
+
+    #[test]
+    fn raw_alpn_semantics_remain_in_equivalence_and_fingerprints() {
+        let plan_with_service = |namespace, service| {
+            let baseline = plan(namespace, 10);
+            ValidatedOriginPlan::new(OriginPlanInput {
+                namespace,
+                query: baseline.query().clone(),
+                alias_path: baseline.alias_path().to_vec(),
+                terminal_target: baseline.terminal_target().clone(),
+                endpoint_alias_path: baseline.endpoint_alias_path().to_vec(),
+                endpoint_target: baseline.endpoint_target().clone(),
+                endpoints: baseline.endpoints().to_vec(),
+                service,
+                tls_policy: baseline.tls_policy(),
+                tlsa_records: baseline.tlsa_records().to_vec(),
+                provenance: baseline.provenance().clone(),
+                freshness: baseline.freshness(),
+            })
+            .unwrap()
+        };
+        let h3_then_h2 = plan_with_service(
+            Namespace::Hns,
+            ServiceBinding::new(default_http11_service_input(&[b"h3", b"h2"], false)).unwrap(),
+        );
+        let h2_then_h3 = plan_with_service(
+            Namespace::Hns,
+            ServiceBinding::new(default_http11_service_input(&[b"h2", b"h3"], false)).unwrap(),
+        );
+
+        assert!(!h3_then_h2.equivalent_to(&h2_then_h3));
+        let differences = h3_then_h2.differences(&h2_then_h3);
+        assert!(differences.contains(DivergenceMask::ALPN));
+        assert!(differences.contains(DivergenceMask::SERVICE_PARAMETERS));
+
+        let decision_for = |plan| {
+            decide_namespace(
+                &query(),
+                RootLookup::Present(plan),
+                RootLookup::Absent(absence(Namespace::Icann)),
+                SelectionPolicy::default(),
+                NOW,
+            )
+            .unwrap()
+        };
+        assert_ne!(
+            decision_fingerprint(&decision_for(h3_then_h2)),
+            decision_fingerprint(&decision_for(h2_then_h3))
+        );
     }
 
     #[test]

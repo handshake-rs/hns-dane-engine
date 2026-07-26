@@ -55,7 +55,10 @@ list and never combines records across roots. It compares alias paths, endpoints
 selection and ServiceMode TargetName, a separate endpoint CNAME path and final A/AAAA owner,
 effective port/transport, ordered ALPN, hints, ECH, TLS policy, and supported TLSA data; reports
 the five explicit outcomes; and treats a failure or stale evidence from either root as
-indeterminate. Plan, authenticated-absence, and failure evidence all bind the complete
+indeterminate. Service bindings retain the raw advertised ALPN list for equivalence and
+fingerprinting. Following the RFC 9460 HTTPS defaults, HTTP/1.1 remains eligible unless
+`no-default-alpn` is present; HTTP/2 and HTTP/3 still require explicit identifiers. Plan,
+authenticated-absence, and failure evidence all bind the complete
 scheme/host/port/protocol-capability query. HNS provenance carries the exact proof network,
 tree root, and height; ICANN provenance carries the validated secure/insecure chain state.
 Persisted evidence retains absolute observation and expiry rather than restarting a TTL on read.
