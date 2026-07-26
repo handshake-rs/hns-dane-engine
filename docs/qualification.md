@@ -4,10 +4,10 @@ Qualification is run with the repository's locked dependency graph and no networ
 
 ```text
 cargo test --workspace --all-targets --all-features --locked --offline
-  122 unit tests passed
+  144 unit tests passed
 
 cargo test --workspace --doc --all-features --locked --offline
-  19 doc-test targets passed (0 doctests)
+  20 doc-test targets passed (0 doctests)
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -32,6 +32,18 @@ Covered:
   validating-DoH decisions that enforce secure presence, permit WebPKI only for authenticated
   absence or insecure delegation, ignore unsigned TLSA bytes, and keep unauthenticated,
   bypassed, bogus, indeterminate, incomplete, or contradictory evidence fail-closed;
+- syntax-only canonical full-host admission with no IANA authority list; independent HNS/ICANN
+  plan, authenticated-absence, and failure types; explicit HNS-only, ICANN-only, convergent,
+  divergent, and neither outcomes; complete query binding; whole-plan comparison across origin
+  aliases, ServiceMode target, endpoint CNAMEs/final owner, addresses, HTTPS/SVCB mandatory
+  parameters, ordered ALPN, bounded hints, scheme/protocol coherence, effective transport, TLS
+  policy, and supported TLSA; no
+  cross-root record mixing; exact HNS proof-anchor provenance; secure/insecure ICANN chain
+  provenance; absolute non-renewing freshness; any-root failure and stale-evidence rejection;
+  pin/binding/first-use precedence; joint convergent freshness; and
+  query/policy/root/configuration-bound decision and decision-derived cache fingerprints,
+  including rejection of a silent switch away from an authentically absent pinned or persistently
+  bound root;
 - canonical shared `hns-rs` network genesis, 236-byte header, proof-of-work, median-time,
   difficulty-transition, and chainwork validation for contiguous light-chain extensions;
 - transactional bounded header batches and retention of the exact 147-entry Handshake retarget

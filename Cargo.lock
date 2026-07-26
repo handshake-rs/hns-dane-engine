@@ -689,6 +689,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-namespace-resolution"
+version = "0.1.0"
+
+[[package]]
 name = "hns-odoh-protocol"
 version = "0.1.0"
 dependencies = [

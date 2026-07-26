@@ -15,6 +15,7 @@ members = [
     "crates/hns-light-p2p",
     "crates/hns-light-sync",
     "crates/hns-loopback-proxy",
+    "crates/hns-namespace-resolution",
     "crates/hns-p2p-transport",
     "crates/hns-resolver",
     "crates/hns-resolution-policy",

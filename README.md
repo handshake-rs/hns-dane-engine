@@ -27,6 +27,12 @@
   canonical host, effective port, and transport; enforces secure TLSA
   presence; permits WebPKI only after authenticated absence or a proven
   insecure delegation; and keeps bogus/indeterminate DNSSEC fail-closed;
+- a shared full-host dual-root namespace contract that independently validates
+  complete HNS and ICANN connection/trust plans, reports HNS-only, ICANN-only,
+  convergent, divergent, or neither, rejects either root's failure or stale
+  evidence, and applies explicit pin, persistent binding, then ICANN first-use
+  precedence without using an IANA suffix list as authority or silently
+  switching away from an unavailable bound root;
 - local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation;
@@ -55,6 +61,21 @@ The ICANN browser path is separate from HNS authority. `hns-icann-dane`
 consumes typed evidence from a TLS-authenticated validating ICANN DoH adapter.
 It never treats a resolver error or bogus DNSSEC as “no TLSA,” and it ignores
 unsigned TLSA bytes when an insecure delegation retains WebPKI.
+
+`hns-namespace-resolution` is the browser-shell-independent authority
+classifier. Adapters must resolve the complete scheme/host/port/protocol query
+through HNS and ICANN independently and submit whole, single-root plans or
+typed authenticated absence. Plans retain the origin CNAME/AliasMode path,
+HTTPS/SVCB ServiceMode TargetName, its separate endpoint CNAME path, final
+A/AAAA owner and endpoints, effective transport, TLS policy, and supported
+TLSA data. Records from the two roots are never merged. HNS provenance is the
+exact proof anchor from that lookup, never a later tip; cached evidence keeps
+absolute observation/expiry bounds. A static IANA root-zone snapshot may
+schedule lookups or seed a cache, but it cannot decide which namespace owns a
+hostname. The decision fingerprint binds the complete query, exact policy,
+selected root, and whole connection/trust plan so browser connection,
+TLS-session, Alt-Svc, and site-data state can be partitioned across namespace
+choices.
 
 P2P DNS Relay and P2P ODoH are described as **Denuo Experimental V1 — Not an official Handshake
 protocol assignment**. Their transport cannot establish authenticity. The production Rust path

@@ -24,6 +24,36 @@ evidence, bogus DNSSEC, an indeterminate result, or any transport/HTTP/DNS parsi
 terminal and can never be relabeled as “no TLSA.” This policy must be invoked at the common request
 boundary used by navigations, redirects, subresources, Service Workers, downloads, and WebSockets.
 
+Namespace selection is based on independent resolution of the complete hostname through both HNS
+and ICANN, not on whether its rightmost label appears in an IANA list. The only authoritative
+outcomes are HNS-only, ICANN-only, both convergent, both divergent, and neither. Presence in one
+root is usable only after authenticated absence in the other; failure, bogus or indeterminate
+DNSSEC, stale HNS state, unauthenticated resolver transport, or stale evidence on either side makes
+the classification indeterminate. A selected plan supplies every endpoint, alias, service-binding,
+and TLS decision; records from different roots are never mixed. Origin and endpoint alias paths
+are retained separately around the normalized HTTPS/SVCB ServiceMode TargetName. Terminal
+AliasMode, unsupported/missing mandatory parameters, inconsistent ALPN/transport/port/hints, alias
+cycles, unsupported or malformed TLSA, and endpoints unrelated to retained connection hints fail
+closed.
+
+Every plan, authenticated absence, and failure binds the full
+scheme/host/effective-origin-port/protocol-capability query. HNS evidence carries the exact
+network/tree-root/height anchor from the proof used by that lookup; a separately reopened best tip
+is not provenance. ICANN evidence carries the authenticated validating-DoH DNSSEC chain state.
+Positive and negative evidence uses an absolute expiry capped by applicable TTL or SOA negative
+TTL, RRSIG expiry, HNS currency, and lifecycle generation. Loading persisted evidence never
+restarts its TTL. Missing exact lineage or expiry is a root failure, not absence.
+
+For a divergent dual-root name, an exact-origin user pin wins, followed by the last successful
+persistent exact-origin binding, followed by first-use ICANN precedence. The selected namespace
+must be shown in trusted browser status. A namespace change must rotate or invalidate resolver and
+proxy generations, origin connection pools, TLS sessions, Alt-Svc state, and any other
+authority-derived runtime state. Site data must be cleared or partitioned by namespace before a
+write-capable switch; if a platform cannot guarantee that boundary, it may expose status and
+selection controls only as read-only. An IANA snapshot may be a lookup-order hint or expiring cache
+input, never namespace authority. Authenticated absence of a pinned or persistently bound root
+does not authorize an automatic switch to the other root.
+
 Local matching accepts DANE-EE usage 3 and DANE-TA usage 2. It supports full-certificate selector 0
 and SPKI selector 1 with exact, SHA-256, and SHA-512 matching types 0, 1, and 2. Every terminal
 record is checked for supported fields and association length before any match is accepted.

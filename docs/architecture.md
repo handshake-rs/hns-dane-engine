@@ -8,6 +8,7 @@ hns-rs P2P/header crates ---> hns-light-p2p ---+
 hns-rs header/covenant/Urkel crates ---> hns-light-chain ------------+
                                                                       |
 hns-icann-dane ------------------------------------------------------>+
+hns-namespace-resolution -------------------------------------------->+
                                                                       |
 hns-dns-wire ---> hns-dnssec --------------------------> hns-resolver --+
        |                                                               |
@@ -47,6 +48,27 @@ then reduces authenticated validating-DoH evidence to DANE enforcement, WebPKI a
 absence, or WebPKI after a proven insecure delegation. Unauthenticated resolver channels,
 validation bypass, bogus/indeterminate DNSSEC, and contradictory presence/denial evidence are
 terminal errors.
+`hns-namespace-resolution` is the shared full-host authority boundary for dual-root browsers. Each
+adapter independently produces either a complete, internally coherent HNS plan, a complete ICANN
+plan, typed authenticated absence, or typed failure. The classifier never consults an IANA suffix
+list and never combines records across roots. It compares alias paths, endpoints, HTTPS/SVCB
+selection and ServiceMode TargetName, a separate endpoint CNAME path and final A/AAAA owner,
+effective port/transport, ordered ALPN, hints, ECH, TLS policy, and supported TLSA data; reports
+the five explicit outcomes; and treats a failure or stale evidence from either root as
+indeterminate. Plan, authenticated-absence, and failure evidence all bind the complete
+scheme/host/port/protocol-capability query. HNS provenance carries the exact proof network,
+tree root, and height; ICANN provenance carries the validated secure/insecure chain state.
+Persisted evidence retains absolute observation and expiry rather than restarting a TTL on read.
+When both roots differ, precedence is exact-origin user pin, then persistent successful binding,
+then the ICANN first-use default (or a stricter require-selection mode). Both convergent plans are retained so
+their joint freshness bound and evidence remain observable. Stable decision and cache
+fingerprints bind the complete query, exact deciding policy, root selection, canonical HNS
+network, resolver configuration, and authority/binding generations. Cache identity is derived
+from the actual decision rather than parallel caller-supplied query or policy fields. These
+identities partition downstream pool,
+TLS-session, Alt-Svc, and site-data isolation. If a pinned or persistently bound root becomes
+authentically absent while the other root remains present, the classifier rejects the implicit
+switch; the platform must execute its explicit state-isolated namespace-switch workflow.
 `hns-resolver` accepts the initial DS set only from that private HNS resource token, authenticates
 the TLD DNSKEY, follows bounded DNSSEC-verified CNAMEs, and returns a non-forgeable terminal TLSA
 result carrying the chain lineage. `hns-dane` performs DANE-EE matching and private-root DANE-TA
