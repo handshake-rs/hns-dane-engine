@@ -35,7 +35,9 @@
   switching away from an unavailable bound root;
 - local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
   SHA-256, or SHA-512 associations;
-- persistent typed requester/provider policy with generation-safe revocation;
+- persistent typed requester/provider policy with generation-safe revocation,
+  including a default-off, explicitly user-configured recursive HNS DoH
+  terminal transport;
 - resolution provenance that distinguishes transport from locally verified evidence;
 - a non-cloneable shared browser authority runtime with checked nonzero per-start session IDs,
   private atomic snapshots, and generation/event stamps that reject stale policy work, future
@@ -47,7 +49,8 @@
   constant-time Basic capability checks, strict exact-origin `CONNECT` parsing, and a two-phase
   tunnel grant that only the engine's current non-forgeable DANE completion can authorize;
 - bounded shared mobile/Chromium status schema v2 covering the complete runtime/authority tuple,
-  policy generations, actual transport including validating ICANN DoH, intermediary identities,
+  policy generations, actual transport including validating ICANN DoH and
+  proof-contained local HNS origin data, intermediary identities,
   experimental-P2P-only registry identity, policy-derived provider readiness, rate limits,
   explicit evidence states, authority-consistent degraded/revocation reasons, sanitized dual-root
   outcome/selection/fingerprint fields with classifier-valid reason combinations, and typed ICANN
@@ -57,12 +60,22 @@
 - a versioned Rust facade and C ABI suitable for Android, Apple, and native-host adapters.
 
 The policy transport order is direct delegated-authoritative UDP, direct
-delegated-authoritative TCP, optional authenticated authoritative DoH, then policy-permitted
-Handshake P2P ODoH and P2P DNS Relay. HNS resolution has no operating-system resolver, public
-recursive resolver, public DoH, or WebPKI fallback. Direct UDP/TCP own their socket I/O here.
-HIP-76/77 own the complete authenticated request/response boundary but consume a platform-supplied
-established Brontide exchange; authenticated authoritative DoH and HNSR remain unavailable rather
-than silently falling back.
+delegated-authoritative TCP, optional authenticated authoritative DoH,
+policy-permitted Handshake P2P ODoH and P2P DNS Relay, then explicitly
+user-configured recursive HNS DoH when its independent requester-consent bit is
+enabled. The recursive transport is absent by default and always terminal.
+HNS resolution has no operating-system resolver, implicit recursive resolver,
+implicit DoH, or WebPKI fallback. Every DNS response remains subject to local
+HNS proof, DNSSEC, TLSA, and DANE validation; a remote AD bit is never
+authority. Direct UDP/TCP own their socket I/O here. HIP-76/77 own the complete
+authenticated request/response boundary but consume a platform-supplied
+established Brontide exchange; authenticated authoritative DoH and HNSR remain
+unavailable rather than silently falling back.
+
+An HNS name proof may itself contain the verified origin data and require no
+DNS network transport. Such a successful result uses the append-only
+`LocalHnsProof` status provenance (transport discriminant 8); it is never
+inserted into a transport plan or accepted by transport admission.
 
 The ICANN browser path is separate from HNS authority. `hns-icann-dane`
 consumes typed evidence from a TLS-authenticated validating ICANN DoH adapter.

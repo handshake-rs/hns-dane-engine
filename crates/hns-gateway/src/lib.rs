@@ -420,14 +420,15 @@ impl Gateway {
             }
             ResolutionTransport::DirectAuthoritativeUdp
             | ResolutionTransport::DirectAuthoritativeTcp
-            | ResolutionTransport::AuthenticatedAuthoritativeDoh => {
+            | ResolutionTransport::AuthenticatedAuthoritativeDoh
+            | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
                 if identities != &GatewayIdentities::default() {
                     return Err(GatewayError::InvalidIdentityTopology);
                 }
             }
             ResolutionTransport::Unavailable
             | ResolutionTransport::ValidatingIcannDoh
-            | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
+            | ResolutionTransport::LocalHnsProof => {
                 return Err(GatewayError::UnavailableTransport);
             }
         }
@@ -748,23 +749,27 @@ mod tests {
     }
 
     #[test]
-    fn status_only_recursive_hns_doh_is_not_a_gateway_attempt_transport() {
-        let snapshot = policy();
+    fn recursive_hns_doh_is_terminal_and_requires_policy_consent() {
+        let config = PolicyConfig {
+            user_configured_recursive_hns_doh: true,
+            ..PolicyConfig::default()
+        };
+        let snapshot = PolicySnapshot::new(2, config).unwrap();
         let gateway = Gateway::new(snapshot, GatewayLimits::default()).unwrap();
 
-        assert!(
-            !gateway
-                .plan()
-                .contains(ResolutionTransport::UserConfiguredRecursiveHnsDoh)
+        assert_eq!(
+            gateway.plan().as_slice().last(),
+            Some(&ResolutionTransport::UserConfiguredRecursiveHnsDoh)
         );
-        assert!(matches!(
-            gateway.validate_response(
-                &[1],
-                &GatewayIdentities::default(),
-                ResolutionTransport::UserConfiguredRecursiveHnsDoh,
-            ),
-            Err(GatewayError::UnavailableTransport)
-        ));
+        assert!(
+            gateway
+                .validate_response(
+                    &[1],
+                    &GatewayIdentities::default(),
+                    ResolutionTransport::UserConfiguredRecursiveHnsDoh,
+                )
+                .is_ok()
+        );
     }
 
     #[test]

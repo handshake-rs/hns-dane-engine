@@ -104,11 +104,14 @@ Covered:
 - positive real-certificate fixtures, negative mismatch/mutation cases, unsupported TLSA fields,
   malformed DER, wrong digest lengths, nonzero response codes, missing/wrong-owner TLSA, and input
   bounds;
-- checksummed versioned policy persistence and legacy migration, optimistic updates, generation
-  revocation, independent requester/relay/output controls, persistent opt-out for opaque ODoH and
-  HNSR relaying, explicit opt-in for plaintext/output-node roles, and conflicting privacy-policy
-  rejection;
-- direct-authoritative-first planning with no representable OS/public-recursive fallback;
+- checksummed fixed-length policy persistence with schema-1/schema-2 migration to schema 3,
+  optimistic updates, generation revocation, independent requester/relay/output controls,
+  persistent opt-out for opaque ODoH and HNSR relaying, explicit opt-in for
+  plaintext/output-node roles and configured recursive HNS DoH, older-schema decoding of the new
+  consent as false, and conflicting privacy-policy rejection;
+- direct-authoritative-first planning with no OS or implicit recursive fallback and configured
+  recursive HNS DoH admitted only as an explicitly consented terminal transport, plus append-only
+  `LocalHnsProof` status provenance that is never planned or admitted;
 - engine-integrated, policy-generation-bound gateway ordering; one process-unique active attempt;
   response/identity/deadline bounds; valid UDP-truncation-to-TCP handling; retry only for
   reachability, timeout, or unsupported paths; fail-closed malformed/authentication/cancellation
@@ -147,9 +150,10 @@ Covered:
   exact-certificate DANE evidence, mints the engine bridge authorization, and issues only the exact
   current proxy tunnel grant;
 - shared status schema v2 with one private-field runtime/authority snapshot, policy generation,
-  network/chain anchor, complete policy, actual transport including validating ICANN DoH, bounded
-  identities, experimental-P2P-only registry fingerprint/profile/version, HNSR/provider roles and
-  policy-derived readiness, aggregate rate limits, sanitized namespace
+  network/chain anchor, complete policy, actual transport including validating ICANN DoH and
+  proof-contained local HNS origin data, bounded identities, experimental-P2P-only registry
+  fingerprint/profile/version, HNSR/provider roles and policy-derived readiness, aggregate rate
+  limits, sanitized namespace
   outcome/selection/fingerprint and root-failure fields, typed ICANN DNSSEC/TLS action,
   authority-consistent
   degraded/revocation reasons, and bounded unsupported-evidence details;
@@ -173,9 +177,10 @@ Covered:
   binding; finite socket/message bounds; connected UDP source filtering; exact TCP length framing;
   lifecycle cancellation; and strict DNS response correlation;
 - explicit browser authority states;
-- C layout assertions, ownership functions, nonzero runtime-session rejection, policy exchange,
-  transport planning, query admission, end-to-end local DANE matching, caller-DANE-bit rejection,
-  response correlation, and panic containment; and
+- C layout assertions for policy V1 and V2, ownership functions, nonzero runtime-session rejection,
+  V2 recursive-HNS-DoH consent exchange, V1 fail-closed downgrade behavior, transport planning,
+  query admission, end-to-end local DANE matching, caller-DANE-bit rejection, response correlation,
+  and panic containment; and
 - positive pinned vectors plus mutation-derived negatives.
 
 Not yet implemented:

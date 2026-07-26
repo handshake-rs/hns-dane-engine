@@ -4,8 +4,10 @@ This repository contains the platform-neutral HNS browser security engine.
 
 - Keep protocol parsing and policy crates independent of async executors, operating-system DNS,
   platform UI frameworks, and persistence databases.
-- HNS resolution fails closed. Never add operating-system DNS, public recursive DNS, public DoH,
-  WebPKI fallback, or arbitrary HTTP proxy resolution to the HNS path.
+- HNS resolution fails closed. Never add operating-system DNS, implicit recursive DNS/DoH, WebPKI
+  fallback, or arbitrary HTTP proxy resolution to the HNS path. An explicitly user-configured
+  recursive HNS DoH endpoint may be a default-off terminal transport only; its bytes still require
+  complete local HNS/DNSSEC/TLSA/DANE validation.
 - DNS transport is provenance, never validation authority. The AD bit and relay assertions are
   untrusted inputs.
 - Direct delegated-authoritative DNS is always attempted before experimental P2P fallback.
@@ -15,4 +17,3 @@ This repository contains the platform-neutral HNS browser security engine.
 - Use Rust 1.89, edition 2024, resolver 3, and `MIT OR Apache-2.0`.
 - Run `cargo test --workspace`, strict Clippy, and a release build before committing.
 - Do not push from this repository.
-

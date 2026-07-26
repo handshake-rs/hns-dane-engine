@@ -28,6 +28,8 @@ use hns_resolution_policy::{
 
 /// C ABI version implemented by this library.
 pub const ABI_VERSION: u32 = 1;
+/// Policy ABI version that exposes recursive-HNS-DoH requester consent.
+pub const POLICY_ABI_VERSION_V2: u32 = 2;
 /// All caller-supplied prerequisite bits required before local DANE matching.
 pub const PREREQUISITES_ALL_VERIFIED: u32 = 0x33;
 /// Maximum bytes in each fixed-size C transport identity.
@@ -133,6 +135,36 @@ pub struct HnsDanePolicyV1 {
     pub reserved: [u8; 8],
 }
 
+/// Versioned C policy structure with recursive-HNS-DoH requester consent.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HnsDanePolicyV2 {
+    /// Set to `sizeof(HnsDanePolicyV2)`.
+    pub struct_size: u32,
+    /// Set to [`POLICY_ABI_VERSION_V2`].
+    pub abi_version: u32,
+    /// Current policy generation on output; expected generation on input.
+    pub generation: u64,
+    /// [`DnsRelayRequesterPolicy`] discriminant.
+    pub dns_relay_requester: u8,
+    /// [`ObliviousDnsPolicy`] discriminant.
+    pub oblivious_dns: u8,
+    /// Independent [`HnsrPolicy`] role bits.
+    pub hnsr: u8,
+    /// [`WireProfile`] discriminant.
+    pub wire_profile: u8,
+    /// One when proof-authenticated authoritative DoH is enabled.
+    pub authenticated_authoritative_doh: u8,
+    /// One when bounded legacy regtest compatibility is enabled.
+    pub allow_legacy_regtest_compatibility: u8,
+    /// Explicit provider-role bitset.
+    pub provider_flags: u16,
+    /// One only after explicit recursive-HNS-DoH requester consent.
+    pub user_configured_recursive_hns_doh: u8,
+    /// Must be zero.
+    pub reserved: [u8; 7],
+}
+
 /// Versioned transport identity context.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -212,6 +244,12 @@ pub struct HnsDaneResultV1 {
 #[unsafe(no_mangle)]
 pub extern "C" fn hns_dane_engine_v1_abi_version() -> u32 {
     ABI_VERSION
+}
+
+/// Return the policy-v2 ABI version without dereferencing caller memory.
+#[unsafe(no_mangle)]
+pub extern "C" fn hns_dane_engine_v2_abi_version() -> u32 {
+    POLICY_ABI_VERSION_V2
 }
 
 /// Create an engine.
@@ -349,7 +387,10 @@ pub unsafe extern "C" fn hns_dane_engine_v1_export_policy(
     })
 }
 
-/// Read typed current policy.
+/// Read the policy-V1 projection.
+///
+/// Returns [`HnsDaneStatus::AbiMismatch`] while recursive-HNS-DoH consent is
+/// enabled because policy V1 cannot represent that permission.
 ///
 /// # Safety
 ///
@@ -366,7 +407,10 @@ pub unsafe extern "C" fn hns_dane_engine_v1_get_policy(
         // SAFETY: The caller contract requires a live engine handle.
         let engine = unsafe { engine_ref(engine)? };
         let snapshot = engine.engine.snapshot().map_err(map_engine_error)?.policy;
-        let policy = policy_to_ffi(snapshot);
+        if snapshot.config().user_configured_recursive_hns_doh {
+            return Err(HnsDaneStatus::AbiMismatch);
+        }
+        let policy = policy_to_ffi_v1(snapshot);
         // SAFETY: output is required writable by the caller contract.
         unsafe {
             output.write(policy);
@@ -375,7 +419,10 @@ pub unsafe extern "C" fn hns_dane_engine_v1_get_policy(
     })
 }
 
-/// Replace typed policy with optimistic generation matching.
+/// Replace policy through the V1 fail-closed boundary.
+///
+/// A successful V1 update always disables recursive-HNS-DoH consent because
+/// policy V1 cannot represent or retain that permission.
 ///
 /// # Safety
 ///
@@ -396,7 +443,69 @@ pub unsafe extern "C" fn hns_dane_engine_v1_set_policy(
         let engine = unsafe { engine_ref(engine)? };
         // SAFETY: policy is required readable by the caller contract.
         let policy = unsafe { policy.read() };
-        let (expected_generation, config) = policy_from_ffi(policy)?;
+        let (expected_generation, config) = policy_from_ffi_v1(policy)?;
+        let transition = engine
+            .engine
+            .update_policy(expected_generation, config)
+            .map_err(map_engine_error)?;
+        let effect_bits = effects_to_bits(transition.effects);
+        // SAFETY: output pointers are required writable by the caller contract.
+        unsafe {
+            new_generation.write(transition.current.generation());
+            effects.write(effect_bits);
+        }
+        Ok(())
+    })
+}
+
+/// Read typed current policy, including recursive-HNS-DoH requester consent.
+///
+/// # Safety
+///
+/// `engine` must be a live handle and `output` valid for one structure write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hns_dane_engine_v2_get_policy(
+    engine: *const HnsDaneEngine,
+    output: *mut HnsDanePolicyV2,
+) -> i32 {
+    ffi_guard(|| {
+        if output.is_null() {
+            return Err(HnsDaneStatus::NullPointer);
+        }
+        // SAFETY: The caller contract requires a live engine handle.
+        let engine = unsafe { engine_ref(engine)? };
+        let snapshot = engine.engine.snapshot().map_err(map_engine_error)?.policy;
+        let policy = policy_to_ffi_v2(snapshot);
+        // SAFETY: output is required writable by the caller contract.
+        unsafe {
+            output.write(policy);
+        }
+        Ok(())
+    })
+}
+
+/// Replace typed policy, including recursive-HNS-DoH requester consent.
+///
+/// # Safety
+///
+/// `engine` must be a live handle; `policy`, `new_generation`, and `effects`
+/// must be valid readable/writable pointers for their respective types.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hns_dane_engine_v2_set_policy(
+    engine: *const HnsDaneEngine,
+    policy: *const HnsDanePolicyV2,
+    new_generation: *mut u64,
+    effects: *mut u32,
+) -> i32 {
+    ffi_guard(|| {
+        if policy.is_null() || new_generation.is_null() || effects.is_null() {
+            return Err(HnsDaneStatus::NullPointer);
+        }
+        // SAFETY: The caller contract requires a live engine handle.
+        let engine = unsafe { engine_ref(engine)? };
+        // SAFETY: policy is required readable by the caller contract.
+        let policy = unsafe { policy.read() };
+        let (expected_generation, config) = policy_from_ffi_v2(policy)?;
         let transition = engine
             .engine
             .update_policy(expected_generation, config)
@@ -682,9 +791,8 @@ fn authority_state_from_u8(value: u8) -> Result<AuthorityState, HnsDaneStatus> {
     }
 }
 
-fn policy_to_ffi(snapshot: PolicySnapshot) -> HnsDanePolicyV1 {
+fn policy_to_ffi_v1(snapshot: PolicySnapshot) -> HnsDanePolicyV1 {
     let config = snapshot.config();
-    let providers = config.providers;
     HnsDanePolicyV1 {
         struct_size: u32::try_from(std::mem::size_of::<HnsDanePolicyV1>()).unwrap_or(u32::MAX),
         abi_version: ABI_VERSION,
@@ -695,28 +803,30 @@ fn policy_to_ffi(snapshot: PolicySnapshot) -> HnsDanePolicyV1 {
         wire_profile: config.wire_profile as u8,
         authenticated_authoritative_doh: u8::from(config.authenticated_authoritative_doh),
         allow_legacy_regtest_compatibility: u8::from(config.allow_legacy_regtest_compatibility),
-        provider_flags: (if providers.dns_relay {
-            PROVIDER_DNS_RELAY
-        } else {
-            0
-        }) | (if providers.odoh_proxy {
-            PROVIDER_ODOH_PROXY
-        } else {
-            0
-        }) | (if providers.odoh_target {
-            PROVIDER_ODOH_TARGET
-        } else {
-            0
-        }) | (if providers.market_gossip {
-            PROVIDER_MARKET_GOSSIP
-        } else {
-            0
-        }),
+        provider_flags: provider_flags(config.providers),
         reserved: [0; 8],
     }
 }
 
-fn policy_from_ffi(policy: HnsDanePolicyV1) -> Result<(u64, PolicyConfig), HnsDaneStatus> {
+fn policy_to_ffi_v2(snapshot: PolicySnapshot) -> HnsDanePolicyV2 {
+    let config = snapshot.config();
+    HnsDanePolicyV2 {
+        struct_size: u32::try_from(std::mem::size_of::<HnsDanePolicyV2>()).unwrap_or(u32::MAX),
+        abi_version: POLICY_ABI_VERSION_V2,
+        generation: snapshot.generation(),
+        dns_relay_requester: config.dns_relay_requester as u8,
+        oblivious_dns: config.oblivious_dns as u8,
+        hnsr: config.hnsr.bits(),
+        wire_profile: config.wire_profile as u8,
+        authenticated_authoritative_doh: u8::from(config.authenticated_authoritative_doh),
+        allow_legacy_regtest_compatibility: u8::from(config.allow_legacy_regtest_compatibility),
+        provider_flags: provider_flags(config.providers),
+        user_configured_recursive_hns_doh: u8::from(config.user_configured_recursive_hns_doh),
+        reserved: [0; 7],
+    }
+}
+
+fn policy_from_ffi_v1(policy: HnsDanePolicyV1) -> Result<(u64, PolicyConfig), HnsDaneStatus> {
     if policy.struct_size != size_u32::<HnsDanePolicyV1>()?
         || policy.abi_version != ABI_VERSION
         || policy.reserved != [0; 8]
@@ -735,16 +845,69 @@ fn policy_from_ffi(policy: HnsDanePolicyV1) -> Result<(u64, PolicyConfig), HnsDa
                 .map_err(map_policy_error)?,
             hnsr: HnsrPolicy::from_bits(policy.hnsr).map_err(map_policy_error)?,
             authenticated_authoritative_doh: policy.authenticated_authoritative_doh != 0,
-            providers: ProviderPolicy {
-                dns_relay: policy.provider_flags & PROVIDER_DNS_RELAY != 0,
-                odoh_proxy: policy.provider_flags & PROVIDER_ODOH_PROXY != 0,
-                odoh_target: policy.provider_flags & PROVIDER_ODOH_TARGET != 0,
-                market_gossip: policy.provider_flags & PROVIDER_MARKET_GOSSIP != 0,
-            },
+            user_configured_recursive_hns_doh: false,
+            providers: providers_from_flags(policy.provider_flags),
             wire_profile: WireProfile::try_from(policy.wire_profile).map_err(map_policy_error)?,
             allow_legacy_regtest_compatibility: policy.allow_legacy_regtest_compatibility != 0,
         },
     ))
+}
+
+fn policy_from_ffi_v2(policy: HnsDanePolicyV2) -> Result<(u64, PolicyConfig), HnsDaneStatus> {
+    if policy.struct_size != size_u32::<HnsDanePolicyV2>()?
+        || policy.abi_version != POLICY_ABI_VERSION_V2
+        || policy.reserved != [0; 7]
+        || policy.provider_flags & !PROVIDER_KNOWN != 0
+        || policy.authenticated_authoritative_doh > 1
+        || policy.allow_legacy_regtest_compatibility > 1
+        || policy.user_configured_recursive_hns_doh > 1
+    {
+        return Err(HnsDaneStatus::AbiMismatch);
+    }
+    Ok((
+        policy.generation,
+        PolicyConfig {
+            dns_relay_requester: DnsRelayRequesterPolicy::try_from(policy.dns_relay_requester)
+                .map_err(map_policy_error)?,
+            oblivious_dns: ObliviousDnsPolicy::try_from(policy.oblivious_dns)
+                .map_err(map_policy_error)?,
+            hnsr: HnsrPolicy::from_bits(policy.hnsr).map_err(map_policy_error)?,
+            authenticated_authoritative_doh: policy.authenticated_authoritative_doh != 0,
+            user_configured_recursive_hns_doh: policy.user_configured_recursive_hns_doh != 0,
+            providers: providers_from_flags(policy.provider_flags),
+            wire_profile: WireProfile::try_from(policy.wire_profile).map_err(map_policy_error)?,
+            allow_legacy_regtest_compatibility: policy.allow_legacy_regtest_compatibility != 0,
+        },
+    ))
+}
+
+const fn provider_flags(providers: ProviderPolicy) -> u16 {
+    (if providers.dns_relay {
+        PROVIDER_DNS_RELAY
+    } else {
+        0
+    }) | (if providers.odoh_proxy {
+        PROVIDER_ODOH_PROXY
+    } else {
+        0
+    }) | (if providers.odoh_target {
+        PROVIDER_ODOH_TARGET
+    } else {
+        0
+    }) | (if providers.market_gossip {
+        PROVIDER_MARKET_GOSSIP
+    } else {
+        0
+    })
+}
+
+const fn providers_from_flags(flags: u16) -> ProviderPolicy {
+    ProviderPolicy {
+        dns_relay: flags & PROVIDER_DNS_RELAY != 0,
+        odoh_proxy: flags & PROVIDER_ODOH_PROXY != 0,
+        odoh_target: flags & PROVIDER_ODOH_TARGET != 0,
+        market_gossip: flags & PROVIDER_MARKET_GOSSIP != 0,
+    }
 }
 
 fn effects_to_bits(effects: hns_resolution_policy::PolicyChangeEffects) -> u32 {
@@ -935,8 +1098,11 @@ mod tests {
     #[test]
     fn c_abi_policy_round_trip_and_provider_default() {
         assert_eq!(std::mem::size_of::<HnsDanePolicyV1>(), 32);
+        assert_eq!(std::mem::size_of::<HnsDanePolicyV2>(), 32);
         assert_eq!(std::mem::size_of::<HnsDaneTransportContextV1>(), 400);
         assert_eq!(std::mem::size_of::<HnsDaneResultV1>(), 40);
+        assert_eq!(hns_dane_engine_v1_abi_version(), ABI_VERSION);
+        assert_eq!(hns_dane_engine_v2_abi_version(), POLICY_ABI_VERSION_V2);
 
         let session = [9u8; 16];
         let mut engine = ptr::null_mut();
@@ -982,6 +1148,122 @@ mod tests {
             HnsDaneStatus::BufferTooSmall.code()
         );
         assert_eq!(required, 32);
+
+        // SAFETY: engine is the live allocation returned by create.
+        assert_eq!(
+            unsafe { hns_dane_engine_v1_destroy(engine) },
+            HnsDaneStatus::Ok.code()
+        );
+    }
+
+    #[test]
+    fn policy_v2_exposes_consent_and_v1_can_only_fail_closed() {
+        let session = [8u8; 16];
+        let mut engine = ptr::null_mut();
+        // SAFETY: All pointers reference live local storage of documented sizes.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v1_create(
+                    session.as_ptr(),
+                    Network::Mainnet as u8,
+                    ptr::null(),
+                    0,
+                    &mut engine,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+
+        let mut policy_v2 = HnsDanePolicyV2::default();
+        // SAFETY: engine is live and policy_v2 is writable.
+        assert_eq!(
+            unsafe { hns_dane_engine_v2_get_policy(engine, &mut policy_v2) },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(policy_v2.user_configured_recursive_hns_doh, 0);
+        policy_v2.user_configured_recursive_hns_doh = 1;
+        let mut generation = 0;
+        let mut effects = 0;
+        // SAFETY: engine and all structure/output pointers are live.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v2_set_policy(engine, &policy_v2, &mut generation, &mut effects)
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(generation, 2);
+        assert_ne!(effects & EFFECT_CLEAR_REQUESTER, 0);
+
+        let mut count = 0;
+        // SAFETY: engine is live and count is writable.
+        assert_eq!(
+            unsafe { hns_dane_engine_v1_transport_count(engine, &mut count) },
+            HnsDaneStatus::Ok.code()
+        );
+        let mut terminal = u8::MAX;
+        // SAFETY: engine is live and terminal is writable.
+        assert_eq!(
+            unsafe { hns_dane_engine_v1_transport_at(engine, count - 1, &mut terminal) },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(
+            terminal,
+            ResolutionTransport::UserConfiguredRecursiveHnsDoh as u8
+        );
+        for state in 2..=5 {
+            // SAFETY: engine is live and each state is the next valid transition.
+            assert_eq!(
+                unsafe { hns_dane_engine_v1_advance_authority(engine, state) },
+                HnsDaneStatus::Ok.code()
+            );
+        }
+        let owner = b"_443._tcp.example";
+        let mut attempt = ptr::null_mut();
+        // SAFETY: engine and output are live; owner is readable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v1_admit(
+                    engine,
+                    ResolutionTransport::LocalHnsProof as u8,
+                    1,
+                    owner.as_ptr(),
+                    owner.len(),
+                    RecordType::Tlsa.code(),
+                    &mut attempt,
+                )
+            },
+            HnsDaneStatus::TransportDisabled.code()
+        );
+        assert!(attempt.is_null());
+
+        let mut policy_v1 = HnsDanePolicyV1::default();
+        // SAFETY: engine is live and policy_v1 is writable.
+        assert_eq!(
+            unsafe { hns_dane_engine_v1_get_policy(engine, &mut policy_v1) },
+            HnsDaneStatus::AbiMismatch.code()
+        );
+
+        let enabled = PolicyConfig {
+            user_configured_recursive_hns_doh: true,
+            ..PolicyConfig::default()
+        };
+        policy_v1 = policy_to_ffi_v1(PolicySnapshot::new(generation, enabled).unwrap());
+        // SAFETY: engine and all structure/output pointers are live. Policy V1
+        // deliberately decodes its unrepresentable consent field as disabled.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_v1_set_policy(engine, &policy_v1, &mut generation, &mut effects)
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(generation, 3);
+
+        // SAFETY: engine is live and policy_v2 is writable.
+        assert_eq!(
+            unsafe { hns_dane_engine_v2_get_policy(engine, &mut policy_v2) },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(policy_v2.user_configured_recursive_hns_doh, 0);
 
         // SAFETY: engine is the live allocation returned by create.
         assert_eq!(

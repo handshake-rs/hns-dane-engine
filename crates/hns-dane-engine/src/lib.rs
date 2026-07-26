@@ -1103,7 +1103,8 @@ fn validate_completion_context(
         }
         ResolutionTransport::DirectAuthoritativeUdp
         | ResolutionTransport::DirectAuthoritativeTcp
-        | ResolutionTransport::AuthenticatedAuthoritativeDoh => {
+        | ResolutionTransport::AuthenticatedAuthoritativeDoh
+        | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
             if context.peer_identity.is_some()
                 || context.proxy_identity.is_some()
                 || context.target_identity.is_some()
@@ -1114,7 +1115,7 @@ fn validate_completion_context(
         }
         ResolutionTransport::Unavailable
         | ResolutionTransport::ValidatingIcannDoh
-        | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
+        | ResolutionTransport::LocalHnsProof => {
             return Err(EngineError::InvalidCompletionContext);
         }
     }

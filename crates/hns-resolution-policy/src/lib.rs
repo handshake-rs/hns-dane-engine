@@ -1,9 +1,8 @@
 //! Persistent, typed HNS resolution policy and evidence provenance.
 //!
 //! The transport plan deliberately has no operating-system or implicit
-//! public-recursive candidate. A separately consented browser adapter may
-//! report user-configured recursive HNS DoH as status provenance, but that
-//! status-only variant is never added to a plan by default. A policy mutation
+//! public-recursive candidate. Explicit user consent may add one configured
+//! recursive HNS DoH transport as the terminal candidate. A policy mutation
 //! increments the generation, and completion under a stale generation is
 //! rejected even if a path is later re-enabled.
 
@@ -19,7 +18,8 @@
 use std::fmt;
 
 const PERSISTED_MAGIC: &[u8; 8] = b"HNSPOL1\0";
-const PERSISTED_SCHEMA: u16 = 2;
+const PERSISTED_SCHEMA: u16 = 3;
+const PERSISTED_SCHEMA_V2: u16 = 2;
 const LEGACY_PERSISTED_SCHEMA: u16 = 1;
 const PERSISTED_PAYLOAD_LEN: u16 = 16;
 /// Exact encoded policy snapshot length.
@@ -310,6 +310,8 @@ pub struct PolicyConfig {
     pub hnsr: HnsrPolicy,
     /// Permit proof-authenticated authoritative DoH after direct UDP/TCP.
     pub authenticated_authoritative_doh: bool,
+    /// Permit an explicitly user-configured recursive HNS DoH terminal fallback.
+    pub user_configured_recursive_hns_doh: bool,
     /// Independent provider controls.
     pub providers: ProviderPolicy,
     /// Experimental assignment profile.
@@ -325,6 +327,7 @@ impl Default for PolicyConfig {
             oblivious_dns: ObliviousDnsPolicy::DirectRelayAllowed,
             hnsr: HnsrPolicy::default(),
             authenticated_authoritative_doh: true,
+            user_configured_recursive_hns_doh: false,
             providers: ProviderPolicy::default(),
             wire_profile: WireProfile::DenuoV1,
             allow_legacy_regtest_compatibility: true,
@@ -400,7 +403,8 @@ impl PolicySnapshot {
         output[23] = self.config.wire_profile as u8;
         output[24..26].copy_from_slice(&self.config.providers.bits().to_be_bytes());
         let settings = u16::from(self.config.authenticated_authoritative_doh)
-            | (u16::from(self.config.allow_legacy_regtest_compatibility) << 1);
+            | (u16::from(self.config.allow_legacy_regtest_compatibility) << 1)
+            | (u16::from(self.config.user_configured_recursive_hns_doh) << 2);
         output[26..28].copy_from_slice(&settings.to_be_bytes());
         let checksum = crc32(&output[..28]);
         output[28..32].copy_from_slice(&checksum.to_be_bytes());
@@ -414,8 +418,10 @@ impl PolicySnapshot {
             return Err(PolicyError::InvalidEncoding);
         }
         let schema = read_u16(input, 8)?;
-        if !matches!(schema, LEGACY_PERSISTED_SCHEMA | PERSISTED_SCHEMA)
-            || read_u16(input, 10)? != PERSISTED_PAYLOAD_LEN
+        if !matches!(
+            schema,
+            LEGACY_PERSISTED_SCHEMA | PERSISTED_SCHEMA_V2 | PERSISTED_SCHEMA
+        ) || read_u16(input, 10)? != PERSISTED_PAYLOAD_LEN
         {
             return Err(PolicyError::UnsupportedSchema);
         }
@@ -429,7 +435,12 @@ impl PolicySnapshot {
         }
         let provider_bits = read_u16(input, 24)?;
         let settings = read_u16(input, 26)?;
-        if settings & !0b11 != 0 {
+        let known_settings = if schema == PERSISTED_SCHEMA {
+            0b111
+        } else {
+            0b011
+        };
+        if settings & !known_settings != 0 {
             return Err(PolicyError::InvalidEncoding);
         }
         let hnsr = if schema == LEGACY_PERSISTED_SCHEMA {
@@ -444,6 +455,7 @@ impl PolicySnapshot {
             wire_profile: WireProfile::try_from(byte(input, 23)?)?,
             providers: ProviderPolicy::from_bits(provider_bits)?,
             authenticated_authoritative_doh: settings & 1 != 0,
+            user_configured_recursive_hns_doh: schema == PERSISTED_SCHEMA && settings & 4 != 0,
             allow_legacy_regtest_compatibility: settings & 2 != 0,
         };
         Self::new(generation, config)
@@ -473,10 +485,14 @@ pub enum ResolutionTransport {
     ValidatingIcannDoh = 6,
     /// Explicitly user-configured recursive HNS DoH recovery transport.
     ///
-    /// This is status provenance for browser adapters that independently gate
-    /// the endpoint behind affirmative user consent. It is never an implicit
-    /// candidate in the fail-closed HNS [`TransportPlan`].
+    /// This is admitted only when the current policy binds affirmative user
+    /// consent. It is always terminal in the fail-closed HNS [`TransportPlan`].
     UserConfiguredRecursiveHnsDoh = 7,
+    /// Origin data obtained directly from a locally verified HNS name proof.
+    ///
+    /// This is status provenance for a proof-contained result and is never a
+    /// network candidate in the fail-closed HNS [`TransportPlan`].
+    LocalHnsProof = 8,
 }
 
 impl TryFrom<u8> for ResolutionTransport {
@@ -492,6 +508,7 @@ impl TryFrom<u8> for ResolutionTransport {
             5 => Ok(Self::Unavailable),
             6 => Ok(Self::ValidatingIcannDoh),
             7 => Ok(Self::UserConfiguredRecursiveHnsDoh),
+            8 => Ok(Self::LocalHnsProof),
             _ => Err(PolicyError::InvalidEncoding),
         }
     }
@@ -525,6 +542,9 @@ impl TransportPlan {
         };
         if relay_allowed {
             transports.push(ResolutionTransport::HandshakeP2pDnsRelay);
+        }
+        if config.user_configured_recursive_hns_doh {
+            transports.push(ResolutionTransport::UserConfiguredRecursiveHnsDoh);
         }
         Self { transports }
     }
@@ -677,6 +697,7 @@ fn transition_effects(previous: PolicyConfig, current: PolicyConfig) -> PolicyCh
     let requester_changed = previous.dns_relay_requester != current.dns_relay_requester
         || previous.oblivious_dns != current.oblivious_dns
         || previous.authenticated_authoritative_doh != current.authenticated_authoritative_doh
+        || previous.user_configured_recursive_hns_doh != current.user_configured_recursive_hns_doh
         || previous.hnsr.requester_enabled() != current.hnsr.requester_enabled();
     let hnsr_providers_changed = previous.hnsr.provider_bits() != current.hnsr.provider_bits();
     let providers_changed = previous.providers != current.providers || hnsr_providers_changed;
@@ -939,7 +960,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn transport_discriminants_are_stable_and_external_doh_is_status_only() {
+    fn transport_discriminants_are_stable_and_recursive_doh_requires_consent() {
         assert_eq!(ResolutionTransport::DirectAuthoritativeUdp as u8, 0);
         assert_eq!(ResolutionTransport::DirectAuthoritativeTcp as u8, 1);
         assert_eq!(ResolutionTransport::AuthenticatedAuthoritativeDoh as u8, 2);
@@ -948,6 +969,7 @@ mod tests {
         assert_eq!(ResolutionTransport::Unavailable as u8, 5);
         assert_eq!(ResolutionTransport::ValidatingIcannDoh as u8, 6);
         assert_eq!(ResolutionTransport::UserConfiguredRecursiveHnsDoh as u8, 7);
+        assert_eq!(ResolutionTransport::LocalHnsProof as u8, 8);
         assert_eq!(
             ResolutionTransport::try_from(6).unwrap(),
             ResolutionTransport::ValidatingIcannDoh
@@ -956,6 +978,10 @@ mod tests {
             ResolutionTransport::try_from(7).unwrap(),
             ResolutionTransport::UserConfiguredRecursiveHnsDoh
         );
+        assert_eq!(
+            ResolutionTransport::try_from(8).unwrap(),
+            ResolutionTransport::LocalHnsProof
+        );
         assert!(
             !TransportPlan::for_policy(PolicyConfig::default())
                 .contains(ResolutionTransport::ValidatingIcannDoh)
@@ -963,6 +989,25 @@ mod tests {
         assert!(
             !TransportPlan::for_policy(PolicyConfig::default())
                 .contains(ResolutionTransport::UserConfiguredRecursiveHnsDoh)
+        );
+        assert!(
+            !TransportPlan::for_policy(PolicyConfig::default())
+                .contains(ResolutionTransport::LocalHnsProof)
+        );
+
+        let config = PolicyConfig {
+            user_configured_recursive_hns_doh: true,
+            ..PolicyConfig::default()
+        };
+        let plan = TransportPlan::for_policy(config);
+        assert_eq!(
+            plan.as_slice().last(),
+            Some(&ResolutionTransport::UserConfiguredRecursiveHnsDoh)
+        );
+        let controller = PolicyController::new(PolicySnapshot::new(1, config).unwrap());
+        assert_eq!(
+            controller.admit(ResolutionTransport::LocalHnsProof),
+            Err(PolicyError::TransportDisabled)
         );
     }
 
@@ -988,6 +1033,7 @@ mod tests {
         assert!(!snapshot.config.hnsr.endpoint_enabled());
         assert!(!snapshot.config.hnsr.requester_enabled());
         assert!(!snapshot.config.hnsr.rendezvous_enabled());
+        assert!(!snapshot.config.user_configured_recursive_hns_doh);
     }
 
     #[test]
@@ -1047,6 +1093,8 @@ mod tests {
     fn snapshot_round_trips_and_detects_mutation() {
         let snapshot = PolicySnapshot::default();
         let encoded = snapshot.encode();
+        assert_eq!(encoded.len(), PERSISTED_POLICY_LEN);
+        assert_eq!(read_u16(&encoded, 8).unwrap(), PERSISTED_SCHEMA);
         assert_eq!(PolicySnapshot::decode(&encoded).unwrap(), snapshot);
 
         let mut mutated = encoded;
@@ -1054,6 +1102,44 @@ mod tests {
         assert_eq!(
             PolicySnapshot::decode(&mutated),
             Err(PolicyError::ChecksumMismatch)
+        );
+    }
+
+    #[test]
+    fn schema_three_round_trips_recursive_doh_consent_in_fixed_length() {
+        let config = PolicyConfig {
+            user_configured_recursive_hns_doh: true,
+            ..PolicyConfig::default()
+        };
+        let snapshot = PolicySnapshot::new(9, config).unwrap();
+        let encoded = snapshot.encode();
+
+        assert_eq!(encoded.len(), 32);
+        assert_eq!(read_u16(&encoded, 8).unwrap(), PERSISTED_SCHEMA);
+        assert_eq!(read_u16(&encoded, 26).unwrap() & 4, 4);
+        assert_eq!(PolicySnapshot::decode(&encoded).unwrap(), snapshot);
+    }
+
+    #[test]
+    fn schema_two_migrates_without_granting_recursive_doh_consent() {
+        let mut previous = PolicySnapshot::default().encode();
+        previous[8..10].copy_from_slice(&PERSISTED_SCHEMA_V2.to_be_bytes());
+        let checksum = crc32(&previous[..28]);
+        previous[28..32].copy_from_slice(&checksum.to_be_bytes());
+
+        let migrated = PolicySnapshot::decode(&previous).unwrap();
+
+        assert!(!migrated.config().user_configured_recursive_hns_doh);
+        assert_eq!(read_u16(&migrated.encode(), 8).unwrap(), PERSISTED_SCHEMA);
+
+        let mut mislabeled = previous;
+        let settings = read_u16(&mislabeled, 26).unwrap() | 4;
+        mislabeled[26..28].copy_from_slice(&settings.to_be_bytes());
+        let checksum = crc32(&mislabeled[..28]);
+        mislabeled[28..32].copy_from_slice(&checksum.to_be_bytes());
+        assert_eq!(
+            PolicySnapshot::decode(&mislabeled),
+            Err(PolicyError::InvalidEncoding)
         );
     }
 
@@ -1070,6 +1156,7 @@ mod tests {
 
         assert_eq!(migrated.generation(), 1);
         assert_eq!(migrated.config().hnsr, HnsrPolicy::disabled());
+        assert!(!migrated.config().user_configured_recursive_hns_doh);
         assert_eq!(
             migrated.config().providers,
             ProviderPolicy {
@@ -1145,6 +1232,35 @@ mod tests {
         );
         assert_eq!(
             controller.admit(ResolutionTransport::HandshakeP2pDnsRelay),
+            Err(PolicyError::TransportDisabled)
+        );
+    }
+
+    #[test]
+    fn recursive_doh_opt_out_revokes_admission_and_stale_completion() {
+        let enabled = PolicyConfig {
+            user_configured_recursive_hns_doh: true,
+            ..PolicyConfig::default()
+        };
+        let mut controller = PolicyController::new(PolicySnapshot::new(11, enabled).unwrap());
+        let admission = controller
+            .admit(ResolutionTransport::UserConfiguredRecursiveHnsDoh)
+            .unwrap();
+        let mut disabled = enabled;
+        disabled.user_configured_recursive_hns_doh = false;
+
+        let transition = controller.replace(11, disabled).unwrap();
+
+        assert_eq!(transition.current.generation(), 12);
+        assert!(transition.effects.stop_admitting_disabled_work);
+        assert!(transition.effects.cancel_or_drain_inflight);
+        assert!(transition.effects.clear_requester_selections);
+        assert_eq!(
+            controller.accept_completion(admission),
+            Err(PolicyError::StaleGeneration)
+        );
+        assert_eq!(
+            controller.admit(ResolutionTransport::UserConfiguredRecursiveHnsDoh),
             Err(PolicyError::TransportDisabled)
         );
     }

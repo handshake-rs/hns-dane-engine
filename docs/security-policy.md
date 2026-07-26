@@ -149,9 +149,14 @@ Nonstandard ports are accepted only for explicit regtest loopback fixtures. Ever
 rechecks the anchor validity window and exact query TLD before socket I/O, uses finite timeouts and
 message bounds, sends a non-recursive DNSSEC query, and parses/correlates the complete response.
 
-The only HNS resolution candidates are direct delegated-authoritative UDP/TCP, explicitly
-authenticated authoritative DoH, Denuo Experimental V1 P2P ODoH, and Denuo Experimental V1 P2P DNS
-Relay. The policy model contains no operating-system or public-recursive fallback variant.
+The built-in HNS resolution candidates are direct delegated-authoritative
+UDP/TCP, explicitly authenticated authoritative DoH, Denuo Experimental V1 P2P
+ODoH, and Denuo Experimental V1 P2P DNS Relay. A separate, default-off
+requester-consent bit may append explicitly user-configured recursive HNS DoH
+after all of them. The policy model contains no operating-system or implicit
+recursive fallback. When the locally verified HNS name proof itself contains
+the origin data, `LocalHnsProof` records that provenance without inventing a
+DNS transport; it is status-only and cannot be planned or admitted.
 
 The gateway—not the caller—selects the next candidate from the exact policy snapshot. Unreachable,
 timed-out, and unsupported paths may advance; a valid truncated UDP response advances specifically
@@ -167,13 +172,18 @@ rather than supplied independently.
 
 Policy updates increment generations, immediately reject new disabled work, reject stale
 completions, clear requester selections, and report provider withdrawal/peer-renegotiation effects.
+User-configured recursive HNS DoH is an independent requester permission that defaults off. It
+enters the transport plan only as the terminal candidate, and opting out generation-revokes any
+admitted attempt. The endpoint value and its bootstrap are platform concerns; this engine persists
+only the consent bit and never treats transport TLS or a DNS AD bit as HNS validation authority.
 Opaque forwarding roles (the ODoH proxy and HNSR relay) default on and have independent persistent
 opt-outs. Output roles that learn a plaintext request or originate an external request (the
 HIP-76 DNS relay, ODoH target, and HNSR endpoint/output node) default off and require explicit
 opt-in. HNSR requester and rendezvous roles are also independent and default off. Enabling any
-requester, relay, or output role never enables another role implicitly. Schema-1 policy blobs retain
-their exact legacy role selection during migration, so an upgrade cannot grant participation that
-was previously disabled.
+requester, relay, or output role never enables another role implicitly. Policy persistence schema 3
+uses settings bit 2 for recursive-HNS-DoH consent while retaining the exact 32-byte encoding.
+Schema-1 and schema-2 blobs decode that new permission as false; schema-1 role migration retains its
+exact legacy role selection, so an upgrade cannot grant participation that was previously disabled.
 
 Every admitted operation is stamped with the caller-supplied per-start unique runtime session,
 current runtime generation, and monotonic event sequence. The session is a checked nonzero type,

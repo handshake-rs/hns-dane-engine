@@ -28,7 +28,10 @@ hns-browser-testkit - - regtest header/Urkel/DS/DNSKEY/TLSA qualification - - - 
 ```
 
 `hns-dns-wire` parses and emits DNS without I/O. `hns-resolution-policy` owns typed persistent
-policy, transport ordering, generation admission, revocation effects, and evidence provenance.
+policy, transport ordering, generation admission, revocation effects, and evidence provenance. Its
+default-off `user_configured_recursive_hns_doh` requester bit adds transport 7 only as the terminal
+candidate. Disabling it changes policy generation, clears requester selections, stops new
+admission, and makes already admitted work stale.
 `hns-light-chain` consumes the canonical `hns-rs` header, covenant, name-hash, and Urkel-proof
 implementations. It validates a contiguous chain from network genesis, retains the exact
 median-time/difficulty history, checks explicit height/work/tip-age currency, strictly decodes the
@@ -100,13 +103,18 @@ policy-selected attempt at a time. Only unreachable, timed-out, or unsupported c
 a valid UDP truncation advances to direct TCP. Malformed or unauthenticated transport results,
 foreign/replayed attempt tokens, stale policy, invalid intermediary topology, and response-bound
 violations terminate the plan. ODoH-to-relay downgrade status is derived from attempt history.
+Configured recursive HNS DoH can appear only after every earlier policy-permitted candidate and
+only under its explicit consent bit. It supplies DNS wire bytes, not validation authority, so the
+same local proof, DNSSEC, TLSA, DANE, correlation, and response bounds still apply.
 `hns-browser-observability` schema v2 validates the shared, name-free mobile/Chromium status
 contract: the complete private-field runtime snapshot including authority state, policy and actual
 transport, chain anchor, HNSR/provider state and policy-derived readiness, rate-limit saturation,
 intermediary identities, all seven evidence states, and stable
 degraded/revocation/unsupported reasons. Registry fingerprint and negotiated protocol are nonzero
-exactly for experimental P2P transports; direct, unavailable, and validating ICANN DoH status must
-carry the zero sentinels. Sanitized dual-root fields retain only outcome kind, selected namespace,
+exactly for experimental P2P transports. Direct, unavailable, validating ICANN
+DoH, user-configured recursive HNS DoH, and proof-contained `LocalHnsProof`
+status carry the zero sentinels and no intermediary identity. Sanitized
+dual-root fields retain only outcome kind, selected namespace,
 selection reason, a nonzero decision fingerprint, and name-free root-failure kinds—never the
 hostname or plans. Root failures do not fabricate a five-way outcome or namespace selection. A typed ICANN
 TLS action distinguishes enforced DANE, authenticated-absence WebPKI, proven-insecure WebPKI, and

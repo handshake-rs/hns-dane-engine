@@ -850,7 +850,8 @@ fn validate_identities(
         | ResolutionTransport::DirectAuthoritativeTcp
         | ResolutionTransport::AuthenticatedAuthoritativeDoh
         | ResolutionTransport::ValidatingIcannDoh
-        | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
+        | ResolutionTransport::UserConfiguredRecursiveHnsDoh
+        | ResolutionTransport::LocalHnsProof => {
             if identities.peer.is_some()
                 || identities.proxy.is_some()
                 || identities.target.is_some()
@@ -972,6 +973,7 @@ mod tests {
                 oblivious_dns: ObliviousDnsPolicy::Preferred,
                 hnsr: HnsrPolicy::disabled().with_endpoint(true),
                 authenticated_authoritative_doh: true,
+                user_configured_recursive_hns_doh: false,
                 providers: ProviderPolicy {
                     dns_relay: true,
                     odoh_proxy: false,
@@ -1151,6 +1153,23 @@ mod tests {
         assert_eq!(
             status.actual_transport(),
             ResolutionTransport::UserConfiguredRecursiveHnsDoh
+        );
+        assert_eq!(status.identities(), &TransportIdentities::default());
+    }
+
+    #[test]
+    fn local_hns_proof_is_non_network_status_provenance() {
+        let mut status = input();
+        status.actual_transport = ResolutionTransport::LocalHnsProof;
+        status.identities = TransportIdentities::default();
+        status.registry_fingerprint = [0; 32];
+        status.protocol_version = 0;
+
+        let status = BrowserStatus::new(status).unwrap();
+
+        assert_eq!(
+            status.actual_transport(),
+            ResolutionTransport::LocalHnsProof
         );
         assert_eq!(status.identities(), &TransportIdentities::default());
     }

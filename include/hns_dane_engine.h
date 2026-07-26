@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 #define HNS_DANE_ENGINE_ABI_VERSION 1u
+#define HNS_DANE_ENGINE_POLICY_ABI_VERSION_V2 2u
 #define HNS_DANE_PREREQUISITE_HNS_PROOF (1u << 0)
 #define HNS_DANE_PREREQUISITE_DNSSEC (1u << 1)
 #define HNS_DANE_PREREQUISITE_CHAIN_CURRENT (1u << 4)
@@ -46,6 +47,8 @@ extern "C" {
 #define HNS_DANE_TRANSPORT_HANDSHAKE_P2P_DNS_RELAY 4u
 #define HNS_DANE_TRANSPORT_UNAVAILABLE 5u
 #define HNS_DANE_TRANSPORT_VALIDATING_ICANN_DOH 6u
+#define HNS_DANE_TRANSPORT_USER_CONFIGURED_RECURSIVE_HNS_DOH 7u
+#define HNS_DANE_TRANSPORT_LOCAL_HNS_PROOF 8u
 
 typedef struct HnsDaneEngine HnsDaneEngine;
 typedef struct HnsDaneAttempt HnsDaneAttempt;
@@ -63,6 +66,21 @@ typedef struct HnsDanePolicyV1 {
   uint16_t provider_flags;
   uint8_t reserved[8];
 } HnsDanePolicyV1;
+
+typedef struct HnsDanePolicyV2 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  uint64_t generation;
+  uint8_t dns_relay_requester;
+  uint8_t oblivious_dns;
+  uint8_t hnsr; /* Independent HNS_DANE_HNSR_* role bits. */
+  uint8_t wire_profile;
+  uint8_t authenticated_authoritative_doh;
+  uint8_t allow_legacy_regtest_compatibility;
+  uint16_t provider_flags;
+  uint8_t user_configured_recursive_hns_doh;
+  uint8_t reserved[7];
+} HnsDanePolicyV2;
 
 typedef struct HnsDaneResultV1 {
   uint32_t struct_size;
@@ -94,6 +112,7 @@ typedef struct HnsDaneTransportContextV1 {
 } HnsDaneTransportContextV1;
 
 uint32_t hns_dane_engine_v1_abi_version(void);
+uint32_t hns_dane_engine_v2_abi_version(void);
 
 int32_t hns_dane_engine_v1_create(
     /* Fresh, unpredictable, and not all zero for every process start. */
@@ -112,6 +131,11 @@ int32_t hns_dane_engine_v1_export_policy(
     size_t capacity,
     size_t *written);
 
+/*
+ * Policy V1 cannot represent recursive-HNS-DoH consent. Get returns
+ * HNS_DANE_ABI_MISMATCH while that consent is enabled; every successful V1
+ * set disables it.
+ */
 int32_t hns_dane_engine_v1_get_policy(
     const HnsDaneEngine *engine,
     HnsDanePolicyV1 *output);
@@ -119,6 +143,16 @@ int32_t hns_dane_engine_v1_get_policy(
 int32_t hns_dane_engine_v1_set_policy(
     const HnsDaneEngine *engine,
     const HnsDanePolicyV1 *policy,
+    uint64_t *new_generation,
+    uint32_t *effects);
+
+int32_t hns_dane_engine_v2_get_policy(
+    const HnsDaneEngine *engine,
+    HnsDanePolicyV2 *output);
+
+int32_t hns_dane_engine_v2_set_policy(
+    const HnsDaneEngine *engine,
+    const HnsDanePolicyV2 *policy,
     uint64_t *new_generation,
     uint32_t *effects);
 
