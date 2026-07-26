@@ -1,8 +1,11 @@
 //! Persistent, typed HNS resolution policy and evidence provenance.
 //!
-//! The transport plan deliberately has no operating-system or public-recursive
-//! variant. A policy mutation increments the generation, and completion under
-//! a stale generation is rejected even if a path is later re-enabled.
+//! The transport plan deliberately has no operating-system or implicit
+//! public-recursive candidate. A separately consented browser adapter may
+//! report user-configured recursive HNS DoH as status provenance, but that
+//! status-only variant is never added to a plan by default. A policy mutation
+//! increments the generation, and completion under a stale generation is
+//! rejected even if a path is later re-enabled.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -468,6 +471,12 @@ pub enum ResolutionTransport {
     /// This is status provenance for the separate ICANN path and is never a
     /// candidate in the fail-closed HNS [`TransportPlan`].
     ValidatingIcannDoh = 6,
+    /// Explicitly user-configured recursive HNS DoH recovery transport.
+    ///
+    /// This is status provenance for browser adapters that independently gate
+    /// the endpoint behind affirmative user consent. It is never an implicit
+    /// candidate in the fail-closed HNS [`TransportPlan`].
+    UserConfiguredRecursiveHnsDoh = 7,
 }
 
 impl TryFrom<u8> for ResolutionTransport {
@@ -482,6 +491,7 @@ impl TryFrom<u8> for ResolutionTransport {
             4 => Ok(Self::HandshakeP2pDnsRelay),
             5 => Ok(Self::Unavailable),
             6 => Ok(Self::ValidatingIcannDoh),
+            7 => Ok(Self::UserConfiguredRecursiveHnsDoh),
             _ => Err(PolicyError::InvalidEncoding),
         }
     }
@@ -519,7 +529,8 @@ impl TransportPlan {
         Self { transports }
     }
 
-    /// Ordered candidates. No OS/public-recursive candidate can be represented.
+    /// Ordered candidates. No OS or implicit public-recursive candidate is
+    /// admitted here.
     #[must_use]
     pub fn as_slice(&self) -> &[ResolutionTransport] {
         &self.transports
@@ -928,7 +939,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn transport_discriminants_are_stable_and_icann_is_status_only() {
+    fn transport_discriminants_are_stable_and_external_doh_is_status_only() {
         assert_eq!(ResolutionTransport::DirectAuthoritativeUdp as u8, 0);
         assert_eq!(ResolutionTransport::DirectAuthoritativeTcp as u8, 1);
         assert_eq!(ResolutionTransport::AuthenticatedAuthoritativeDoh as u8, 2);
@@ -936,13 +947,22 @@ mod tests {
         assert_eq!(ResolutionTransport::HandshakeP2pDnsRelay as u8, 4);
         assert_eq!(ResolutionTransport::Unavailable as u8, 5);
         assert_eq!(ResolutionTransport::ValidatingIcannDoh as u8, 6);
+        assert_eq!(ResolutionTransport::UserConfiguredRecursiveHnsDoh as u8, 7);
         assert_eq!(
             ResolutionTransport::try_from(6).unwrap(),
             ResolutionTransport::ValidatingIcannDoh
         );
+        assert_eq!(
+            ResolutionTransport::try_from(7).unwrap(),
+            ResolutionTransport::UserConfiguredRecursiveHnsDoh
+        );
         assert!(
             !TransportPlan::for_policy(PolicyConfig::default())
                 .contains(ResolutionTransport::ValidatingIcannDoh)
+        );
+        assert!(
+            !TransportPlan::for_policy(PolicyConfig::default())
+                .contains(ResolutionTransport::UserConfiguredRecursiveHnsDoh)
         );
     }
 

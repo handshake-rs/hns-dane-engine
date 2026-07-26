@@ -849,7 +849,8 @@ fn validate_identities(
         ResolutionTransport::DirectAuthoritativeUdp
         | ResolutionTransport::DirectAuthoritativeTcp
         | ResolutionTransport::AuthenticatedAuthoritativeDoh
-        | ResolutionTransport::ValidatingIcannDoh => {
+        | ResolutionTransport::ValidatingIcannDoh
+        | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
             if identities.peer.is_some()
                 || identities.proxy.is_some()
                 || identities.target.is_some()
@@ -1135,6 +1136,23 @@ mod tests {
         );
         assert_eq!(status.registry_fingerprint(), [0; 32]);
         assert_eq!(status.protocol_version(), 0);
+    }
+
+    #[test]
+    fn user_configured_recursive_hns_doh_is_non_p2p_status_provenance() {
+        let mut status = input();
+        status.actual_transport = ResolutionTransport::UserConfiguredRecursiveHnsDoh;
+        status.identities = TransportIdentities::default();
+        status.registry_fingerprint = [0; 32];
+        status.protocol_version = 0;
+
+        let status = BrowserStatus::new(status).unwrap();
+
+        assert_eq!(
+            status.actual_transport(),
+            ResolutionTransport::UserConfiguredRecursiveHnsDoh
+        );
+        assert_eq!(status.identities(), &TransportIdentities::default());
     }
 
     #[test]

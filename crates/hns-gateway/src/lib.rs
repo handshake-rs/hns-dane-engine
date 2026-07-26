@@ -425,7 +425,9 @@ impl Gateway {
                     return Err(GatewayError::InvalidIdentityTopology);
                 }
             }
-            ResolutionTransport::Unavailable | ResolutionTransport::ValidatingIcannDoh => {
+            ResolutionTransport::Unavailable
+            | ResolutionTransport::ValidatingIcannDoh
+            | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
                 return Err(GatewayError::UnavailableTransport);
             }
         }
@@ -742,6 +744,26 @@ mod tests {
             GatewayStep::Selected(selection)
                 if selection.transport() == ResolutionTransport::DirectAuthoritativeTcp
                     && !selection.direct_relay_fallback()
+        ));
+    }
+
+    #[test]
+    fn status_only_recursive_hns_doh_is_not_a_gateway_attempt_transport() {
+        let snapshot = policy();
+        let gateway = Gateway::new(snapshot, GatewayLimits::default()).unwrap();
+
+        assert!(
+            !gateway
+                .plan()
+                .contains(ResolutionTransport::UserConfiguredRecursiveHnsDoh)
+        );
+        assert!(matches!(
+            gateway.validate_response(
+                &[1],
+                &GatewayIdentities::default(),
+                ResolutionTransport::UserConfiguredRecursiveHnsDoh,
+            ),
+            Err(GatewayError::UnavailableTransport)
         ));
     }
 

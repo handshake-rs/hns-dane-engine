@@ -1112,7 +1112,9 @@ fn validate_completion_context(
                 return Err(EngineError::InvalidCompletionContext);
             }
         }
-        ResolutionTransport::Unavailable | ResolutionTransport::ValidatingIcannDoh => {
+        ResolutionTransport::Unavailable
+        | ResolutionTransport::ValidatingIcannDoh
+        | ResolutionTransport::UserConfiguredRecursiveHnsDoh => {
             return Err(EngineError::InvalidCompletionContext);
         }
     }
