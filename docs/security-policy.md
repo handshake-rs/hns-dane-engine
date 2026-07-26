@@ -114,9 +114,28 @@ correlation, HNS proof, DNSSEC, TLSA, and DANE validation.
 
 Shared status uses explicit `verified`, `failed`, `unavailable`, `unsupported`, `not attempted`,
 `stale`, and `revoked` evidence values. It never contains qnames, URLs, DNS payloads, certificates,
-or secrets. Actual transport identities are bounded and checked against the selected transport;
-ODoH proxy and target must be present and distinct. Provider readiness must agree with explicit
-provider roles, and rate-limit counters cannot claim impossible capacity or saturation states.
+or secrets. Schema v2 consumes one private-field runtime snapshot and checks authority state
+against degraded/revocation reasons. Its name-free namespace fields expose only the five-way
+outcome, selected root, selection reason, decision fingerprint, and root-failure kinds. A root
+failure never fabricates an outcome or selected root. Typed ICANN TLS action and evidence must
+agree: DANE requires verified DNSSEC/TLSA/DANE; authenticated-absence and proven-insecure WebPKI
+require a validated secure or proven-insecure DNSSEC disposition, unavailable TLSA, and
+unattempted/unavailable DANE; bogus and indeterminate evidence remains explicitly fail closed.
+Actual transport identities
+are bounded and checked against the selected transport. Failed, unavailable, unsupported,
+not-attempted, stale, and revoked ICANN trust tuples are reportable as fail closed, while the exact
+DANE and permitted-WebPKI tuples cannot be relabeled. ICANN action/evidence is valid for an
+ICANN-selected plan or an ICANN root failure. The facade requires that evidence, clears HNS
+chain/identity state, reports validating ICANN DoH, and forces experimental registry
+fingerprint/protocol to zero. Bogus and indeterminate root failures carry explicit DNSSEC
+dispositions and no namespace selection; secondary-root trust details do not enter a successful
+selected-plan status. ICANN failure is bound to validating-DoH provenance, while an HNS-only
+failure clears transport provenance to unavailable. ODoH proxy and target must be present and distinct.
+Registry fingerprint/protocol identity is mandatory for experimental P2P paths and forbidden for
+every other transport, preventing stale or fabricated negotiation metadata from surviving a
+transport change.
+Provider readiness is derived from policy and must agree with explicit provider roles, and
+rate-limit counters cannot claim impossible capacity or saturation states.
 
 Cache entries use a per-runtime secret-derived opaque key and are bound to network, runtime and
 policy generations, and the exact Handshake chain height/tree root. Positive and authenticated
@@ -157,10 +176,14 @@ their exact legacy role selection during migration, so an upgrade cannot grant p
 was previously disabled.
 
 Every admitted operation is stamped with the caller-supplied per-start unique runtime session,
-current runtime generation, and monotonic event sequence. Parsing and completion reject another
-session, a revoked generation, or an event that was never admitted. Platform adapters must supply a
-fresh unpredictable session on every engine start; a constant or reused session violates this
-replay-isolation contract.
+current runtime generation, and monotonic event sequence. The session is a checked nonzero type,
+the runtime cannot be cloned, and its snapshot fields are private. Parsing and completion reject
+another session, a revoked generation, an event that was never admitted, or any stamp checked while
+authority is degraded, revoked, or stopped. Platform adapters must supply a fresh unpredictable
+session on every engine start; a constant or reused session violates this replay-isolation
+contract. Bridge readiness may bypass per-origin DANE only before navigation or after validated
+ICANN authenticated absence/proven-insecure delegation; evidence remains explicit and no DANE
+state is claimed.
 
 The shared loopback-proxy gate accepts only a nonzero numeric loopback endpoint and a loopback
 client. Native adapters must generate a fresh unpredictable 128-bit realm nonce and 256-bit

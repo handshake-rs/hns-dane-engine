@@ -39,6 +39,14 @@ extern "C" {
 #define HNS_DANE_HNSR_RELAY (1u << 2)
 #define HNS_DANE_HNSR_RENDEZVOUS (1u << 3)
 
+#define HNS_DANE_TRANSPORT_DIRECT_AUTHORITATIVE_UDP 0u
+#define HNS_DANE_TRANSPORT_DIRECT_AUTHORITATIVE_TCP 1u
+#define HNS_DANE_TRANSPORT_AUTHENTICATED_AUTHORITATIVE_DOH 2u
+#define HNS_DANE_TRANSPORT_HANDSHAKE_P2P_ODOH 3u
+#define HNS_DANE_TRANSPORT_HANDSHAKE_P2P_DNS_RELAY 4u
+#define HNS_DANE_TRANSPORT_UNAVAILABLE 5u
+#define HNS_DANE_TRANSPORT_VALIDATING_ICANN_DOH 6u
+
 typedef struct HnsDaneEngine HnsDaneEngine;
 typedef struct HnsDaneAttempt HnsDaneAttempt;
 
@@ -88,6 +96,7 @@ typedef struct HnsDaneTransportContextV1 {
 uint32_t hns_dane_engine_v1_abi_version(void);
 
 int32_t hns_dane_engine_v1_create(
+    /* Fresh, unpredictable, and not all zero for every process start. */
     const uint8_t runtime_session[16],
     uint8_t network,
     const uint8_t *policy_blob,

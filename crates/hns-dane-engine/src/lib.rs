@@ -17,10 +17,11 @@ use std::fmt;
 use std::sync::RwLock;
 
 use hns_browser_observability::{
-    BrowserStatus, DegradedReason, ProviderReadiness, RateLimitState, RevocationReason,
+    BrowserStatus, DegradedReason, IcannDnssecStatus, IcannTlsAction, Namespace, OutcomeKind,
+    ProviderReadiness, RateLimitState, RevocationReason, RootFailureKind, SelectionReason,
     StatusError, StatusInput, TransportIdentities, UnsupportedEvidence,
 };
-pub use hns_browser_runtime::AuthorityState;
+pub use hns_browser_runtime::{AuthorityState, RuntimeSessionId};
 use hns_browser_runtime::{BrowserRuntime, RuntimeError, RuntimeStamp};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
@@ -38,27 +39,33 @@ use hns_resolution_policy::{
 use hns_resolver::ValidatedTlsa;
 
 /// Stable Rust facade API version.
-pub const ENGINE_API_VERSION: u32 = 1;
+pub const ENGINE_API_VERSION: u32 = 2;
 /// Maximum UTF-8 bytes accepted for one transport identity.
 pub const MAX_TRANSPORT_IDENTITY_BYTES: usize = 256;
 
 /// Engine construction configuration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EngineConfig {
-    /// Caller-generated runtime session ID.
-    pub runtime_session: [u8; 16],
+    /// Checked caller-generated runtime session ID.
+    pub runtime_session: RuntimeSessionId,
     /// Handshake network.
     pub network: Network,
     /// Persisted policy snapshot.
     pub policy: PolicySnapshot,
 }
 
-impl Default for EngineConfig {
-    fn default() -> Self {
+impl EngineConfig {
+    /// Construct a configuration from an already checked runtime session.
+    #[must_use]
+    pub const fn new(
+        runtime_session: RuntimeSessionId,
+        network: Network,
+        policy: PolicySnapshot,
+    ) -> Self {
         Self {
-            runtime_session: [0; 16],
-            network: Network::Mainnet,
-            policy: PolicySnapshot::default(),
+            runtime_session,
+            network,
+            policy,
         }
     }
 }
@@ -93,6 +100,30 @@ pub struct ObservabilityRuntime {
     pub provider_readiness: ProviderReadiness,
     /// Name-free aggregate rate-limit status.
     pub rate_limits: RateLimitState,
+    /// Full-host dual-root outcome kind, without names or plans.
+    pub namespace_outcome: Option<OutcomeKind>,
+    /// Name-free HNS root lookup failure.
+    pub hns_root_failure: Option<RootFailureKind>,
+    /// Name-free ICANN root lookup failure.
+    pub icann_root_failure: Option<RootFailureKind>,
+    /// Namespace selected for the current decision.
+    pub selected_namespace: Option<Namespace>,
+    /// Stable namespace-selection reason.
+    pub selection_reason: Option<SelectionReason>,
+    /// Name-free namespace decision fingerprint.
+    pub decision_fingerprint: Option<[u8; 32]>,
+    /// Current ICANN DANE/WebPKI/fail-closed action.
+    ///
+    /// This may be absent for an intentionally cleartext scheme.
+    pub icann_tls_action: Option<IcannTlsAction>,
+    /// Canonical validating-DoH DNSSEC disposition for the ICANN action.
+    pub icann_dnssec_status: Option<IcannDnssecStatus>,
+    /// ICANN validating-DoH evidence for a selected plan or failed lookup.
+    ///
+    /// This is required when `selected_namespace` is ICANN or
+    /// `icann_root_failure` is present. Secondary-root evidence does not
+    /// belong in a successful selected-plan status.
+    pub icann_evidence: Option<ValidationEvidence>,
     /// Recoverable degraded reason.
     pub degraded_reason: Option<DegradedReason>,
     /// Revocation reason.
@@ -101,21 +132,34 @@ pub struct ObservabilityRuntime {
     pub unsupported_evidence: Vec<UnsupportedEvidence>,
 }
 
-impl Default for ObservabilityRuntime {
-    fn default() -> Self {
+impl ObservabilityRuntime {
+    /// Construct status inputs whose provider readiness is derived from policy.
+    #[must_use]
+    pub fn for_policy(policy: PolicySnapshot) -> Self {
         Self {
             registry_fingerprint: [0; 32],
             protocol_version: 0,
-            provider_readiness: ProviderReadiness {
-                odoh_proxy: hns_browser_observability::ReadinessState::Starting,
-                hnsr_relay: hns_browser_observability::ReadinessState::Starting,
-                ..ProviderReadiness::default()
-            },
+            provider_readiness: ProviderReadiness::from_policy(policy),
             rate_limits: RateLimitState::default(),
+            namespace_outcome: None,
+            hns_root_failure: None,
+            icann_root_failure: None,
+            selected_namespace: None,
+            selection_reason: None,
+            decision_fingerprint: None,
+            icann_tls_action: None,
+            icann_dnssec_status: None,
+            icann_evidence: None,
             degraded_reason: None,
             revocation_reason: None,
             unsupported_evidence: Vec::new(),
         }
+    }
+}
+
+impl Default for ObservabilityRuntime {
+    fn default() -> Self {
+        Self::for_policy(PolicySnapshot::default())
     }
 }
 
@@ -423,6 +467,7 @@ impl Engine {
         network: Network,
         policy: &[u8],
     ) -> Result<Self, EngineError> {
+        let runtime_session = RuntimeSessionId::new(runtime_session).map_err(map_runtime_error)?;
         let policy = PolicySnapshot::decode(policy)?;
         Ok(Self::new(EngineConfig {
             runtime_session,
@@ -436,12 +481,12 @@ impl Engine {
         let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
         let runtime = state.runtime.snapshot();
         Ok(EngineSnapshot {
-            schema_version: runtime.schema_version,
-            runtime_session: runtime.session,
-            runtime_generation: runtime.generation,
-            event_sequence: runtime.event_sequence,
+            schema_version: runtime.schema_version(),
+            runtime_session: runtime.session_bytes(),
+            runtime_generation: runtime.generation(),
+            event_sequence: runtime.event_sequence(),
             network: state.network,
-            authority_state: runtime.authority_state,
+            authority_state: runtime.authority_state(),
             policy: state.policy.snapshot(),
         })
     }
@@ -470,56 +515,87 @@ impl Engine {
     ) -> Result<BrowserStatus, EngineError> {
         let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
         let runtime_snapshot = state.runtime.snapshot();
-        match runtime_snapshot.authority_state {
-            AuthorityState::Degraded if runtime.degraded_reason.is_none() => {
-                return Err(EngineError::MissingObservabilityReason);
-            }
-            AuthorityState::Revoked | AuthorityState::Stopped
-                if runtime.revocation_reason.is_none() =>
-            {
-                return Err(EngineError::MissingObservabilityReason);
-            }
-            AuthorityState::Degraded => {
-                if runtime.revocation_reason.is_some() {
-                    return Err(EngineError::InvalidObservabilityReason);
-                }
-            }
-            AuthorityState::Revoked | AuthorityState::Stopped => {
-                if runtime.degraded_reason.is_some() {
-                    return Err(EngineError::InvalidObservabilityReason);
-                }
-            }
-            _ if runtime.degraded_reason.is_some() || runtime.revocation_reason.is_some() => {
-                return Err(EngineError::InvalidObservabilityReason);
-            }
-            _ => {}
-        }
         let provenance = state.last_provenance.as_ref();
-        let identities = provenance.map_or_else(TransportIdentities::default, |provenance| {
-            TransportIdentities {
-                peer: provenance.peer_identity.clone(),
-                proxy: provenance.proxy_identity.clone(),
-                target: provenance.target_identity.clone(),
-                direct_relay_fallback: provenance.direct_relay_fallback,
+        let selected_icann = runtime.selected_namespace == Some(Namespace::Icann);
+        let failed_icann = runtime.icann_root_failure.is_some();
+        let icann_context = selected_icann || failed_icann;
+        let classification_failed =
+            runtime.hns_root_failure.is_some() || runtime.icann_root_failure.is_some();
+        let neither = runtime.namespace_outcome == Some(OutcomeKind::Neither);
+        let (chain_anchor, actual_transport, identities, evidence) = if icann_context {
+            let evidence = runtime
+                .icann_evidence
+                .ok_or(EngineError::MissingIcannEvidence)?;
+            (
+                None,
+                ResolutionTransport::ValidatingIcannDoh,
+                TransportIdentities::default(),
+                evidence,
+            )
+        } else if neither || classification_failed {
+            if runtime.icann_evidence.is_some() {
+                return Err(EngineError::UnexpectedIcannEvidence);
             }
-        });
+            (
+                None,
+                ResolutionTransport::Unavailable,
+                TransportIdentities::default(),
+                ValidationEvidence::not_attempted(),
+            )
+        } else {
+            if runtime.icann_evidence.is_some() {
+                return Err(EngineError::UnexpectedIcannEvidence);
+            }
+            let identities = provenance.map_or_else(TransportIdentities::default, |provenance| {
+                TransportIdentities {
+                    peer: provenance.peer_identity.clone(),
+                    proxy: provenance.proxy_identity.clone(),
+                    target: provenance.target_identity.clone(),
+                    direct_relay_fallback: provenance.direct_relay_fallback,
+                }
+            });
+            (
+                provenance.and_then(|provenance| provenance.chain_anchor),
+                provenance.map_or(ResolutionTransport::Unavailable, |provenance| {
+                    provenance.transport
+                }),
+                identities,
+                provenance.map_or(state.last_evidence, |provenance| provenance.evidence),
+            )
+        };
+        let experimental_p2p = matches!(
+            actual_transport,
+            ResolutionTransport::HandshakeP2pOdoh | ResolutionTransport::HandshakeP2pDnsRelay
+        );
         BrowserStatus::new(StatusInput {
-            runtime_session: runtime_snapshot.session,
-            runtime_generation: runtime_snapshot.generation,
-            event_sequence: runtime_snapshot.event_sequence,
+            runtime: runtime_snapshot,
             network: state.network,
             policy: state.policy.snapshot(),
-            chain_anchor: provenance.and_then(|provenance| provenance.chain_anchor),
-            actual_transport: provenance.map_or(ResolutionTransport::Unavailable, |provenance| {
-                provenance.transport
-            }),
+            chain_anchor,
+            actual_transport,
             identities,
             registry_profile: state.policy.snapshot().config().wire_profile,
-            registry_fingerprint: runtime.registry_fingerprint,
-            protocol_version: runtime.protocol_version,
+            registry_fingerprint: if experimental_p2p {
+                runtime.registry_fingerprint
+            } else {
+                [0; 32]
+            },
+            protocol_version: if experimental_p2p {
+                runtime.protocol_version
+            } else {
+                0
+            },
             provider_readiness: runtime.provider_readiness,
             rate_limits: runtime.rate_limits,
-            evidence: provenance.map_or(state.last_evidence, |provenance| provenance.evidence),
+            evidence,
+            namespace_outcome: runtime.namespace_outcome,
+            hns_root_failure: runtime.hns_root_failure,
+            icann_root_failure: runtime.icann_root_failure,
+            selected_namespace: runtime.selected_namespace,
+            selection_reason: runtime.selection_reason,
+            decision_fingerprint: runtime.decision_fingerprint,
+            icann_tls_action: runtime.icann_tls_action,
+            icann_dnssec_status: runtime.icann_dnssec_status,
             degraded_reason: runtime.degraded_reason,
             revocation_reason: runtime.revocation_reason,
             unsupported_evidence: runtime.unsupported_evidence,
@@ -831,7 +907,7 @@ impl Engine {
         let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
         let runtime_before = state.runtime.snapshot();
         if !matches!(
-            runtime_before.authority_state,
+            runtime_before.authority_state(),
             AuthorityState::DaneOriginVerified
                 | AuthorityState::BrowserBridgeReady
                 | AuthorityState::Active
@@ -839,14 +915,14 @@ impl Engine {
             return Err(EngineError::AuthorityNotReady);
         }
         if state.last_provenance.as_ref() != Some(&completion.provenance)
-            || completion.provenance.runtime_session != runtime_before.session
-            || completion.provenance.runtime_generation != runtime_before.generation
+            || completion.provenance.runtime_session != runtime_before.session_bytes()
+            || completion.provenance.runtime_generation != runtime_before.generation()
             || completion.provenance.policy_generation != state.policy.snapshot().generation()
             || !completion.provenance.evidence.fully_verified()
         {
             return Err(EngineError::CompletionNotCurrent);
         }
-        if runtime_before.authority_state == AuthorityState::DaneOriginVerified {
+        if runtime_before.authority_state() == AuthorityState::DaneOriginVerified {
             state
                 .runtime
                 .transition(AuthorityState::BrowserBridgeReady)
@@ -856,10 +932,10 @@ impl Engine {
         }
         let runtime = state.runtime.snapshot();
         Ok(BrowserBridgeAuthorization {
-            runtime_session: runtime.session,
-            runtime_generation: runtime.generation,
+            runtime_session: runtime.session_bytes(),
+            runtime_generation: runtime.generation(),
             policy_generation: state.policy.snapshot().generation(),
-            event_sequence: runtime.event_sequence,
+            event_sequence: runtime.event_sequence(),
             valid_from,
             valid_until,
             origin: origin.clone(),
@@ -896,10 +972,10 @@ impl Engine {
         let runtime = state.runtime.snapshot();
         let provenance = ResolutionProvenance {
             schema_version: 1,
-            runtime_session: runtime.session,
-            runtime_generation: runtime.generation,
+            runtime_session: runtime.session_bytes(),
+            runtime_generation: runtime.generation(),
             policy_generation: attempt.admission.policy_generation,
-            event_sequence: runtime.event_sequence,
+            event_sequence: runtime.event_sequence(),
             network: state.network,
             chain_anchor: context.chain_anchor,
             transport: attempt.admission.transport,
@@ -976,6 +1052,7 @@ const fn resolution_transport_ready(state: AuthorityState) -> bool {
 
 const fn map_runtime_error(error: RuntimeError) -> EngineError {
     match error {
+        RuntimeError::ZeroSession => EngineError::InvalidRuntimeSession,
         RuntimeError::InvalidAuthorityTransition => EngineError::InvalidAuthorityTransition,
         RuntimeError::CounterExhausted => EngineError::GenerationExhausted,
         RuntimeError::Stopped | RuntimeError::AuthorityNotReady => EngineError::AuthorityNotReady,
@@ -1012,7 +1089,7 @@ fn validate_completion_context(
             if proxy == target {
                 return Err(EngineError::ProxyTargetNotSeparated);
             }
-            if context.direct_relay_fallback {
+            if context.peer_identity.is_some() || context.direct_relay_fallback {
                 return Err(EngineError::InvalidCompletionContext);
             }
         }
@@ -1020,15 +1097,24 @@ fn validate_completion_context(
             if context.peer_identity.is_none() {
                 return Err(EngineError::MissingTransportIdentity);
             }
+            if context.proxy_identity.is_some() || context.target_identity.is_some() {
+                return Err(EngineError::InvalidCompletionContext);
+            }
         }
         ResolutionTransport::DirectAuthoritativeUdp
         | ResolutionTransport::DirectAuthoritativeTcp
         | ResolutionTransport::AuthenticatedAuthoritativeDoh => {
-            if context.direct_relay_fallback {
+            if context.peer_identity.is_some()
+                || context.proxy_identity.is_some()
+                || context.target_identity.is_some()
+                || context.direct_relay_fallback
+            {
                 return Err(EngineError::InvalidCompletionContext);
             }
         }
-        ResolutionTransport::Unavailable => return Err(EngineError::InvalidCompletionContext),
+        ResolutionTransport::Unavailable | ResolutionTransport::ValidatingIcannDoh => {
+            return Err(EngineError::InvalidCompletionContext);
+        }
     }
     Ok(())
 }
@@ -1037,6 +1123,8 @@ fn validate_completion_context(
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum EngineError {
+    /// Runtime session uses the forbidden all-zero sentinel.
+    InvalidRuntimeSession,
     /// Internal lock was poisoned by a caller panic.
     LockPoisoned,
     /// Runtime or event generation cannot advance.
@@ -1083,10 +1171,10 @@ pub enum EngineError {
     CompletionExpired,
     /// Completion predates the beginning of its chain-currency validity window.
     CompletionNotYetValid,
-    /// Degraded/revoked/stopped status omitted its reason.
-    MissingObservabilityReason,
-    /// A status reason conflicts with the current authority state.
-    InvalidObservabilityReason,
+    /// ICANN selection or root failure omitted explicit validation evidence.
+    MissingIcannEvidence,
+    /// ICANN evidence was supplied without ICANN selection or root failure.
+    UnexpectedIcannEvidence,
     /// DNS wire failure.
     Wire(hns_dns_wire::Error),
     /// Local TLSA/DANE matching failure.
@@ -1102,6 +1190,7 @@ pub enum EngineError {
 impl fmt::Display for EngineError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidRuntimeSession => formatter.write_str("runtime session must be nonzero"),
             Self::LockPoisoned => formatter.write_str("engine state lock poisoned"),
             Self::GenerationExhausted => formatter.write_str("engine generation exhausted"),
             Self::InvalidAuthorityTransition => {
@@ -1162,11 +1251,10 @@ impl fmt::Display for EngineError {
             Self::CompletionNotYetValid => {
                 formatter.write_str("DANE completion chain-currency window has not begun")
             }
-            Self::MissingObservabilityReason => {
-                formatter.write_str("authority state requires an observability reason")
-            }
-            Self::InvalidObservabilityReason => {
-                formatter.write_str("observability reason conflicts with authority state")
+            Self::MissingIcannEvidence => formatter
+                .write_str("ICANN selection or lookup failure requires validation evidence"),
+            Self::UnexpectedIcannEvidence => {
+                formatter.write_str("ICANN evidence requires an ICANN selection or lookup failure")
             }
             Self::Wire(error) => write!(formatter, "DNS wire error: {error}"),
             Self::Dane(error) => write!(formatter, "DANE error: {error}"),
@@ -1224,7 +1312,7 @@ mod tests {
 
     fn ready_engine_in_session(runtime_session: [u8; 16], network: Network) -> Engine {
         let engine = Engine::new(EngineConfig {
-            runtime_session,
+            runtime_session: RuntimeSessionId::new(runtime_session).unwrap(),
             network,
             policy: PolicySnapshot::default(),
         });
@@ -1247,6 +1335,55 @@ mod tests {
 
     fn ready_engine() -> Engine {
         ready_engine_on(Network::Mainnet)
+    }
+
+    fn active_engine_without_dane() -> Engine {
+        let engine = ready_engine_in_session([13; 16], Network::Mainnet);
+        engine
+            .advance_authority_state(AuthorityState::BrowserBridgeReady)
+            .unwrap();
+        engine
+            .advance_authority_state(AuthorityState::Active)
+            .unwrap();
+        engine
+    }
+
+    fn icann_observability(
+        action: IcannTlsAction,
+        evidence: Option<ValidationEvidence>,
+    ) -> ObservabilityRuntime {
+        ObservabilityRuntime {
+            registry_fingerprint: [99; 32],
+            protocol_version: 99,
+            namespace_outcome: Some(OutcomeKind::IcannOnly),
+            selected_namespace: Some(Namespace::Icann),
+            selection_reason: Some(SelectionReason::SingleRoot),
+            decision_fingerprint: Some([13; 32]),
+            icann_tls_action: Some(action),
+            icann_dnssec_status: Some(if action == IcannTlsAction::WebPkiInsecureDelegation {
+                IcannDnssecStatus::InsecureDelegation
+            } else {
+                IcannDnssecStatus::Secure
+            }),
+            icann_evidence: evidence,
+            ..ObservabilityRuntime::default()
+        }
+    }
+
+    fn failed_icann_observability(
+        failure: RootFailureKind,
+        dnssec_status: Option<IcannDnssecStatus>,
+        evidence: ValidationEvidence,
+    ) -> ObservabilityRuntime {
+        ObservabilityRuntime {
+            registry_fingerprint: [99; 32],
+            protocol_version: 99,
+            icann_root_failure: Some(failure),
+            icann_tls_action: Some(IcannTlsAction::FailClosed),
+            icann_dnssec_status: dnssec_status,
+            icann_evidence: Some(evidence),
+            ..ObservabilityRuntime::default()
+        }
     }
 
     fn decode_hex(input: &str) -> Vec<u8> {
@@ -1508,6 +1645,8 @@ mod tests {
         );
         assert_eq!(status.chain_anchor(), completed.provenance().chain_anchor);
         assert!(status.evidence().fully_verified());
+        assert_eq!(status.registry_fingerprint(), [0; 32]);
+        assert_eq!(status.protocol_version(), 0);
     }
 
     #[test]
@@ -1524,7 +1663,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             engine.observability_status(ObservabilityRuntime::default()),
-            Err(EngineError::MissingObservabilityReason)
+            Err(EngineError::Status(StatusError::MissingFailureReason))
         ));
         let degraded = engine
             .observability_status(ObservabilityRuntime {
@@ -1537,6 +1676,173 @@ mod tests {
             Some(DegradedReason::HeaderSyncUnavailable)
         );
         assert_eq!(degraded.evidence().hns_proof, EvidenceState::Unavailable);
+    }
+
+    #[test]
+    fn observability_facade_reports_selected_icann_dane_and_webpki() {
+        let engine = active_engine_without_dane();
+
+        let mut dane = ValidationEvidence::not_attempted();
+        dane.dnssec = EvidenceState::Verified;
+        dane.tlsa = EvidenceState::Verified;
+        dane.dane = EvidenceState::Verified;
+        let status = engine
+            .observability_status(icann_observability(IcannTlsAction::EnforceDane, Some(dane)))
+            .unwrap();
+        assert_eq!(
+            status.actual_transport(),
+            ResolutionTransport::ValidatingIcannDoh
+        );
+        assert_eq!(status.chain_anchor(), None);
+        assert_eq!(status.identities(), &TransportIdentities::default());
+        assert_eq!(status.registry_fingerprint(), [0; 32]);
+        assert_eq!(status.protocol_version(), 0);
+        assert_eq!(status.evidence(), dane);
+
+        let mut authenticated_absence = ValidationEvidence::not_attempted();
+        authenticated_absence.dnssec = EvidenceState::Verified;
+        authenticated_absence.tlsa = EvidenceState::Unavailable;
+        let status = engine
+            .observability_status(icann_observability(
+                IcannTlsAction::WebPkiAuthenticatedAbsence,
+                Some(authenticated_absence),
+            ))
+            .unwrap();
+        assert_eq!(
+            status.icann_tls_action(),
+            Some(IcannTlsAction::WebPkiAuthenticatedAbsence)
+        );
+        assert_eq!(status.evidence().dane, EvidenceState::NotAttempted);
+
+        let mut proven_insecure = authenticated_absence;
+        proven_insecure.dane = EvidenceState::Unavailable;
+        let status = engine
+            .observability_status(icann_observability(
+                IcannTlsAction::WebPkiInsecureDelegation,
+                Some(proven_insecure),
+            ))
+            .unwrap();
+        assert_eq!(
+            status.icann_tls_action(),
+            Some(IcannTlsAction::WebPkiInsecureDelegation)
+        );
+    }
+
+    #[test]
+    fn observability_facade_keeps_bogus_and_indeterminate_icann_fail_closed() {
+        let engine = active_engine_without_dane();
+
+        let mut bogus = ValidationEvidence::not_attempted();
+        bogus.dnssec = EvidenceState::Failed;
+        let status = engine
+            .observability_status(failed_icann_observability(
+                RootFailureKind::BogusDnssec,
+                Some(IcannDnssecStatus::Bogus),
+                bogus,
+            ))
+            .unwrap();
+        assert_eq!(status.namespace_outcome(), None);
+        assert_eq!(status.selected_namespace(), None);
+        assert_eq!(
+            status.icann_root_failure(),
+            Some(RootFailureKind::BogusDnssec)
+        );
+        assert_eq!(status.icann_tls_action(), Some(IcannTlsAction::FailClosed));
+        assert_eq!(status.evidence().dnssec, EvidenceState::Failed);
+
+        let mut missing_action = failed_icann_observability(
+            RootFailureKind::BogusDnssec,
+            Some(IcannDnssecStatus::Bogus),
+            bogus,
+        );
+        missing_action.icann_tls_action = None;
+        assert!(matches!(
+            engine.observability_status(missing_action),
+            Err(EngineError::Status(StatusError::InvalidIcannTlsContext))
+        ));
+
+        let mut indeterminate = ValidationEvidence::not_attempted();
+        indeterminate.dnssec = EvidenceState::Unavailable;
+        indeterminate.tlsa = EvidenceState::Unavailable;
+        indeterminate.dane = EvidenceState::Unavailable;
+        let status = engine
+            .observability_status(failed_icann_observability(
+                RootFailureKind::IndeterminateDnssec,
+                Some(IcannDnssecStatus::Indeterminate),
+                indeterminate,
+            ))
+            .unwrap();
+        assert_eq!(status.evidence().dnssec, EvidenceState::Unavailable);
+        assert_eq!(status.icann_tls_action(), Some(IcannTlsAction::FailClosed));
+    }
+
+    #[test]
+    fn observability_facade_requires_evidence_for_selected_or_failed_icann() {
+        let engine = active_engine_without_dane();
+        assert!(matches!(
+            engine.observability_status(icann_observability(
+                IcannTlsAction::WebPkiAuthenticatedAbsence,
+                None,
+            )),
+            Err(EngineError::MissingIcannEvidence)
+        ));
+
+        let runtime = ObservabilityRuntime {
+            icann_evidence: Some(ValidationEvidence::not_attempted()),
+            ..ObservabilityRuntime::default()
+        };
+        assert!(matches!(
+            engine.observability_status(runtime),
+            Err(EngineError::UnexpectedIcannEvidence)
+        ));
+
+        let mut failed = failed_icann_observability(
+            RootFailureKind::BogusDnssec,
+            Some(IcannDnssecStatus::Bogus),
+            ValidationEvidence {
+                dnssec: EvidenceState::Failed,
+                ..ValidationEvidence::not_attempted()
+            },
+        );
+        failed.icann_evidence = None;
+        assert!(matches!(
+            engine.observability_status(failed),
+            Err(EngineError::MissingIcannEvidence)
+        ));
+    }
+
+    #[test]
+    fn neither_outcome_cannot_reuse_prior_hns_provenance() {
+        let engine = ready_engine();
+        let (query, response, certificate) = exact_certificate_exchange();
+        let attempt = engine
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, query)
+            .unwrap();
+        let parsed = engine
+            .parse_response(&attempt, &response, ParseLimits::requester())
+            .unwrap();
+        engine
+            .complete_resolution_with_local_dane(
+                &attempt,
+                &parsed,
+                verified_prerequisites(),
+                &certificate,
+                DaneLimits::default(),
+                CompletionContext::default(),
+            )
+            .unwrap();
+
+        let status = engine
+            .observability_status(ObservabilityRuntime {
+                namespace_outcome: Some(OutcomeKind::Neither),
+                decision_fingerprint: Some([21; 32]),
+                ..ObservabilityRuntime::default()
+            })
+            .unwrap();
+        assert_eq!(status.actual_transport(), ResolutionTransport::Unavailable);
+        assert_eq!(status.chain_anchor(), None);
+        assert_eq!(status.identities(), &TransportIdentities::default());
+        assert_eq!(status.evidence(), ValidationEvidence::not_attempted());
     }
 
     #[test]
@@ -1788,8 +2094,49 @@ mod tests {
     }
 
     #[test]
+    fn completion_identity_topology_matches_observability() {
+        assert!(matches!(
+            validate_completion_context(
+                ResolutionTransport::HandshakeP2pOdoh,
+                &CompletionContext {
+                    peer_identity: Some("extra-peer".to_owned()),
+                    proxy_identity: Some("proxy".to_owned()),
+                    target_identity: Some("target".to_owned()),
+                    ..CompletionContext::default()
+                }
+            ),
+            Err(EngineError::InvalidCompletionContext)
+        ));
+        assert!(matches!(
+            validate_completion_context(
+                ResolutionTransport::HandshakeP2pDnsRelay,
+                &CompletionContext {
+                    peer_identity: Some("relay".to_owned()),
+                    proxy_identity: Some("extra-proxy".to_owned()),
+                    ..CompletionContext::default()
+                }
+            ),
+            Err(EngineError::InvalidCompletionContext)
+        ));
+        assert!(matches!(
+            validate_completion_context(
+                ResolutionTransport::DirectAuthoritativeTcp,
+                &CompletionContext {
+                    peer_identity: Some("extra-peer".to_owned()),
+                    ..CompletionContext::default()
+                }
+            ),
+            Err(EngineError::InvalidCompletionContext)
+        ));
+    }
+
+    #[test]
     fn persisted_policy_survives_restart() {
-        let engine = Engine::new(EngineConfig::default());
+        let engine = Engine::new(EngineConfig::new(
+            RuntimeSessionId::new([8; 16]).unwrap(),
+            Network::Mainnet,
+            PolicySnapshot::default(),
+        ));
         let mut policy = engine.snapshot().unwrap().policy.config();
         policy.dns_relay_requester = DnsRelayRequesterPolicy::Disabled;
         engine.update_policy(1, policy).unwrap();
@@ -1806,5 +2153,14 @@ mod tests {
                 .unwrap()
                 .contains(ResolutionTransport::HandshakeP2pDnsRelay)
         );
+    }
+
+    #[test]
+    fn persisted_engine_rejects_zero_runtime_session() {
+        let policy = PolicySnapshot::default().encode();
+        assert!(matches!(
+            Engine::from_persisted([0; 16], Network::Mainnet, &policy),
+            Err(EngineError::InvalidRuntimeSession)
+        ));
     }
 }

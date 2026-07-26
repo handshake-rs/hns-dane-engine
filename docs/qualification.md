@@ -18,16 +18,16 @@ cargo +1.89.0 deny --locked check --config deny.toml
   advisories, licenses, bans, and sources passed
 
 cargo test --workspace --all-targets --all-features --locked --offline
-  144 unit tests passed
+  177 unit tests passed
 
 cargo test --workspace --doc --all-features --locked --offline
   20 doc-test targets passed (0 doctests)
 
 cargo test --workspace --all-features --locked --offline
-  144 unit tests passed
+  177 unit tests passed
 
 cargo test --workspace --locked --offline
-  144 unit tests passed
+  177 unit tests passed
 
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
   passed
@@ -127,9 +127,12 @@ Covered:
 - engine-derived HNS proof, chain-currency, DNSSEC, TLSA, DANE, and SNI evidence; exact
   Handshake-network and validation-time binding; derived rather than caller-selected provenance
   anchors; and distinct ODoH proxy/target identity enforcement;
-- the complete required authority graph, terminal stop behavior, policy-change generation
-  revocation, monotonic event stamps, and rejection of other-session, stale-generation, and future
-  work—including an engine-level cross-session response-replay negative;
+- the complete 13-by-13 authority transition matrix, terminal stop behavior, policy-change
+  generation revocation, monotonic event stamps, stable discriminants, checked zero-session
+  rejection, and rejection of other-session, stale-generation, future, degraded, revoked, and
+  stopped work—including an engine-level cross-session response-replay negative; explicit bypass
+  edges cover pre-navigation bridge startup and authenticated-absence/proven-insecure ICANN WebPKI
+  without entering the DANE state;
 - strict completion encapsulation and browser-bridge authorization bound to the latest fully
   verified exact origin, runtime/policy generations, event sequence, and chain validity window;
   legacy completion, stale provenance, wrong-origin, not-yet-valid, and expired authorization
@@ -143,10 +146,23 @@ Covered:
   Urkel/`NameState` DS resource, authenticates DNSKEY, validates a signed TLSA response, derives
   exact-certificate DANE evidence, mints the engine bridge authorization, and issues only the exact
   current proxy tunnel grant;
-- shared status schema with runtime/policy generations, event sequence, network/chain anchor,
-  complete policy, actual transport, bounded identities, registry fingerprint/profile/version,
-  HNSR/provider roles and readiness, aggregate rate limits, stable degraded/revocation reasons, and
-  bounded unsupported-evidence details;
+- shared status schema v2 with one private-field runtime/authority snapshot, policy generation,
+  network/chain anchor, complete policy, actual transport including validating ICANN DoH, bounded
+  identities, experimental-P2P-only registry fingerprint/profile/version, HNSR/provider roles and
+  policy-derived readiness, aggregate rate limits, sanitized namespace
+  outcome/selection/fingerprint and root-failure fields, typed ICANN DNSSEC/TLS action,
+  authority-consistent
+  degraded/revocation reasons, and bounded unsupported-evidence details;
+- exhaustive authority-state/degraded-option/revocation-option status checks; direct transport
+  without registry metadata; provider-disabled policy derivation; name-free ICANN DANE,
+  authenticated-absence WebPKI, proven-insecure WebPKI, bogus failure, indeterminate failure, and
+  divergent-root selection; fail-closed failed/unavailable/unsupported/not-attempted/stale/revoked
+  evidence; selected-ICANN and failed-ICANN facade evidence requirements, outcome-free bogus and
+  indeterminate lookup failures, HNS/registry metadata clearing, and stale-provenance suppression
+  for failed classification and `Neither`; and
+  cross-field negatives preventing failure evidence from becoming WebPKI or DANE or exact
+  WebPKI/DANE tuples from being relabeled as failure, ICANN root failure from omitting fail-closed,
+  or non-P2P transport from carrying experimental registry identity;
 - all required evidence states: verified, failed, unavailable, unsupported, not attempted, stale,
   and revoked, with verified-state clearing on engine degradation or policy revocation;
 - qname-free secret-derived cache keys bound to network, runtime generation, policy generation,
@@ -157,9 +173,9 @@ Covered:
   binding; finite socket/message bounds; connected UDP source filtering; exact TCP length framing;
   lifecycle cancellation; and strict DNS response correlation;
 - explicit browser authority states;
-- C layout assertions, ownership functions, policy exchange, transport planning, query admission,
-  end-to-end local DANE matching, caller-DANE-bit rejection, response correlation, and panic
-  containment; and
+- C layout assertions, ownership functions, nonzero runtime-session rejection, policy exchange,
+  transport planning, query admission, end-to-end local DANE matching, caller-DANE-bit rejection,
+  response correlation, and panic containment; and
 - positive pinned vectors plus mutation-derived negatives.
 
 Not yet implemented:

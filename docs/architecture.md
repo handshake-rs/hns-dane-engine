@@ -81,19 +81,49 @@ while it is the engine's latest fully verified current-generation result, its ch
 valid, and its exact normalized origin remains bound. The older caller-prerequisite completion path
 cannot mint this capability.
 `hns-browser-runtime` is the single authority-state graph and monotonic runtime clock. Each
-admitted operation carries the caller-supplied unique runtime session, runtime generation, and
-event sequence; another session, a revoked generation, or a future event is rejected before
-response parsing or completion.
+admitted operation carries a checked nonzero, caller-supplied runtime session, runtime generation,
+and event sequence; another session, a revoked generation, a future event, or any stamp observed
+while authority is degraded, revoked, or stopped is rejected before response parsing or
+completion. Entering a failure state also advances an internal invalidation floor, so an older
+stamp cannot become valid again after authority recovers. Callers must generate a fresh
+unpredictable session for every process start. The
+runtime is non-cloneable so one session cannot fork its event clock, and its snapshot fields are
+private so status consumers receive one engine-issued tuple rather than independently forgeable
+session/generation/event/state values. `ResolutionTransportReady -> BrowserBridgeReady` permits
+pre-navigation bridge startup, while `DnssecVerified -> BrowserBridgeReady` permits ICANN WebPKI
+after authenticated TLSA absence or a proven-insecure delegation; neither edge claims DANE.
 `hns-gateway` consumes the exact persistent policy snapshot and issues one process-unique,
 policy-selected attempt at a time. Only unreachable, timed-out, or unsupported candidates advance;
 a valid UDP truncation advances to direct TCP. Malformed or unauthenticated transport results,
 foreign/replayed attempt tokens, stale policy, invalid intermediary topology, and response-bound
 violations terminate the plan. ODoH-to-relay downgrade status is derived from attempt history.
-`hns-browser-observability` validates the shared, name-free mobile/Chromium status contract:
-session/generations/event sequence, policy and actual transport, chain anchor, registry identity,
-HNSR/provider state and readiness, rate-limit saturation, intermediary identities, all seven
-evidence states, and stable degraded/revocation/unsupported reasons. The engine retains only the
-last current-generation provenance and clears it on degradation or revocation.
+`hns-browser-observability` schema v2 validates the shared, name-free mobile/Chromium status
+contract: the complete private-field runtime snapshot including authority state, policy and actual
+transport, chain anchor, HNSR/provider state and policy-derived readiness, rate-limit saturation,
+intermediary identities, all seven evidence states, and stable
+degraded/revocation/unsupported reasons. Registry fingerprint and negotiated protocol are nonzero
+exactly for experimental P2P transports; direct, unavailable, and validating ICANN DoH status must
+carry the zero sentinels. Sanitized dual-root fields retain only outcome kind, selected namespace,
+selection reason, a nonzero decision fingerprint, and name-free root-failure kinds—never the
+hostname or plans. Root failures do not fabricate a five-way outcome or namespace selection. A typed ICANN
+TLS action distinguishes enforced DANE, authenticated-absence WebPKI, proven-insecure WebPKI, and
+fail-closed bogus/indeterminate evidence. DANE requires DNSSEC/TLSA/DANE verified; either permitted
+WebPKI path requires a validated secure or proven-insecure DNSSEC disposition with TLSA unavailable
+and DANE unattempted/unavailable;
+every other failed, unavailable, unsupported, not-attempted, stale, or revoked trust tuple can be
+reported only as fail closed. The exact DANE and permitted-WebPKI tuples cannot be relabeled as
+failure. The action may be absent for an intentionally cleartext scheme only when DNSSEC is
+validated and TLSA/DANE remain explicitly unattempted. `Neither` can report only unavailable
+transport, and outcome/namespace/reason combinations must match the canonical classifier's exact
+selection matrix. ICANN action/evidence is accepted when ICANN is selected or its root lookup
+failed; the facade then requires that ICANN evidence, clears HNS chain/identity state, reports
+`ValidatingIcannDoh`, and forces registry fingerprint/protocol to zero. Bogus and indeterminate
+lookup failures carry their canonical DNSSEC disposition and fail closed without a namespace
+selection. An ICANN failure is bound to validating-DoH provenance; an HNS-only failure is bound to
+unavailable transport. Secondary-root trust details remain outside a successful selected-plan status.
+Authority state and degraded/revocation reason combinations are checked inside the status
+constructor. The engine retains only the last current-generation provenance and clears it on
+degradation or revocation, a failed classification, or an authenticated `Neither` result.
 `hns-cache` provides a runtime-independent bounded LRU for positive and authenticated-negative
 results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
 height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched

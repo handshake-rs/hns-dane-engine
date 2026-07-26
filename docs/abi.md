@@ -4,6 +4,10 @@ The C ABI is declared by `include/hns_dane_engine.h` and implemented in the
 `hns-dane-engine-ffi` crate. Its exported names include the `v1` version. All Rust panics are caught
 before crossing the boundary.
 
+`hns_dane_engine_v1_create` requires a fresh, unpredictable, nonzero 16-byte
+runtime session for every process start. The all-zero sentinel is rejected as
+`HNS_DANE_INVALID_ARGUMENT` before an engine handle is allocated.
+
 Ownership rules:
 
 - `hns_dane_engine_v1_create` transfers one engine handle to the caller.
@@ -37,3 +41,9 @@ limits normally constrain each association to less than 64 KiB.
 The policy blob is a 32-byte versioned representation with a CRC-32 corruption check. CRC is not an
 authentication mechanism: platform adapters must store the blob in their normal integrity-protected
 settings or secure storage and use optimistic generation matching on updates.
+
+Existing `ResolutionTransport` values 0 through 5 retain their meanings.
+Value 6 names TLS-authenticated validating ICANN DoH for shared status
+provenance; it is not admitted by the C ABI's HNS transport plan. The C ABI and
+its exported `v1` names remain version 1; the Rust facade/runtime and shared
+observability schema deliberately advance to version 2.

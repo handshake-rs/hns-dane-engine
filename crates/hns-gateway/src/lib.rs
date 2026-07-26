@@ -425,7 +425,9 @@ impl Gateway {
                     return Err(GatewayError::InvalidIdentityTopology);
                 }
             }
-            ResolutionTransport::Unavailable => return Err(GatewayError::UnavailableTransport),
+            ResolutionTransport::Unavailable | ResolutionTransport::ValidatingIcannDoh => {
+                return Err(GatewayError::UnavailableTransport);
+            }
         }
         Ok(())
     }

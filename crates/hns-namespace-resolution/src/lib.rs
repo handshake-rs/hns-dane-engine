@@ -1410,6 +1410,8 @@ pub enum RootFailureKind {
     Cancelled = 9,
     /// Internal adapter failure.
     Internal = 10,
+    /// Otherwise valid root evidence expired before classification completed.
+    StaleEvidence = 11,
 }
 
 /// Typed failure from one independent root lookup.

@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hns-browser-runtime = { path = "../hns-browser-runtime" }
+hns-icann-dane = { path = "../hns-icann-dane" }
+hns-namespace-resolution = { path = "../hns-namespace-resolution" }
 hns-resolution-policy = { path = "../hns-resolution-policy" }
 thiserror = "2.0.19"
 

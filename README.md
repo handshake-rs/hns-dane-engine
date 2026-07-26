@@ -37,14 +37,21 @@
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation;
 - resolution provenance that distinguishes transport from locally verified evidence;
-- a shared session-bound browser authority runtime whose generation/event stamps reject stale
-  policy work, future events, and cross-session attempt replay;
+- a non-cloneable shared browser authority runtime with checked nonzero per-start session IDs,
+  private atomic snapshots, and generation/event stamps that reject stale policy work, future
+  events, cross-session replay, work observed while degraded, revoked, or stopped, and pre-failure
+  stamps even after authority recovery; bridge
+  startup can become active before navigation or after authenticated ICANN WebPKI fallback without
+  claiming DANE;
 - a bounded authenticated loopback-proxy admission core with numeric-loopback binding, per-instance
   constant-time Basic capability checks, strict exact-origin `CONNECT` parsing, and a two-phase
   tunnel grant that only the engine's current non-forgeable DANE completion can authorize;
-- bounded shared mobile/Chromium status covering runtime and policy generations, actual transport,
-  intermediary identities, registry identity, provider readiness, rate limits, explicit evidence
-  states, and degraded/revocation reasons;
+- bounded shared mobile/Chromium status schema v2 covering the complete runtime/authority tuple,
+  policy generations, actual transport including validating ICANN DoH, intermediary identities,
+  experimental-P2P-only registry identity, policy-derived provider readiness, rate limits,
+  explicit evidence states, authority-consistent degraded/revocation reasons, sanitized dual-root
+  outcome/selection/fingerprint fields with classifier-valid reason combinations, and typed ICANN
+  DANE/WebPKI/fail-closed action;
 - a reusable browser testkit that constructs and verifies a mined regtest header, committed Urkel
   name proof, HNS DS/DNSKEY authority, signed TLSA response, and exact-certificate DANE path; and
 - a versioned Rust facade and C ABI suitable for Android, Apple, and native-host adapters.

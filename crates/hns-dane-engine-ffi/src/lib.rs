@@ -18,7 +18,7 @@ use std::str;
 use hns_dane::DaneLimits;
 use hns_dane_engine::{
     AuthorityState, CompletionContext, Engine, EngineConfig, EngineError, LocalDanePrerequisites,
-    ResolutionAttempt,
+    ResolutionAttempt, RuntimeSessionId,
 };
 use hns_dns_wire::{Name, ParseLimits, Query, RecordType};
 use hns_resolution_policy::{
@@ -216,6 +216,9 @@ pub extern "C" fn hns_dane_engine_v1_abi_version() -> u32 {
 
 /// Create an engine.
 ///
+/// `runtime_session` must contain a fresh, unpredictable, nonzero value for
+/// this process start. The all-zero sentinel is rejected.
+///
 /// An empty policy blob selects secure defaults. A nonempty blob must be the
 /// exact checksummed representation returned by the export function.
 ///
@@ -241,6 +244,7 @@ pub unsafe extern "C" fn hns_dane_engine_v1_create(
         let session_slice = unsafe { slice::from_raw_parts(runtime_session, 16) };
         let mut session = [0u8; 16];
         session.copy_from_slice(session_slice);
+        let session = RuntimeSessionId::new(session).map_err(|_| HnsDaneStatus::InvalidArgument)?;
         let policy = if policy_blob_len == 0 {
             PolicySnapshot::default()
         } else {
@@ -871,6 +875,7 @@ fn map_engine_error(error: EngineError) -> HnsDaneStatus {
         | EngineError::Wire(_) => HnsDaneStatus::DnsRejected,
         EngineError::Dane(_) => HnsDaneStatus::EvidenceRejected,
         EngineError::ExpectedTlsaQuery
+        | EngineError::InvalidRuntimeSession
         | EngineError::MissingTransportIdentity
         | EngineError::InvalidTransportIdentity
         | EngineError::ProxyTargetNotSeparated
@@ -907,6 +912,24 @@ mod tests {
                 u8::try_from((high << 4) | low).unwrap()
             })
             .collect()
+    }
+
+    #[test]
+    fn c_abi_rejects_zero_runtime_session() {
+        let session = [0u8; 16];
+        let mut engine = ptr::null_mut();
+        // SAFETY: All pointers reference live local storage of the documented sizes.
+        let status = unsafe {
+            hns_dane_engine_v1_create(
+                session.as_ptr(),
+                Network::Mainnet as u8,
+                ptr::null(),
+                0,
+                &mut engine,
+            )
+        };
+        assert_eq!(status, HnsDaneStatus::InvalidArgument.code());
+        assert!(engine.is_null());
     }
 
     #[test]

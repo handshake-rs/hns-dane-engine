@@ -961,7 +961,7 @@ mod tests {
         STRICT_HNS_ORIGIN, STRICT_RUNTIME_SESSION, StrictRegtestDaneFixture,
     };
     use hns_dane::DaneLimits;
-    use hns_dane_engine::{CompletionContext, EngineConfig, ValidatedDaneInput};
+    use hns_dane_engine::{CompletionContext, EngineConfig, RuntimeSessionId, ValidatedDaneInput};
     use hns_dns_wire::ParseLimits;
     use hns_resolution_policy::{Network, PolicySnapshot, ResolutionTransport};
 
@@ -969,7 +969,7 @@ mod tests {
 
     fn ready_engine(session: [u8; 16]) -> Engine {
         let engine = Engine::new(EngineConfig {
-            runtime_session: session,
+            runtime_session: RuntimeSessionId::new(session).unwrap(),
             network: Network::Regtest,
             policy: PolicySnapshot::default(),
         });

@@ -463,6 +463,11 @@ pub enum ResolutionTransport {
     HandshakeP2pDnsRelay = 4,
     /// No transport succeeded.
     Unavailable = 5,
+    /// TLS-authenticated validating DoH for the ICANN namespace.
+    ///
+    /// This is status provenance for the separate ICANN path and is never a
+    /// candidate in the fail-closed HNS [`TransportPlan`].
+    ValidatingIcannDoh = 6,
 }
 
 impl TryFrom<u8> for ResolutionTransport {
@@ -476,6 +481,7 @@ impl TryFrom<u8> for ResolutionTransport {
             3 => Ok(Self::HandshakeP2pOdoh),
             4 => Ok(Self::HandshakeP2pDnsRelay),
             5 => Ok(Self::Unavailable),
+            6 => Ok(Self::ValidatingIcannDoh),
             _ => Err(PolicyError::InvalidEncoding),
         }
     }
@@ -920,6 +926,25 @@ fn read_u64(input: &[u8], offset: usize) -> Result<u64, PolicyError> {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transport_discriminants_are_stable_and_icann_is_status_only() {
+        assert_eq!(ResolutionTransport::DirectAuthoritativeUdp as u8, 0);
+        assert_eq!(ResolutionTransport::DirectAuthoritativeTcp as u8, 1);
+        assert_eq!(ResolutionTransport::AuthenticatedAuthoritativeDoh as u8, 2);
+        assert_eq!(ResolutionTransport::HandshakeP2pOdoh as u8, 3);
+        assert_eq!(ResolutionTransport::HandshakeP2pDnsRelay as u8, 4);
+        assert_eq!(ResolutionTransport::Unavailable as u8, 5);
+        assert_eq!(ResolutionTransport::ValidatingIcannDoh as u8, 6);
+        assert_eq!(
+            ResolutionTransport::try_from(6).unwrap(),
+            ResolutionTransport::ValidatingIcannDoh
+        );
+        assert!(
+            !TransportPlan::for_policy(PolicyConfig::default())
+                .contains(ResolutionTransport::ValidatingIcannDoh)
+        );
+    }
 
     #[test]
     fn defaults_are_direct_first_with_relay_opt_out_and_output_opt_in() {

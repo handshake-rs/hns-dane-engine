@@ -499,6 +499,9 @@ dependencies = [
 name = "hns-browser-observability"
 version = "0.1.0"
 dependencies = [
+ "hns-browser-runtime",
+ "hns-icann-dane",
+ "hns-namespace-resolution",
  "hns-resolution-policy",
  "thiserror",
 ]
