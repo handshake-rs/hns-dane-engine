@@ -1489,6 +1489,83 @@ pub enum RootLookup {
     Failed(RootFailure),
 }
 
+/// Bounded, copyable disposition of one root lookup.
+///
+/// This deliberately reports only whether the complete lookup was present,
+/// authentically absent, or failed. It never retains a validated origin plan
+/// or authenticated-absence proof.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum RootResolutionDisposition {
+    /// The complete origin had a validated resolution plan.
+    Present = 1,
+    /// The complete origin was authentically absent or had no usable endpoint.
+    Absent = 2,
+    /// The lookup failed and classification remained indeterminate.
+    Failed = 3,
+}
+
+/// Bounded diagnostic state retained when dual-root classification fails.
+///
+/// Successful lookups are reduced to a copyable disposition so an error never
+/// duplicates a validated origin plan or authenticated-absence proof. Failed
+/// lookups retain their typed [`RootFailure`] for safe, root-specific
+/// diagnostics and retry policy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RootResolutionState {
+    /// The complete origin had a validated resolution plan.
+    Present,
+    /// The complete origin was authentically absent or had no usable endpoint.
+    Absent,
+    /// The lookup failed and classification remained indeterminate.
+    Failed(RootFailure),
+}
+
+impl RootResolutionState {
+    fn from_lookup(lookup: &RootLookup) -> Self {
+        match lookup {
+            RootLookup::Present(_) => Self::Present,
+            RootLookup::Absent(_) => Self::Absent,
+            RootLookup::Failed(failure) => Self::Failed(failure.clone()),
+        }
+    }
+
+    /// Returns the copyable lookup disposition.
+    #[must_use]
+    pub const fn disposition(&self) -> RootResolutionDisposition {
+        match self {
+            Self::Present => RootResolutionDisposition::Present,
+            Self::Absent => RootResolutionDisposition::Absent,
+            Self::Failed(_) => RootResolutionDisposition::Failed,
+        }
+    }
+
+    /// Returns the typed root failure, if this lookup failed.
+    #[must_use]
+    pub const fn failure(&self) -> Option<&RootFailure> {
+        match self {
+            Self::Failed(failure) => Some(failure),
+            Self::Present | Self::Absent => None,
+        }
+    }
+
+    /// Reports whether this lookup failed.
+    #[must_use]
+    pub const fn is_failed(&self) -> bool {
+        matches!(self, Self::Failed(_))
+    }
+}
+
+impl fmt::Display for RootResolutionState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Present => formatter.write_str("present"),
+            Self::Absent => formatter.write_str("absent"),
+            Self::Failed(failure) => write!(formatter, "failed ({:?})", failure.kind()),
+        }
+    }
+}
+
 /// Behavior when both valid plans diverge and no pin/binding exists.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[repr(u8)]
@@ -1983,18 +2060,10 @@ pub fn decide_namespace(
     validate_lookup(query, Namespace::Hns, &hns, now_unix)?;
     validate_lookup(query, Namespace::Icann, &icann, now_unix)?;
 
-    let hns_failure = match &hns {
-        RootLookup::Failed(failure) => Some(failure.clone()),
-        RootLookup::Present(_) | RootLookup::Absent(_) => None,
-    };
-    let icann_failure = match &icann {
-        RootLookup::Failed(failure) => Some(failure.clone()),
-        RootLookup::Present(_) | RootLookup::Absent(_) => None,
-    };
-    if hns_failure.is_some() || icann_failure.is_some() {
+    if matches!(&hns, RootLookup::Failed(_)) || matches!(&icann, RootLookup::Failed(_)) {
         return Err(ClassificationError::RootFailed {
-            hns: hns_failure,
-            icann: icann_failure,
+            hns: RootResolutionState::from_lookup(&hns),
+            icann: RootResolutionState::from_lookup(&icann),
         });
     }
 
@@ -2333,12 +2402,13 @@ impl std::error::Error for ValidationError {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ClassificationError {
-    /// One or both root lookups failed. Neither failure is absence.
+    /// One or both root lookups failed. A nonfailed root's successful
+    /// disposition is retained without its validated plan or absence proof.
     RootFailed {
-        /// HNS failure, when present.
-        hns: Option<RootFailure>,
-        /// ICANN failure, when present.
-        icann: Option<RootFailure>,
+        /// Bounded HNS lookup state.
+        hns: RootResolutionState,
+        /// Bounded ICANN lookup state.
+        icann: RootResolutionState,
     },
     /// Evidence was supplied in the wrong root position.
     RootPositionMismatch {
@@ -2377,9 +2447,7 @@ impl fmt::Display for ClassificationError {
         match self {
             Self::RootFailed { hns, icann } => write!(
                 formatter,
-                "dual-root classification is indeterminate (HNS failure: {}, ICANN failure: {})",
-                hns.as_ref().map_or("none", |_| "present"),
-                icann.as_ref().map_or("none", |_| "present")
+                "dual-root classification is indeterminate (HNS: {hns}, ICANN: {icann})"
             ),
             Self::RootPositionMismatch { expected, actual } => write!(
                 formatter,
@@ -3007,9 +3075,20 @@ mod tests {
         assert_eq!(
             error,
             ClassificationError::RootFailed {
-                hns: Some(hns_failure),
-                icann: None,
+                hns: RootResolutionState::Failed(hns_failure.clone()),
+                icann: RootResolutionState::Present,
             }
+        );
+        let hns_state = RootResolutionState::Failed(hns_failure);
+        assert_eq!(hns_state.disposition(), RootResolutionDisposition::Failed);
+        assert_eq!(
+            hns_state.failure().map(RootFailure::kind),
+            Some(RootFailureKind::StaleHnsAnchor)
+        );
+        assert!(hns_state.is_failed());
+        assert_eq!(
+            error.to_string(),
+            "dual-root classification is indeterminate (HNS: failed (StaleHnsAnchor), ICANN: present)"
         );
 
         let icann_failure = RootFailure::new(
@@ -3018,19 +3097,53 @@ mod tests {
             RootFailureKind::BogusDnssec,
             None,
         );
-        assert!(matches!(
+        let error = decide_namespace(
+            &query(),
+            RootLookup::Absent(absence(Namespace::Hns)),
+            RootLookup::Failed(icann_failure.clone()),
+            SelectionPolicy::default(),
+            NOW,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            ClassificationError::RootFailed {
+                hns: RootResolutionState::Absent,
+                icann: RootResolutionState::Failed(icann_failure),
+            }
+        );
+        assert_eq!(
+            RootResolutionState::Absent.disposition(),
+            RootResolutionDisposition::Absent
+        );
+        assert_eq!(RootResolutionState::Absent.failure(), None);
+        assert!(!RootResolutionState::Absent.is_failed());
+    }
+
+    #[test]
+    fn both_root_failures_retain_their_typed_reasons() {
+        let hns_failure =
+            RootFailure::new(Namespace::Hns, query(), RootFailureKind::Transport, None);
+        let icann_failure = RootFailure::new(
+            Namespace::Icann,
+            query(),
+            RootFailureKind::BogusDnssec,
+            Some(NOW + 5),
+        );
+
+        assert_eq!(
             decide_namespace(
                 &query(),
-                RootLookup::Absent(absence(Namespace::Hns)),
-                RootLookup::Failed(icann_failure),
+                RootLookup::Failed(hns_failure.clone()),
+                RootLookup::Failed(icann_failure.clone()),
                 SelectionPolicy::default(),
                 NOW,
             ),
             Err(ClassificationError::RootFailed {
-                hns: None,
-                icann: Some(_),
+                hns: RootResolutionState::Failed(hns_failure),
+                icann: RootResolutionState::Failed(icann_failure),
             })
-        ));
+        );
     }
 
     #[test]
