@@ -28,7 +28,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/Denuo-Web/hns-dane-engine"
+repository = "https://github.com/handshake-rs/hns-dane-engine"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
