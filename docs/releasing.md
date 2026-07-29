@@ -1,7 +1,8 @@
 # Releasing
 
-The `hns-dane-engine` libraries use a shared version and are published to
-crates.io. Published versions are permanent and cannot be overwritten.
+The `hns-dane-engine` libraries use a shared version and are intended to be
+published together to crates.io. Published versions are permanent and cannot
+be overwritten.
 
 ## Public package allowlist
 
@@ -50,7 +51,8 @@ be published.
    ./scripts/check.sh
    ```
 
-3. Inspect and commit the exact release source. Execution mode refuses a dirty
+3. Inspect and commit the exact release source. This prepares a candidate; it
+   does not publish packages or create a tag. Execution mode refuses a dirty
    worktree, including untracked files.
 4. Authenticate without placing a token in the repository:
 
@@ -87,7 +89,7 @@ crates.io communicates a different limit:
 PUBLISH_INTERVAL_SECONDS=605 ./scripts/publish.sh --execute
 ```
 
-After publication, create an annotated `vX.Y.Z` tag, push the commit and tag
-from an authorized checkout, and confirm every package page and docs.rs build.
-This repository's operating rules prohibit pushing from the preparation
-checkout.
+Only after every package is published, create an annotated `vX.Y.Z` tag, push
+the already-reviewed commit and tag from an authorized checkout, and confirm
+every package page and docs.rs build. This repository's operating rules
+prohibit pushing from the preparation checkout.

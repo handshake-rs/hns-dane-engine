@@ -7,13 +7,15 @@ verified HNS resource, follows bounded signed CNAME chains, and returns typed
 TLSA evidence. Callers fetch each correlated query through a policy-admitted
 transport.
 
+Published releases can be added with:
+
 ```bash
 cargo add hns-resolver
 ```
 
 This crate is part of
 [`hns-dane-engine`](https://github.com/handshake-rs/hns-dane-engine).
-The minimum supported Rust version is 1.89. API documentation is available on
-[docs.rs](https://docs.rs/hns-resolver).
+The minimum supported Rust version is 1.89. API documentation for published
+releases is hosted on [docs.rs](https://docs.rs/hns-resolver).
 
 Licensed under either Apache-2.0 or MIT.

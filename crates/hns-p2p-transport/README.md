@@ -10,11 +10,13 @@ bytes locally.
 These transports are Denuo Experimental V1 and are not official Handshake
 protocol assignments.
 
+Published releases can be added with:
+
 ```bash
 cargo add hns-p2p-transport
 ```
 
-The minimum supported Rust version is 1.89. API documentation is available on
-[docs.rs](https://docs.rs/hns-p2p-transport).
+The minimum supported Rust version is 1.89. API documentation for published
+releases is hosted on [docs.rs](https://docs.rs/hns-p2p-transport).
 
 Licensed under either Apache-2.0 or MIT.

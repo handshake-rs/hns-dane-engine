@@ -7,13 +7,15 @@ greatest-chainwork result, requires configurable agreement, and rejects
 equal-work divergent tips. Durable checkpoints and deep reorganization
 recovery remain storage-adapter responsibilities.
 
+Published releases can be added with:
+
 ```bash
 cargo add hns-light-sync
 ```
 
 This crate is part of
 [`hns-dane-engine`](https://github.com/handshake-rs/hns-dane-engine).
-The minimum supported Rust version is 1.89. API documentation is available on
-[docs.rs](https://docs.rs/hns-light-sync).
+The minimum supported Rust version is 1.89. API documentation for published
+releases is hosted on [docs.rs](https://docs.rs/hns-light-sync).
 
 Licensed under either Apache-2.0 or MIT.
