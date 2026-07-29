@@ -17,6 +17,7 @@ ROOT_MANIFEST = Path("Cargo.toml")
 LOCKFILE = Path("Cargo.lock")
 HNS_RS_GIT_URL = "https://github.com/handshake-rs/hns-rs.git"
 HNS_RS_REVISION = "dde2da81f29df935f043978a6d517c1d60ceff31"
+HNS_RS_CRATES_IO_VERSION = "0.1.0"
 HNS_RS_LOCK_SOURCE = (
     f"git+{HNS_RS_GIT_URL}?rev={HNS_RS_REVISION}#{HNS_RS_REVISION}"
 )
@@ -177,6 +178,11 @@ def validate_manifests(root: Path, manifests: list[Path]) -> None:
                     raise CargoSourcePolicyError(
                         f"{relative_path}:{rendered_location}: expected exact "
                         f"Git revision {HNS_RS_REVISION}"
+                    )
+                if specification.get("version") != HNS_RS_CRATES_IO_VERSION:
+                    raise CargoSourcePolicyError(
+                        f"{relative_path}:{rendered_location}: expected "
+                        f"crates.io version {HNS_RS_CRATES_IO_VERSION!r}"
                     )
                 if "branch" in specification or "tag" in specification:
                     raise CargoSourcePolicyError(

@@ -6,15 +6,20 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-p2p-transport"
 
 [dependencies]
 hex = "0.4.3"
 hns-dns-relay-protocol.workspace = true
-hns-dns-wire = { path = "../hns-dns-wire" }
-hns-gateway = { path = "../hns-gateway" }
+hns-dns-wire.workspace = true
+hns-gateway.workspace = true
 hns-odoh-protocol.workspace = true
 hns-p2p-experimental.workspace = true
-hns-transport = { path = "../hns-transport" }
+hns-transport.workspace = true
 k256 = { version = "0.13.4", default-features = false, features = ["ecdsa", "std"] }
 thiserror = "2.0.19"
 

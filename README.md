@@ -128,12 +128,14 @@ exact-host `TunnelGrant`.
 
 The repository is a standalone Cargo checkout. Its nine direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
-`dde2da81f29df935f043978a6d517c1d60ceff31`; the lockfile binds those packages
-and the two-package transitive closure to the same revision. No sibling
-`hns-rs` checkout is required. A tested repository policy rejects unreviewed
-Git dependencies, noncanonical URLs, mutable selectors, lockfile drift,
-dependency aliases, and path dependencies that escape this repository. See
-`docs/supply-chain.md`.
+`dde2da81f29df935f043978a6d517c1d60ceff31` and declare compatible crates.io
+version `0.1.0`; the lockfile binds those packages and the two-package
+transitive closure to the same revision. No sibling `hns-rs` checkout is
+required. Cargo preserves the version requirements when packaging and removes
+the Git selectors. A tested repository policy rejects unreviewed Git
+dependencies, noncanonical URLs, mutable selectors, incompatible registry
+versions, lockfile drift, dependency aliases, and path dependencies that
+escape this repository. See `docs/supply-chain.md`.
 
 ## Build
 

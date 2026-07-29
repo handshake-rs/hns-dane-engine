@@ -6,15 +6,20 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-dane-engine-ffi"
 
 [lib]
 crate-type = ["cdylib", "rlib", "staticlib"]
 
 [dependencies]
-hns-dane = { path = "../hns-dane" }
-hns-dane-engine = { path = "../hns-dane-engine" }
-hns-dns-wire = { path = "../hns-dns-wire" }
-hns-resolution-policy = { path = "../hns-resolution-policy" }
+hns-dane.workspace = true
+hns-dane-engine.workspace = true
+hns-dns-wire.workspace = true
+hns-resolution-policy.workspace = true
 
 [lints.rust]
 missing_docs = "warn"

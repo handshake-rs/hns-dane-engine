@@ -6,16 +6,21 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-dane-engine"
 
 [dependencies]
-hns-browser-observability = { path = "../hns-browser-observability" }
-hns-browser-runtime = { path = "../hns-browser-runtime" }
-hns-dane = { path = "../hns-dane" }
-hns-dns-wire = { path = "../hns-dns-wire" }
-hns-gateway = { path = "../hns-gateway" }
-hns-p2p-transport = { path = "../hns-p2p-transport" }
-hns-resolver = { path = "../hns-resolver" }
-hns-resolution-policy = { path = "../hns-resolution-policy" }
+hns-browser-observability.workspace = true
+hns-browser-runtime.workspace = true
+hns-dane.workspace = true
+hns-dns-wire.workspace = true
+hns-gateway.workspace = true
+hns-p2p-transport.workspace = true
+hns-resolver.workspace = true
+hns-resolution-policy.workspace = true
 
 [dev-dependencies]
 hns-browser-testkit = { path = "../hns-browser-testkit" }

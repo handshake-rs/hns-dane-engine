@@ -6,17 +6,22 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-loopback-proxy"
 
 [dependencies]
-hns-dane-engine = { path = "../hns-dane-engine" }
+hns-dane-engine.workspace = true
 subtle = "2.6.1"
 thiserror = "2.0.19"
 
 [dev-dependencies]
 hns-browser-testkit = { path = "../hns-browser-testkit" }
-hns-dane = { path = "../hns-dane" }
-hns-dns-wire = { path = "../hns-dns-wire" }
-hns-resolution-policy = { path = "../hns-resolution-policy" }
+hns-dane.workspace = true
+hns-dns-wire.workspace = true
+hns-resolution-policy.workspace = true
 
 [lints]
 workspace = true

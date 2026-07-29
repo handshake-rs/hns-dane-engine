@@ -6,12 +6,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-transport"
 
 [dependencies]
 hns-covenants.workspace = true
-hns-dns-wire = { path = "../hns-dns-wire" }
+hns-dns-wire.workspace = true
 hns-header-consensus.workspace = true
-hns-light-chain = { path = "../hns-light-chain" }
+hns-light-chain.workspace = true
 hns-primitives.workspace = true
 thiserror = "2.0.19"
 

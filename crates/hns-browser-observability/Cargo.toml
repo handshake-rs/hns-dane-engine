@@ -6,12 +6,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-browser-observability"
 
 [dependencies]
-hns-browser-runtime = { path = "../hns-browser-runtime" }
-hns-icann-dane = { path = "../hns-icann-dane" }
-hns-namespace-resolution = { path = "../hns-namespace-resolution" }
-hns-resolution-policy = { path = "../hns-resolution-policy" }
+hns-browser-runtime.workspace = true
+hns-icann-dane.workspace = true
+hns-namespace-resolution.workspace = true
+hns-resolution-policy.workspace = true
 thiserror = "2.0.19"
 
 [lints]

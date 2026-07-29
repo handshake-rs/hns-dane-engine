@@ -14,6 +14,7 @@ from verify_cargo_source_policy import (  # noqa: E402
     CargoSourcePolicyError,
     DIRECT_HNS_RS_PACKAGES,
     EXPECTED_CONSUMERS,
+    HNS_RS_CRATES_IO_VERSION,
     HNS_RS_GIT_URL,
     HNS_RS_LOCK_SOURCE,
     HNS_RS_REVISION,
@@ -31,7 +32,8 @@ class CargoSourcePolicyTests(unittest.TestCase):
         root.mkdir()
 
         dependencies = "\n".join(
-            f'{package} = {{ git = "{HNS_RS_GIT_URL}", '
+            f'{package} = {{ version = "{HNS_RS_CRATES_IO_VERSION}", '
+            f'git = "{HNS_RS_GIT_URL}", '
             f'rev = "{HNS_RS_REVISION}" }}'
             for package in sorted(DIRECT_HNS_RS_PACKAGES)
         )
@@ -97,6 +99,21 @@ class CargoSourcePolicyTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 CargoSourcePolicyError, "expected exact Git revision"
+            ):
+                self.verify_fixture(root, manifests)
+
+    def test_rejects_missing_crates_io_version(self) -> None:
+        temporary, root, manifests = self.create_fixture()
+        with temporary:
+            manifest = root / "Cargo.toml"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    f'version = "{HNS_RS_CRATES_IO_VERSION}", ', "", 1
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                CargoSourcePolicyError, "expected crates.io version"
             ):
                 self.verify_fixture(root, manifests)
 

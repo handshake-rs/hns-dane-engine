@@ -14,4 +14,6 @@ cargo +"$RUST_TOOLCHAIN" test --workspace --all-features --locked --offline
 cargo +"$RUST_TOOLCHAIN" test --workspace --locked --offline
 cargo +"$RUST_TOOLCHAIN" clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
 cargo +"$RUST_TOOLCHAIN" build --workspace --all-features --release --locked --offline
+cmp include/hns_dane_engine.h crates/hns-dane-engine-ffi/include/hns_dane_engine.h
 cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
+./scripts/publish.sh --dry-run
