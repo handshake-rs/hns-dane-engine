@@ -30,6 +30,9 @@ hns-dane-engine-ffi
 hns-loopback-proxy
 "
 
+hns_rs_git_url="https://github.com/handshake-rs/hns-rs.git"
+hns_rs_revision="dde2da81f29df935f043978a6d517c1d60ceff31"
+
 assert_private() {
     package=$1
     if cargo +"$rust_toolchain" publish \
@@ -45,13 +48,25 @@ assert_private() {
 
 dry_run_package() {
     package=$1
-    shift
-    cargo +"$rust_toolchain" publish \
+    local_dependencies=$2
+    hns_rs_dependencies=$3
+    set -- cargo +"$rust_toolchain" publish \
         --locked \
         --dry-run \
         --allow-dirty \
-        -p "$package" \
-        "$@"
+        -p "$package"
+    for dependency in $local_dependencies
+    do
+        set -- "$@" \
+            --config "patch.crates-io.$dependency.path=\"crates/$dependency\""
+    done
+    for dependency in $hns_rs_dependencies
+    do
+        set -- "$@" \
+            --config "patch.crates-io.$dependency.git=\"$hns_rs_git_url\"" \
+            --config "patch.crates-io.$dependency.rev=\"$hns_rs_revision\""
+    done
+    "$@"
 }
 
 dry_run_with_local_dependencies() {
@@ -60,63 +75,47 @@ dry_run_with_local_dependencies() {
         hns-dns-wire|hns-browser-runtime|hns-icann-dane|\
             hns-namespace-resolution|hns-resolution-policy|\
             hns-light-chain|hns-light-p2p)
-            dry_run_package "$package"
+            dry_run_package "$package" "" ""
             ;;
         hns-dane|hns-dnssec|hns-cache)
-            dry_run_package "$package" \
-                --config 'patch.crates-io.hns-dns-wire.path="crates/hns-dns-wire"'
+            dry_run_package "$package" "hns-dns-wire" ""
             ;;
         hns-gateway)
-            dry_run_package "$package" \
-                --config 'patch.crates-io.hns-resolution-policy.path="crates/hns-resolution-policy"'
+            dry_run_package "$package" "hns-resolution-policy" ""
             ;;
         hns-light-sync)
-            dry_run_package "$package" \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"'
+            dry_run_package "$package" "hns-light-chain" \
+                "hns-header-consensus hns-p2p-wire hns-primitives"
             ;;
         hns-transport)
             dry_run_package "$package" \
-                --config 'patch.crates-io.hns-dns-wire.path="crates/hns-dns-wire"' \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"'
+                "hns-dns-wire hns-light-chain" \
+                "hns-covenants hns-header-consensus hns-primitives"
             ;;
         hns-resolver)
             dry_run_package "$package" \
-                --config 'patch.crates-io.hns-dns-wire.path="crates/hns-dns-wire"' \
-                --config 'patch.crates-io.hns-dnssec.path="crates/hns-dnssec"' \
-                --config 'patch.crates-io.hns-icann-dane.path="crates/hns-icann-dane"' \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"'
+                "hns-dns-wire hns-dnssec hns-icann-dane hns-light-chain" \
+                "hns-covenants hns-header-consensus hns-primitives"
             ;;
         hns-browser-observability)
             dry_run_package "$package" \
-                --config 'patch.crates-io.hns-browser-runtime.path="crates/hns-browser-runtime"' \
-                --config 'patch.crates-io.hns-icann-dane.path="crates/hns-icann-dane"' \
-                --config 'patch.crates-io.hns-namespace-resolution.path="crates/hns-namespace-resolution"' \
-                --config 'patch.crates-io.hns-resolution-policy.path="crates/hns-resolution-policy"'
+                "hns-browser-runtime hns-icann-dane hns-namespace-resolution hns-resolution-policy" \
+                ""
             ;;
         hns-p2p-transport)
             dry_run_package "$package" \
-                --config 'patch.crates-io.hns-dns-wire.path="crates/hns-dns-wire"' \
-                --config 'patch.crates-io.hns-gateway.path="crates/hns-gateway"' \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"' \
-                --config 'patch.crates-io.hns-resolution-policy.path="crates/hns-resolution-policy"' \
-                --config 'patch.crates-io.hns-transport.path="crates/hns-transport"'
+                "hns-dns-wire hns-gateway hns-light-chain hns-resolution-policy hns-transport" \
+                "hns-dns-relay-protocol hns-odoh-protocol hns-p2p-experimental hns-primitives"
             ;;
-        hns-dane-engine|hns-dane-engine-ffi|hns-loopback-proxy)
+        hns-dane-engine)
             dry_run_package "$package" \
-                --config 'patch.crates-io.hns-browser-observability.path="crates/hns-browser-observability"' \
-                --config 'patch.crates-io.hns-browser-runtime.path="crates/hns-browser-runtime"' \
-                --config 'patch.crates-io.hns-dane.path="crates/hns-dane"' \
-                --config 'patch.crates-io.hns-dane-engine.path="crates/hns-dane-engine"' \
-                --config 'patch.crates-io.hns-dns-wire.path="crates/hns-dns-wire"' \
-                --config 'patch.crates-io.hns-dnssec.path="crates/hns-dnssec"' \
-                --config 'patch.crates-io.hns-gateway.path="crates/hns-gateway"' \
-                --config 'patch.crates-io.hns-icann-dane.path="crates/hns-icann-dane"' \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"' \
-                --config 'patch.crates-io.hns-namespace-resolution.path="crates/hns-namespace-resolution"' \
-                --config 'patch.crates-io.hns-p2p-transport.path="crates/hns-p2p-transport"' \
-                --config 'patch.crates-io.hns-resolution-policy.path="crates/hns-resolution-policy"' \
-                --config 'patch.crates-io.hns-resolver.path="crates/hns-resolver"' \
-                --config 'patch.crates-io.hns-transport.path="crates/hns-transport"'
+                "hns-browser-observability hns-browser-runtime hns-dane hns-dns-wire hns-dnssec hns-gateway hns-icann-dane hns-light-chain hns-namespace-resolution hns-p2p-transport hns-resolution-policy hns-resolver hns-transport" \
+                ""
+            ;;
+        hns-dane-engine-ffi|hns-loopback-proxy)
+            dry_run_package "$package" \
+                "hns-browser-observability hns-browser-runtime hns-dane hns-dane-engine hns-dns-wire hns-dnssec hns-gateway hns-icann-dane hns-light-chain hns-namespace-resolution hns-p2p-transport hns-resolution-policy hns-resolver hns-transport" \
+                ""
             ;;
         *)
             echo "error: missing dry-run dependency mapping for $package" >&2

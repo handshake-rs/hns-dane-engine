@@ -64,9 +64,13 @@ be published.
    ./scripts/publish.sh --dry-run
    ```
 
-   The preflight temporarily patches unpublished engine dependencies to local
-   paths so Cargo can verify every normalized package before its dependencies
-   exist on crates.io. The patches are not used for real uploads.
+   The preflight temporarily patches unpublished engine dependencies to their
+   repository-local sources. Where that would mix normalized crates.io
+   dependencies with the pinned development source, it also patches the
+   affected crates.io dependencies back to the exact reviewed `hns-rs` Git
+   revision. This gives one coherent package identity while Cargo verifies
+   every archive before its engine dependencies exist on crates.io. None of
+   these temporary patches are used for real uploads.
 
 6. Publish the allowlist:
 
