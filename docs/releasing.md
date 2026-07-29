@@ -1,8 +1,8 @@
 # Releasing
 
-The `hns-dane-engine` libraries use a shared version and are intended to be
-published together to crates.io. Published versions are permanent and cannot
-be overwritten.
+The public `hns-dane-engine` libraries use a shared version and are published
+together to crates.io. Published versions are permanent and cannot be
+overwritten.
 
 ## Public package allowlist
 

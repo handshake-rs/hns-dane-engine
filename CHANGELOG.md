@@ -3,10 +3,10 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-07-29
 
-Prepared initial public release of the runtime-independent Handshake browser
-security engine:
+Initial public release of the runtime-independent Handshake browser security
+engine:
 
 - strict DNS wire parsing, local DNSSEC and DANE validation, bounded TLSA
   resolution, proof-authorized authoritative DNS transports, and typed
@@ -18,5 +18,5 @@ security engine:
 - authenticated adapter boundaries for explicitly experimental HIP-76 DNS
   Relay and HIP-77 ODoH transport.
 
-The reusable browser testkit remains a private development package and will
-not be published.
+The reusable browser testkit remains a private development package and is not
+published.
