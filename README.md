@@ -54,9 +54,11 @@
   stamps even after authority recovery; bridge
   startup can become active before navigation or after authenticated ICANN WebPKI fallback without
   claiming DANE;
-- a bounded authenticated loopback-proxy admission core with numeric-loopback binding, per-instance
-  constant-time Basic capability checks, strict exact-origin `CONNECT` parsing, and a two-phase
-  tunnel grant that only the engine's current non-forgeable DANE completion can authorize;
+- a bounded authenticated loopback-proxy admission/publication core with numeric-loopback binding,
+  per-instance constant-time Basic capability checks, strict exact-origin `CONNECT` parsing,
+  rollback-safe expiring pending admission, process/listener restart isolation, generation-checked
+  atomic publish/replace/revoke operations that consume only the engine's opaque provider
+  authority, and short-lived exact-binding tunnel grants with current-generation revalidation;
 - bounded shared mobile/Chromium status schema v2 covering the complete runtime/authority tuple,
   policy generations, actual transport including validating ICANN DoH and
   proof-contained local HNS origin data, intermediary identities,
@@ -113,8 +115,9 @@ proof and committed `NameState`, derives the initial DS set from that private pr
 authenticates the TLD DNSKEY RRset, locally validates CNAME and TLSA RRsets, checks the exact origin
 SNI, and derives DANE evidence from the server certificate chain. The engine derives its provenance
 anchor from that lineage; callers cannot substitute a separate chain anchor or evidence flag. Only
-that strict completion can mint a current, expiring, exact-origin browser-bridge authorization;
-legacy caller-verdict completions cannot authorize a proxy tunnel.
+that strict completion can authenticate an HNS namespace decision for a current, expiring provider
+authority, and only consuming that authority can publish proxy admission. Legacy caller-verdict
+completions cannot authorize a proxy tunnel.
 
 The standard peer and synchronization state machines are runtime independent. They validate
 bounded same-base candidate extensions independently, select the unique greatest-work result, and
@@ -130,10 +133,13 @@ deadline and allocation bound. The engine atomically admits the gateway-selected
 intermediary identities, actual transport, and downgrade state under the current runtime/policy;
 callers cannot substitute a separate completion context. See `docs/p2p-dns-transports.md`.
 
-`hns-loopback-proxy` is deliberately the shared admission/capability boundary, not a socket or TLS
-server. Native hosts still own the listener, HTTP response I/O, per-install local CA, exact-host leaf
-issuance, and tunnel lifecycle. They must not open an origin connection until the crate returns an
-exact-host `TunnelGrant`.
+`hns-loopback-proxy` is deliberately the shared admission/publication boundary, not a DNS, socket,
+or TLS server. Its in-memory bounded registry consumes a `ProviderAuthorityContext`, atomically
+publishes/replaces/revokes the exact origin under an expected generation, and loses every
+publication on process or listener replacement. Native hosts still own DNS wire I/O, the listener,
+HTTP response I/O, origin dialing, per-install local CA, exact-host leaf issuance, and tunnel
+lifecycle. They must not begin those operations until the crate returns and immediately
+revalidates an exact-origin `TunnelGrant`.
 
 The repository is a standalone Cargo checkout. Its nine direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
@@ -159,7 +165,8 @@ The minimum supported compiler is Rust 1.89.0. See `docs/architecture.md`,
 `docs/supply-chain.md`, and `docs/qualification.md` for boundaries, pinned
 compatibility inputs, exact coverage, and remaining work.
 
-The provider-authority Rust source is a production-continuation boundary, not
-a complete platform integration. Mobile/Chromium request wiring and opaque C
-ABI handles remain unavailable, and the unreleased 0.2 source has not passed a
-new release qualification gate.
+The provider-authority and loopback-publication Rust source is a
+production-continuation boundary, not a complete platform integration. It does
+not enable a provider in any product. Mobile/Chromium request wiring, native
+listener/TLS I/O, and opaque C ABI handles remain unavailable and disabled,
+and the unreleased 0.2 source has not passed a new release qualification gate.

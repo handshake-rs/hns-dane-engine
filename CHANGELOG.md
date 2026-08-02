@@ -24,6 +24,20 @@ file. The public crates use a shared version and follow Semantic Versioning.
   decision, and lifetime bindings. Consuming revalidation returns a
   lifetime-narrowed replacement or a denial with no reusable context, without
   browser products duplicating trust policy.
+- Added the source-only loopback provider publication boundary. Its bounded
+  in-memory registry consumes that opaque context, binds every origin,
+  namespace, network, TCP service, TLS/authentication, runtime, policy, event,
+  decision, process, and listener field, and applies generation-checked atomic
+  publish/replace/revoke operations. Opaque short-lived grants must be
+  revalidated after every registry or engine event. Pending CONNECT handles
+  also carry a hard-bounded exclusive expiry; trusted-clock rollback is
+  rejected and expired records are pruned before capacity checks. A fully
+  validated successful publish reclaims expired publications within the same
+  atomic generation advance, while failed mutations remain state-neutral. No
+  DNS wire, listener, origin-proxy, TLS, platform-provider, or
+  product-availability claim is made.
+- Ignored only the repository-root `/dist/` build-output directory; nested
+  distribution metadata remains unaffected.
 - Advanced the shared package line because `0.1.0` is already published; this
   source change does not publish packages or create a tag.
 

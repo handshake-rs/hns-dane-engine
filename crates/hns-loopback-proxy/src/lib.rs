@@ -2,10 +2,11 @@
 //!
 //! This crate owns the platform-neutral boundary in front of a native browser
 //! proxy. It admits only strict loopback `CONNECT` requests carrying one
-//! per-instance Basic capability, then requires a non-forgeable
-//! current-generation browser-bridge authorization from `hns-dane-engine`
-//! before an exact-host tunnel grant can be issued. Socket accept loops, local
-//! CA storage, and TLS I/O remain native-host adapter responsibilities.
+//! per-instance Basic capability, then requires an atomically published,
+//! current-generation [`hns_dane_engine::ProviderAuthorityContext`] before an
+//! exact-origin tunnel grant can be issued. Socket accept loops, DNS wire I/O,
+//! origin dialing, local CA storage, and TLS I/O remain native-host adapter
+//! responsibilities.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -21,7 +22,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use hns_dane_engine::{
-    AuthorityState, BrowserBridgeAuthorization, Engine, EngineError, EngineSnapshot,
+    AuthenticatedContextStatus, AuthorityState, Engine, EngineError, EngineSnapshot, HnsNetwork,
+    LogicalOrigin, Namespace, OriginScheme, ProviderAuthorityContext, TlsTrustPolicy,
 };
 use subtle::ConstantTimeEq;
 use thiserror::Error;
@@ -31,7 +33,6 @@ static NEXT_PROXY_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
 const PROXY_USERNAME: &str = "hns-browser";
 const CAPABILITY_BYTES: usize = 32;
 const REALM_NONCE_BYTES: usize = 16;
-const DEFAULT_ORIGIN_PORT: u16 = 443;
 /// HTTP proxy authorization header.
 pub const PROXY_AUTHORIZATION_HEADER: &str = "proxy-authorization";
 /// HTTP proxy authentication challenge header.
@@ -42,6 +43,18 @@ pub const DEFAULT_MAXIMUM_HEAD_BYTES: usize = 16_384;
 pub const DEFAULT_MAXIMUM_HEADERS: usize = 64;
 /// Default maximum simultaneous pending CONNECT admissions.
 pub const DEFAULT_MAXIMUM_PENDING: usize = 64;
+/// Default lifetime of one pending CONNECT admission, in seconds.
+pub const DEFAULT_MAXIMUM_PENDING_LIFETIME_SECONDS: u64 = 15;
+/// Hard maximum lifetime of one pending CONNECT admission, in seconds.
+pub const MAXIMUM_PENDING_LIFETIME_SECONDS: u64 = 60;
+/// Default maximum simultaneously published provider authorities.
+pub const DEFAULT_MAXIMUM_PUBLICATIONS: usize = 64;
+/// Default maximum lifetime of one in-memory publication, in seconds.
+pub const DEFAULT_MAXIMUM_PUBLICATION_LIFETIME_SECONDS: u64 = 300;
+/// Default maximum lifetime of one issued tunnel grant, in seconds.
+pub const DEFAULT_MAXIMUM_GRANT_LIFETIME_SECONDS: u64 = 30;
+/// Hard maximum lifetime of one issued tunnel grant, in seconds.
+pub const MAXIMUM_GRANT_LIFETIME_SECONDS: u64 = 60;
 
 /// Per-instance loopback proxy capability.
 pub struct ProxyAuthorization {
@@ -168,6 +181,72 @@ impl LoopbackEndpoint {
     }
 }
 
+/// Native-process and listener lifecycle identity for replay isolation.
+///
+/// The native host must generate a fresh unpredictable process session on
+/// every process start and advance both generations for their corresponding
+/// lifecycle replacement. This value is configuration identity, not provider
+/// authority.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct ProxyInstanceIdentity {
+    process_session: [u8; 16],
+    process_generation: u64,
+    listener_generation: u64,
+}
+
+impl ProxyInstanceIdentity {
+    /// Validate nonzero process and listener lifecycle stamps.
+    pub fn new(
+        process_session: [u8; 16],
+        process_generation: u64,
+        listener_generation: u64,
+    ) -> Result<Self, ProxyError> {
+        if process_session == [0; 16] {
+            return Err(ProxyError::ZeroProcessSession);
+        }
+        if process_generation == 0 {
+            return Err(ProxyError::ZeroProcessGeneration);
+        }
+        if listener_generation == 0 {
+            return Err(ProxyError::ZeroListenerGeneration);
+        }
+        Ok(Self {
+            process_session,
+            process_generation,
+            listener_generation,
+        })
+    }
+
+    /// Fresh native-process session stamp.
+    #[must_use]
+    pub const fn process_session(self) -> [u8; 16] {
+        self.process_session
+    }
+
+    /// Native-process lifecycle generation.
+    #[must_use]
+    pub const fn process_generation(self) -> u64 {
+        self.process_generation
+    }
+
+    /// Exact listener lifecycle generation.
+    #[must_use]
+    pub const fn listener_generation(self) -> u64 {
+        self.listener_generation
+    }
+}
+
+impl fmt::Debug for ProxyInstanceIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProxyInstanceIdentity")
+            .field("process_session", &"[redacted]")
+            .field("process_generation", &self.process_generation)
+            .field("listener_generation", &self.listener_generation)
+            .finish()
+    }
+}
+
 /// Strict lowercase ASCII DNS host.
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct NormalizedHost(String);
@@ -273,6 +352,14 @@ pub struct ProxyLimits {
     pub maximum_headers: usize,
     /// Maximum pending two-phase admissions.
     pub maximum_pending: usize,
+    /// Maximum lifetime of one pending admission, in seconds.
+    pub maximum_pending_lifetime_seconds: u64,
+    /// Maximum simultaneously published provider authorities.
+    pub maximum_publications: usize,
+    /// Maximum lifetime of one publication, in seconds.
+    pub maximum_publication_lifetime_seconds: u64,
+    /// Maximum lifetime of one tunnel grant, in seconds.
+    pub maximum_grant_lifetime_seconds: u64,
 }
 
 impl Default for ProxyLimits {
@@ -281,6 +368,11 @@ impl Default for ProxyLimits {
             maximum_head_bytes: DEFAULT_MAXIMUM_HEAD_BYTES,
             maximum_headers: DEFAULT_MAXIMUM_HEADERS,
             maximum_pending: DEFAULT_MAXIMUM_PENDING,
+            maximum_pending_lifetime_seconds: DEFAULT_MAXIMUM_PENDING_LIFETIME_SECONDS,
+            maximum_publications: DEFAULT_MAXIMUM_PUBLICATIONS,
+            maximum_publication_lifetime_seconds:
+                DEFAULT_MAXIMUM_PUBLICATION_LIFETIME_SECONDS,
+            maximum_grant_lifetime_seconds: DEFAULT_MAXIMUM_GRANT_LIFETIME_SECONDS,
         }
     }
 }
@@ -293,6 +385,16 @@ impl ProxyLimits {
             || self.maximum_headers > 256
             || self.maximum_pending == 0
             || self.maximum_pending > 1_024
+            || self.maximum_pending_lifetime_seconds == 0
+            || self.maximum_pending_lifetime_seconds > MAXIMUM_PENDING_LIFETIME_SECONDS
+            || self.maximum_publications == 0
+            || self.maximum_publications > 1_024
+            || self.maximum_publication_lifetime_seconds == 0
+            || self.maximum_publication_lifetime_seconds > 3_600
+            || self.maximum_grant_lifetime_seconds == 0
+            || self.maximum_grant_lifetime_seconds
+                > self.maximum_publication_lifetime_seconds
+            || self.maximum_grant_lifetime_seconds > MAXIMUM_GRANT_LIFETIME_SECONDS
         {
             return Err(ProxyError::InvalidLimits);
         }
@@ -303,35 +405,40 @@ impl ProxyLimits {
 /// One proxy instance configuration.
 pub struct ProxyConfig {
     endpoint: LoopbackEndpoint,
+    instance_identity: ProxyInstanceIdentity,
     runtime_session: [u8; 16],
     runtime_generation: u64,
     scope: HostScope,
     authorization: ProxyAuthorization,
     limits: ProxyLimits,
-    origin_port: u16,
 }
 
 impl ProxyConfig {
-    /// Bind a fresh proxy capability to one runtime generation and HNS TLD.
+    /// Bind a fresh process/listener identity and proxy capability to one
+    /// runtime generation, HNS TLD, and bounded lifetime configuration.
     pub fn new(
         endpoint: LoopbackEndpoint,
+        instance_identity: ProxyInstanceIdentity,
         runtime_session: [u8; 16],
         runtime_generation: u64,
         scope: HostScope,
         authorization: ProxyAuthorization,
         limits: ProxyLimits,
     ) -> Result<Self, ProxyError> {
+        if runtime_session == [0; 16] {
+            return Err(ProxyError::ZeroRuntimeSession);
+        }
         if runtime_generation == 0 {
             return Err(ProxyError::ZeroRuntimeGeneration);
         }
         Ok(Self {
             endpoint,
+            instance_identity,
             runtime_session,
             runtime_generation,
             scope,
             authorization,
             limits: limits.validate()?,
-            origin_port: DEFAULT_ORIGIN_PORT,
         })
     }
 
@@ -359,29 +466,33 @@ impl fmt::Debug for ProxyConfig {
         formatter
             .debug_struct("ProxyConfig")
             .field("endpoint", &self.endpoint)
-            .field("runtime_session", &self.runtime_session)
+            .field("instance_identity", &self.instance_identity)
+            .field("runtime_session", &"[redacted]")
             .field("runtime_generation", &self.runtime_generation)
             .field("scope", &"[redacted]")
             .field("authorization", &"[redacted]")
             .field("limits", &self.limits)
-            .field("origin_port", &self.origin_port)
             .finish()
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 struct PendingRecord {
     host: NormalizedHost,
     port: u16,
+    admitted_at: u64,
+    expires_at: u64,
 }
 
-/// Opaque authenticated CONNECT awaiting exact-origin DANE authorization.
-#[derive(Clone, Eq, PartialEq)]
+/// Opaque authenticated CONNECT awaiting exact provider-authority admission.
+#[derive(Eq, PartialEq)]
 pub struct PendingConnect {
     instance_id: u64,
     sequence: u64,
     host: NormalizedHost,
     port: u16,
+    admitted_at: u64,
+    expires_at: u64,
 }
 
 impl PendingConnect {
@@ -396,6 +507,18 @@ impl PendingConnect {
     pub const fn port(&self) -> u16 {
         self.port
     }
+
+    /// Trusted admission time.
+    #[must_use]
+    pub const fn admitted_at(&self) -> u64 {
+        self.admitted_at
+    }
+
+    /// Exclusive pending-admission expiry.
+    #[must_use]
+    pub const fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
 }
 
 impl fmt::Debug for PendingConnect {
@@ -406,33 +529,179 @@ impl fmt::Debug for PendingConnect {
             .field("sequence", &self.sequence)
             .field("host", &"[redacted]")
             .field("port", &self.port)
+            .field("admitted_at", &self.admitted_at)
+            .field("expires_at", &self.expires_at)
             .finish()
     }
 }
 
-/// Exact-host backend permission issued after engine DANE authorization.
 #[derive(Eq, PartialEq)]
-pub struct TunnelGrant {
-    host: NormalizedHost,
-    port: u16,
+struct PublicationRecord {
+    publication_id: u64,
+    publication_generation: u64,
+    selected_namespace: Namespace,
+    authenticated_context: AuthenticatedContextStatus,
+    hns_network: HnsNetwork,
+    service_port: u16,
+    tls_policy: TlsTrustPolicy,
     runtime_session: [u8; 16],
     runtime_generation: u64,
-    authorization_event: u64,
-    valid_from: u64,
-    valid_until: u64,
+    policy_generation: u64,
+    event_sequence: u64,
+    decision_fingerprint: [u8; 32],
+    authority_valid_from: u64,
+    authority_valid_until: u64,
+    published_at: u64,
+    publication_valid_until: u64,
+    endpoint: LoopbackEndpoint,
+    process_session: [u8; 16],
+    process_generation: u64,
+    listener_generation: u64,
+}
+
+/// Opaque handle to one atomically published provider authority.
+///
+/// This type is deliberately neither cloneable nor serializable. It can only
+/// be returned by [`ProxySession::publish_authority`] or
+/// [`ProxySession::replace_authority`], both of which consume an engine-issued
+/// [`ProviderAuthorityContext`].
+#[derive(Eq, PartialEq)]
+pub struct PublishedAdmission {
+    instance_id: u64,
+    logical_origin: LogicalOrigin,
+    publication_id: u64,
+    publication_generation: u64,
+    registry_generation: u64,
+    endpoint: LoopbackEndpoint,
+    process_session: [u8; 16],
+    process_generation: u64,
+    listener_generation: u64,
+}
+
+impl PublishedAdmission {
+    /// Exact normalized logical-origin host.
+    #[must_use]
+    pub fn host(&self) -> &str {
+        self.logical_origin.host()
+    }
+
+    /// Exact logical-origin port.
+    #[must_use]
+    pub const fn origin_port(&self) -> u16 {
+        self.logical_origin.port()
+    }
+
+    /// Registry generation committed by this publication operation.
+    #[must_use]
+    pub const fn registry_generation(&self) -> u64 {
+        self.registry_generation
+    }
+
+    /// Generation of this exact origin publication.
+    #[must_use]
+    pub const fn publication_generation(&self) -> u64 {
+        self.publication_generation
+    }
+}
+
+impl fmt::Debug for PublishedAdmission {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PublishedAdmission")
+            .field("instance_id", &self.instance_id)
+            .field("logical_origin", &"[redacted]")
+            .field("publication_id", &self.publication_id)
+            .field("publication_generation", &self.publication_generation)
+            .field("registry_generation", &self.registry_generation)
+            .field("endpoint", &self.endpoint)
+            .field("process_session", &"[redacted]")
+            .field("process_generation", &self.process_generation)
+            .field("listener_generation", &self.listener_generation)
+            .finish()
+    }
+}
+
+/// Short-lived, single-CONNECT exact-origin permission.
+///
+/// This grant is deliberately opaque, non-cloneable, and non-serializable. A
+/// native host must move it into one tunnel attempt and re-check lifecycle
+/// cancellation before I/O. It is not a DNS, TLS, certificate, or wallet
+/// permission verdict.
+#[derive(Eq, PartialEq)]
+pub struct TunnelGrant {
+    instance_id: u64,
+    logical_origin: LogicalOrigin,
+    selected_namespace: Namespace,
+    authenticated_context: AuthenticatedContextStatus,
+    hns_network: HnsNetwork,
+    service_port: u16,
+    tls_policy: TlsTrustPolicy,
+    runtime_session: [u8; 16],
+    runtime_generation: u64,
+    policy_generation: u64,
+    event_sequence: u64,
+    decision_fingerprint: [u8; 32],
+    authority_valid_from: u64,
+    authority_valid_until: u64,
+    endpoint: LoopbackEndpoint,
+    process_session: [u8; 16],
+    process_generation: u64,
+    listener_generation: u64,
+    registry_generation: u64,
+    publication_id: u64,
+    publication_generation: u64,
+    connect_sequence: u64,
+    issued_at: u64,
+    expires_at: u64,
 }
 
 impl TunnelGrant {
     /// Exact normalized leaf/tunnel host.
     #[must_use]
     pub fn host(&self) -> &str {
-        self.host.as_str()
+        self.logical_origin.host()
     }
 
-    /// Exact origin port.
+    /// Exact logical-origin port requested by CONNECT.
     #[must_use]
     pub const fn port(&self) -> u16 {
-        self.port
+        self.logical_origin.port()
+    }
+
+    /// Exact logical-origin URL scheme.
+    #[must_use]
+    pub const fn scheme(&self) -> OriginScheme {
+        self.logical_origin.scheme()
+    }
+
+    /// Exact selected namespace.
+    #[must_use]
+    pub const fn selected_namespace(&self) -> Namespace {
+        self.selected_namespace
+    }
+
+    /// Exact trusted authentication path.
+    #[must_use]
+    pub const fn authenticated_context(&self) -> AuthenticatedContextStatus {
+        self.authenticated_context
+    }
+
+    /// Exact Handshake network retained by the namespace decision.
+    #[must_use]
+    pub const fn hns_network(&self) -> HnsNetwork {
+        self.hns_network
+    }
+
+    /// Exact selected TCP service port for native origin dialing.
+    #[must_use]
+    pub const fn service_port(&self) -> u16 {
+        self.service_port
+    }
+
+    /// Exact selected TLS trust policy.
+    #[must_use]
+    pub const fn tls_policy(&self) -> TlsTrustPolicy {
+        self.tls_policy
     }
 
     /// Current runtime generation.
@@ -450,19 +719,79 @@ impl TunnelGrant {
     /// Exact engine event that authorized the grant.
     #[must_use]
     pub const fn authorization_event(&self) -> u64 {
-        self.authorization_event
+        self.event_sequence
     }
 
-    /// Inclusive beginning of the chain-anchor validity window.
+    /// Exact policy generation that authorized publication.
+    #[must_use]
+    pub const fn policy_generation(&self) -> u64 {
+        self.policy_generation
+    }
+
+    /// Complete query, plan, root outcome, evidence, and policy identity.
+    #[must_use]
+    pub const fn decision_fingerprint(&self) -> [u8; 32] {
+        self.decision_fingerprint
+    }
+
+    /// Original provider-authority validity beginning.
+    #[must_use]
+    pub const fn authority_valid_from(&self) -> u64 {
+        self.authority_valid_from
+    }
+
+    /// Original exclusive provider-authority expiry.
+    #[must_use]
+    pub const fn authority_valid_until(&self) -> u64 {
+        self.authority_valid_until
+    }
+
+    /// Exact numeric loopback listener endpoint.
+    #[must_use]
+    pub const fn endpoint(&self) -> LoopbackEndpoint {
+        self.endpoint
+    }
+
+    /// Fresh native-process session stamp.
+    #[must_use]
+    pub const fn process_session(&self) -> [u8; 16] {
+        self.process_session
+    }
+
+    /// Native-process lifecycle generation.
+    #[must_use]
+    pub const fn process_generation(&self) -> u64 {
+        self.process_generation
+    }
+
+    /// Listener lifecycle generation.
+    #[must_use]
+    pub const fn listener_generation(&self) -> u64 {
+        self.listener_generation
+    }
+
+    /// Registry generation revalidated for this grant.
+    #[must_use]
+    pub const fn registry_generation(&self) -> u64 {
+        self.registry_generation
+    }
+
+    /// Exact origin-publication generation revalidated for this grant.
+    #[must_use]
+    pub const fn publication_generation(&self) -> u64 {
+        self.publication_generation
+    }
+
+    /// Grant issue time and inclusive start of its short validity window.
     #[must_use]
     pub const fn valid_from(&self) -> u64 {
-        self.valid_from
+        self.issued_at
     }
 
-    /// Inclusive chain-anchor validity deadline.
+    /// Exclusive short grant expiry.
     #[must_use]
     pub const fn valid_until(&self) -> u64 {
-        self.valid_until
+        self.expires_at
     }
 }
 
@@ -470,24 +799,60 @@ impl fmt::Debug for TunnelGrant {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("TunnelGrant")
-            .field("host", &"[redacted]")
-            .field("port", &self.port)
-            .field("runtime_session", &self.runtime_session)
+            .field("instance_id", &self.instance_id)
+            .field("logical_origin", &"[redacted]")
+            .field("selected_namespace", &self.selected_namespace)
+            .field("authenticated_context", &self.authenticated_context)
+            .field("hns_network", &self.hns_network)
+            .field("service_port", &self.service_port)
+            .field("tls_policy", &self.tls_policy)
+            .field("runtime_session", &"[redacted]")
             .field("runtime_generation", &self.runtime_generation)
-            .field("authorization_event", &self.authorization_event)
-            .field("valid_from", &self.valid_from)
-            .field("valid_until", &self.valid_until)
+            .field("policy_generation", &self.policy_generation)
+            .field("event_sequence", &self.event_sequence)
+            .field("decision_fingerprint", &"[redacted]")
+            .field("authority_valid_from", &self.authority_valid_from)
+            .field("authority_valid_until", &self.authority_valid_until)
+            .field("endpoint", &self.endpoint)
+            .field("process_session", &"[redacted]")
+            .field("process_generation", &self.process_generation)
+            .field("listener_generation", &self.listener_generation)
+            .field("registry_generation", &self.registry_generation)
+            .field("publication_id", &self.publication_id)
+            .field("publication_generation", &self.publication_generation)
+            .field("connect_sequence", &self.connect_sequence)
+            .field("issued_at", &self.issued_at)
+            .field("expires_at", &self.expires_at)
             .finish()
     }
 }
 
 /// Platform-neutral authenticated proxy admission state.
-#[derive(Debug)]
 pub struct ProxySession {
     instance_id: u64,
     config: ProxyConfig,
+    last_observed_time: Option<u64>,
     sequence: u64,
     pending: HashMap<u64, PendingRecord>,
+    registry_generation: u64,
+    publication_sequence: u64,
+    publications: HashMap<LogicalOrigin, PublicationRecord>,
+}
+
+impl fmt::Debug for ProxySession {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProxySession")
+            .field("instance_id", &self.instance_id)
+            .field("config", &self.config)
+            .field("last_observed_time", &self.last_observed_time)
+            .field("request_sequence", &self.sequence)
+            .field("pending_count", &self.pending.len())
+            .field("registry_generation", &self.registry_generation)
+            .field("publication_sequence", &self.publication_sequence)
+            .field("publication_count", &self.publications.len())
+            .finish()
+    }
 }
 
 impl ProxySession {
@@ -501,8 +866,12 @@ impl ProxySession {
         Ok(Self {
             instance_id,
             config,
+            last_observed_time: None,
             sequence: 0,
             pending: HashMap::new(),
+            registry_generation: 1,
+            publication_sequence: 0,
+            publications: HashMap::new(),
         })
     }
 
@@ -518,6 +887,18 @@ impl ProxySession {
         self.config.authorization_header_value()
     }
 
+    /// Current in-memory publication-registry generation.
+    #[must_use]
+    pub const fn registry_generation(&self) -> u64 {
+        self.registry_generation
+    }
+
+    /// Number of publication records currently resident in memory.
+    #[must_use]
+    pub fn publication_count(&self) -> usize {
+        self.publications.len()
+    }
+
     /// Bounded 407 response for missing/invalid proxy authentication.
     #[must_use]
     pub fn authentication_challenge(&self) -> Vec<u8> {
@@ -530,24 +911,29 @@ impl ProxySession {
     }
 
     /// Admit one strict authenticated loopback CONNECT before origin TLS.
+    ///
+    /// `now` must come from the native host's trusted nondecreasing clock.
+    /// Rollback is rejected. Expired pending records are removed before the
+    /// capacity check, and every returned handle carries its exact exclusive
+    /// deadline.
     pub fn admit_connect(
         &mut self,
         engine: &Engine,
         client: SocketAddr,
         request_head: &[u8],
+        now: u64,
     ) -> Result<PendingConnect, ProxyError> {
         let snapshot = engine.snapshot()?;
         self.ensure_runtime_ready(snapshot, false)?;
+        self.observe_time(now)?;
         if !client.ip().is_loopback() {
             return Err(ProxyError::NonLoopbackClient);
         }
+        self.pending.retain(|_, record| now < record.expires_at);
         if self.pending.len() >= self.config.limits.maximum_pending {
             return Err(ProxyError::PendingLimit);
         }
         let parsed = parse_connect_head(request_head, self.config.limits)?;
-        if parsed.port != self.config.origin_port {
-            return Err(ProxyError::OriginPortRejected);
-        }
         let host = self.config.scope.authorize(parsed.host.as_str())?;
         if !self
             .config
@@ -560,9 +946,14 @@ impl ProxySession {
             .sequence
             .checked_add(1)
             .ok_or(ProxyError::RequestSequenceExhausted)?;
+        let expires_at = now
+            .checked_add(self.config.limits.maximum_pending_lifetime_seconds)
+            .ok_or(ProxyError::TimeOverflow)?;
         let record = PendingRecord {
             host: host.clone(),
             port: parsed.port,
+            admitted_at: now,
+            expires_at,
         };
         self.pending.insert(sequence, record);
         self.sequence = sequence;
@@ -571,15 +962,133 @@ impl ProxySession {
             sequence,
             host,
             port: parsed.port,
+            admitted_at: now,
+            expires_at,
         })
     }
 
-    /// Convert one pending CONNECT into an exact-host tunnel grant.
+    /// Atomically publish one engine-issued provider authority.
+    ///
+    /// The context is consumed even when publication fails. The registry is
+    /// unchanged unless every authority, lifecycle, bound, time, uniqueness,
+    /// capacity, and expected-generation check succeeds.
+    pub fn publish_authority(
+        &mut self,
+        engine: &Engine,
+        expected_registry_generation: u64,
+        authority: ProviderAuthorityContext,
+        now: u64,
+    ) -> Result<PublishedAdmission, ProxyError> {
+        self.ensure_registry_generation(expected_registry_generation)?;
+        self.observe_time(now)?;
+        let next_registry_generation = self.next_registry_generation()?;
+        let publication_id = self
+            .publication_sequence
+            .checked_add(1)
+            .ok_or(ProxyError::PublicationSequenceExhausted)?;
+        let (logical_origin, record) = self.bind_authority(
+            engine,
+            authority,
+            publication_id,
+            next_registry_generation,
+            now,
+        )?;
+        if self
+            .publications
+            .get(&logical_origin)
+            .is_some_and(|existing| Self::publication_record_is_live(existing, now))
+        {
+            return Err(ProxyError::PublicationAlreadyExists);
+        }
+        if self
+            .publications
+            .values()
+            .filter(|existing| Self::publication_record_is_live(existing, now))
+            .count()
+            >= self.config.limits.maximum_publications
+        {
+            return Err(ProxyError::PublicationLimit);
+        }
+        let admission = self.admission_for(
+            logical_origin.clone(),
+            publication_id,
+            next_registry_generation,
+        );
+        self.publications
+            .retain(|_, existing| Self::publication_record_is_live(existing, now));
+        self.publications.insert(logical_origin, record);
+        self.publication_sequence = publication_id;
+        self.registry_generation = next_registry_generation;
+        Ok(admission)
+    }
+
+    /// Atomically replace one exact-origin publication with fresh authority.
+    ///
+    /// The old handle and replacement context are consumed. Replacement cannot
+    /// change the logical origin, publication identity, process, or listener.
+    pub fn replace_authority(
+        &mut self,
+        engine: &Engine,
+        expected_registry_generation: u64,
+        admission: PublishedAdmission,
+        authority: ProviderAuthorityContext,
+        now: u64,
+    ) -> Result<PublishedAdmission, ProxyError> {
+        self.ensure_registry_generation(expected_registry_generation)?;
+        self.observe_time(now)?;
+        let publication_id = self.validate_admission(&admission)?.publication_id;
+        let next_registry_generation = self.next_registry_generation()?;
+        let (logical_origin, record) = self.bind_authority(
+            engine,
+            authority,
+            publication_id,
+            next_registry_generation,
+            now,
+        )?;
+        if logical_origin != admission.logical_origin {
+            return Err(ProxyError::PublicationMismatch);
+        }
+        let replacement = self.admission_for(
+            logical_origin.clone(),
+            publication_id,
+            next_registry_generation,
+        );
+        self.publications.insert(logical_origin, record);
+        self.registry_generation = next_registry_generation;
+        Ok(replacement)
+    }
+
+    /// Atomically revoke one exact-origin publication.
+    ///
+    /// The handle is consumed and the generation advances only after the exact
+    /// publication and expected registry generation match.
+    pub fn revoke_authority(
+        &mut self,
+        expected_registry_generation: u64,
+        admission: PublishedAdmission,
+    ) -> Result<u64, ProxyError> {
+        self.ensure_registry_generation(expected_registry_generation)?;
+        self.validate_admission(&admission)?;
+        let next_registry_generation = self.next_registry_generation()?;
+        self.publications
+            .remove(&admission.logical_origin)
+            .ok_or(ProxyError::PublicationMismatch)?;
+        self.registry_generation = next_registry_generation;
+        Ok(next_registry_generation)
+    }
+
+    /// Convert one pending CONNECT into a short-lived exact-origin grant.
+    ///
+    /// The pending token is consumed before any publication or engine check can
+    /// succeed or fail. The published admission remains usable for another
+    /// separately authenticated CONNECT only while every generation remains
+    /// current.
     pub fn authorize_connect(
         &mut self,
         engine: &Engine,
         pending: PendingConnect,
-        authorization: &BrowserBridgeAuthorization,
+        admission: &PublishedAdmission,
+        expected_registry_generation: u64,
         now: u64,
     ) -> Result<TunnelGrant, ProxyError> {
         let PendingConnect {
@@ -587,6 +1096,8 @@ impl ProxySession {
             sequence,
             host,
             port,
+            admitted_at,
+            expires_at,
         } = pending;
         if instance_id != self.instance_id {
             return Err(ProxyError::PendingMismatch);
@@ -595,34 +1106,128 @@ impl ProxySession {
             .pending
             .get(&sequence)
             .ok_or(ProxyError::PendingMismatch)?;
-        if record.host != host || record.port != port {
+        if record.host != host
+            || record.port != port
+            || record.admitted_at != admitted_at
+            || record.expires_at != expires_at
+        {
             return Err(ProxyError::PendingMismatch);
         }
         let record = self
             .pending
             .remove(&sequence)
             .ok_or(ProxyError::PendingMismatch)?;
+        self.observe_time(now)?;
+        if now < record.admitted_at || now >= record.expires_at {
+            return Err(ProxyError::PendingExpired);
+        }
+        self.ensure_registry_generation(expected_registry_generation)?;
         let snapshot = engine.snapshot()?;
         self.ensure_runtime_ready(snapshot, true)?;
-        if authorization.runtime_session() != snapshot.runtime_session
-            || authorization.runtime_generation() != snapshot.runtime_generation
-            || authorization.policy_generation() != snapshot.policy.generation()
-            || authorization.event_sequence() != snapshot.event_sequence
-            || now < authorization.valid_from()
-            || now > authorization.valid_until()
-            || authorization.origin() != record.host.as_str()
+        let publication = self.validate_admission(admission)?;
+        if admission.logical_origin.scheme() != OriginScheme::Https
+            || admission.logical_origin.host() != record.host.as_str()
+            || admission.logical_origin.port() != record.port
+            || !self.publication_is_current(publication, snapshot, now)
         {
-            return Err(ProxyError::BridgeAuthorizationMismatch);
+            return Err(ProxyError::ProviderAuthorityMismatch);
+        }
+        let grant_deadline = now
+            .checked_add(self.config.limits.maximum_grant_lifetime_seconds)
+            .ok_or(ProxyError::TimeOverflow)?;
+        let grant_expires_at = publication.publication_valid_until.min(grant_deadline);
+        if grant_expires_at <= now {
+            return Err(ProxyError::ProviderAuthorityExpired);
         }
         Ok(TunnelGrant {
-            host: record.host,
-            port: record.port,
-            runtime_session: snapshot.runtime_session,
-            runtime_generation: snapshot.runtime_generation,
-            authorization_event: authorization.event_sequence(),
-            valid_from: authorization.valid_from(),
-            valid_until: authorization.valid_until(),
+            instance_id: self.instance_id,
+            logical_origin: admission.logical_origin.clone(),
+            selected_namespace: publication.selected_namespace,
+            authenticated_context: publication.authenticated_context,
+            hns_network: publication.hns_network,
+            service_port: publication.service_port,
+            tls_policy: publication.tls_policy,
+            runtime_session: publication.runtime_session,
+            runtime_generation: publication.runtime_generation,
+            policy_generation: publication.policy_generation,
+            event_sequence: publication.event_sequence,
+            decision_fingerprint: publication.decision_fingerprint,
+            authority_valid_from: publication.authority_valid_from,
+            authority_valid_until: publication.authority_valid_until,
+            endpoint: publication.endpoint,
+            process_session: publication.process_session,
+            process_generation: publication.process_generation,
+            listener_generation: publication.listener_generation,
+            registry_generation: self.registry_generation,
+            publication_id: publication.publication_id,
+            publication_generation: publication.publication_generation,
+            connect_sequence: sequence,
+            issued_at: now,
+            expires_at: grant_expires_at,
         })
+    }
+
+    /// Revalidate a grant immediately before native listener or origin I/O.
+    ///
+    /// This check is intentionally generation-wide: any publish, replace, or
+    /// revoke invalidates an outstanding grant until the CONNECT is admitted
+    /// again. It also rejects another process/listener instance, a replaced or
+    /// revoked exact-origin publication, engine advancement, and expiry.
+    pub fn revalidate_tunnel_grant(
+        &mut self,
+        engine: &Engine,
+        grant: &TunnelGrant,
+        expected_registry_generation: u64,
+        now: u64,
+    ) -> Result<(), ProxyError> {
+        self.ensure_registry_generation(expected_registry_generation)?;
+        self.observe_time(now)?;
+        if grant.registry_generation != expected_registry_generation
+            || grant.instance_id != self.instance_id
+            || grant.endpoint != self.config.endpoint
+        {
+            return Err(ProxyError::PublicationMismatch);
+        }
+        let identity = self.config.instance_identity;
+        if grant.process_session != identity.process_session()
+            || grant.process_generation != identity.process_generation()
+            || grant.listener_generation != identity.listener_generation()
+        {
+            return Err(ProxyError::PublicationMismatch);
+        }
+        if now < grant.issued_at || now >= grant.expires_at {
+            return Err(ProxyError::ProviderAuthorityExpired);
+        }
+        let snapshot = engine.snapshot()?;
+        self.ensure_runtime_ready(snapshot, true)?;
+        let publication = self
+            .publications
+            .get(&grant.logical_origin)
+            .ok_or(ProxyError::PublicationMismatch)?;
+        if publication.publication_id != grant.publication_id
+            || publication.publication_generation != grant.publication_generation
+            || publication.selected_namespace != grant.selected_namespace
+            || publication.authenticated_context != grant.authenticated_context
+            || publication.hns_network != grant.hns_network
+            || publication.service_port != grant.service_port
+            || publication.tls_policy != grant.tls_policy
+            || publication.runtime_session != grant.runtime_session
+            || publication.runtime_generation != grant.runtime_generation
+            || publication.policy_generation != grant.policy_generation
+            || publication.event_sequence != grant.event_sequence
+            || publication.decision_fingerprint != grant.decision_fingerprint
+            || publication.authority_valid_from != grant.authority_valid_from
+            || publication.authority_valid_until != grant.authority_valid_until
+            || publication.endpoint != grant.endpoint
+            || publication.process_session != grant.process_session
+            || publication.process_generation != grant.process_generation
+            || publication.listener_generation != grant.listener_generation
+            || grant.expires_at > publication.publication_valid_until
+            || !self.publication_is_current(publication, snapshot, now)
+        {
+            return Err(ProxyError::ProviderAuthorityMismatch);
+        }
+        Ok(())
     }
 
     /// Cancel one exact pending request.
@@ -634,6 +1239,171 @@ impl ProxySession {
             .remove(&pending.sequence)
             .map(|_| ())
             .ok_or(ProxyError::PendingMismatch)
+    }
+
+    fn bind_authority(
+        &self,
+        engine: &Engine,
+        authority: ProviderAuthorityContext,
+        publication_id: u64,
+        publication_generation: u64,
+        now: u64,
+    ) -> Result<(LogicalOrigin, PublicationRecord), ProxyError> {
+        let snapshot = engine.snapshot()?;
+        self.ensure_runtime_ready(snapshot, true)?;
+        let logical_origin = authority.logical_origin().clone();
+        let host = self.config.scope.authorize(logical_origin.host())?;
+        if logical_origin.scheme() != OriginScheme::Https
+            || host.as_str() != logical_origin.host()
+            || logical_origin.port() == 0
+            || authority.service_port() == 0
+            || authority.authenticated_context() == AuthenticatedContextStatus::Unauthenticated
+            || authority.tls_policy() == TlsTrustPolicy::Cleartext
+            || authority.runtime_session() != snapshot.runtime_session
+            || authority.runtime_generation() != snapshot.runtime_generation
+            || authority.policy_generation() != snapshot.policy.generation()
+            || authority.event_sequence() != snapshot.event_sequence
+            || authority.hns_network() != snapshot.hns_network()
+        {
+            return Err(ProxyError::ProviderAuthorityMismatch);
+        }
+        if now < authority.valid_from() {
+            return Err(ProxyError::ProviderAuthorityNotYetValid);
+        }
+        if now >= authority.valid_until() {
+            return Err(ProxyError::ProviderAuthorityExpired);
+        }
+        let publication_deadline = now
+            .checked_add(
+                self.config
+                    .limits
+                    .maximum_publication_lifetime_seconds,
+            )
+            .ok_or(ProxyError::TimeOverflow)?;
+        let publication_valid_until = authority.valid_until().min(publication_deadline);
+        if publication_valid_until <= now {
+            return Err(ProxyError::ProviderAuthorityExpired);
+        }
+        let identity = self.config.instance_identity;
+        Ok((
+            logical_origin,
+            PublicationRecord {
+                publication_id,
+                publication_generation,
+                selected_namespace: authority.selected_namespace(),
+                authenticated_context: authority.authenticated_context(),
+                hns_network: authority.hns_network(),
+                service_port: authority.service_port(),
+                tls_policy: authority.tls_policy(),
+                runtime_session: authority.runtime_session(),
+                runtime_generation: authority.runtime_generation(),
+                policy_generation: authority.policy_generation(),
+                event_sequence: authority.event_sequence(),
+                decision_fingerprint: authority.decision_fingerprint(),
+                authority_valid_from: authority.valid_from(),
+                authority_valid_until: authority.valid_until(),
+                published_at: now,
+                publication_valid_until,
+                endpoint: self.config.endpoint,
+                process_session: identity.process_session(),
+                process_generation: identity.process_generation(),
+                listener_generation: identity.listener_generation(),
+            },
+        ))
+    }
+
+    fn admission_for(
+        &self,
+        logical_origin: LogicalOrigin,
+        publication_id: u64,
+        publication_generation: u64,
+    ) -> PublishedAdmission {
+        let identity = self.config.instance_identity;
+        PublishedAdmission {
+            instance_id: self.instance_id,
+            logical_origin,
+            publication_id,
+            publication_generation,
+            registry_generation: publication_generation,
+            endpoint: self.config.endpoint,
+            process_session: identity.process_session(),
+            process_generation: identity.process_generation(),
+            listener_generation: identity.listener_generation(),
+        }
+    }
+
+    fn validate_admission(
+        &self,
+        admission: &PublishedAdmission,
+    ) -> Result<&PublicationRecord, ProxyError> {
+        let identity = self.config.instance_identity;
+        if admission.instance_id != self.instance_id
+            || admission.endpoint != self.config.endpoint
+            || admission.process_session != identity.process_session()
+            || admission.process_generation != identity.process_generation()
+            || admission.listener_generation != identity.listener_generation()
+        {
+            return Err(ProxyError::PublicationMismatch);
+        }
+        let record = self
+            .publications
+            .get(&admission.logical_origin)
+            .ok_or(ProxyError::PublicationMismatch)?;
+        if record.publication_id != admission.publication_id
+            || record.publication_generation != admission.publication_generation
+            || record.endpoint != admission.endpoint
+            || record.process_session != admission.process_session
+            || record.process_generation != admission.process_generation
+            || record.listener_generation != admission.listener_generation
+        {
+            return Err(ProxyError::PublicationMismatch);
+        }
+        Ok(record)
+    }
+
+    fn publication_is_current(
+        &self,
+        publication: &PublicationRecord,
+        snapshot: EngineSnapshot,
+        now: u64,
+    ) -> bool {
+        publication.runtime_session == snapshot.runtime_session
+            && publication.runtime_generation == snapshot.runtime_generation
+            && publication.policy_generation == snapshot.policy.generation()
+            && publication.event_sequence == snapshot.event_sequence
+            && publication.hns_network == snapshot.hns_network()
+            && now >= publication.authority_valid_from
+            && now < publication.authority_valid_until
+            && now >= publication.published_at
+            && now < publication.publication_valid_until
+    }
+
+    fn publication_record_is_live(publication: &PublicationRecord, now: u64) -> bool {
+        now < publication.publication_valid_until
+    }
+
+    fn ensure_registry_generation(&self, expected: u64) -> Result<(), ProxyError> {
+        if expected != self.registry_generation {
+            return Err(ProxyError::StaleRegistryGeneration);
+        }
+        Ok(())
+    }
+
+    fn observe_time(&mut self, now: u64) -> Result<(), ProxyError> {
+        if self
+            .last_observed_time
+            .is_some_and(|last_observed| now < last_observed)
+        {
+            return Err(ProxyError::ClockRollback);
+        }
+        self.last_observed_time = Some(now);
+        Ok(())
+    }
+
+    fn next_registry_generation(&self) -> Result<u64, ProxyError> {
+        self.registry_generation
+            .checked_add(1)
+            .ok_or(ProxyError::RegistryGenerationExhausted)
     }
 
     fn ensure_runtime_ready(
@@ -665,6 +1435,13 @@ impl ProxySession {
             return Err(ProxyError::AuthorityNotReady);
         }
         Ok(())
+    }
+}
+
+impl Drop for ProxySession {
+    fn drop(&mut self) {
+        self.pending.clear();
+        self.publications.clear();
     }
 }
 
@@ -879,7 +1656,7 @@ fn looks_like_legacy_ipv4(host: &str) -> bool {
     numeric && (1..=4).contains(&count)
 }
 
-/// Proxy configuration, request, runtime, or bridge failure.
+/// Proxy configuration, request, runtime, or provider-publication failure.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ProxyError {
@@ -895,12 +1672,30 @@ pub enum ProxyError {
     /// Client did not connect from a loopback address.
     #[error("proxy client must be loopback")]
     NonLoopbackClient,
+    /// Browser runtime session must be nonzero.
+    #[error("proxy runtime session must be nonzero")]
+    ZeroRuntimeSession,
     /// Runtime generation must begin above zero.
     #[error("proxy runtime generation must be nonzero")]
     ZeroRuntimeGeneration,
+    /// Native process session must be nonzero and fresh per start.
+    #[error("proxy process session must be nonzero")]
+    ZeroProcessSession,
+    /// Native process generation must begin above zero.
+    #[error("proxy process generation must be nonzero")]
+    ZeroProcessGeneration,
+    /// Listener generation must begin above zero.
+    #[error("proxy listener generation must be nonzero")]
+    ZeroListenerGeneration,
     /// Proxy resource bounds are invalid.
     #[error("invalid proxy limits")]
     InvalidLimits,
+    /// Caller-supplied trusted time moved backwards within this session.
+    #[error("proxy trusted clock moved backwards")]
+    ClockRollback,
+    /// A bounded absolute deadline cannot be represented.
+    #[error("proxy absolute deadline overflow")]
+    TimeOverflow,
     /// Host is not strict ASCII/punycode DNS text.
     #[error("invalid proxy host")]
     InvalidHost,
@@ -928,27 +1723,51 @@ pub enum ProxyError {
     /// CONNECT request attempted a body or protocol upgrade.
     #[error("CONNECT request body or upgrade is prohibited")]
     RequestBodyOrUpgrade,
-    /// Only the configured secure origin port is admitted.
-    #[error("CONNECT origin port is not permitted")]
-    OriginPortRejected,
     /// Proxy capability is missing, duplicated, or incorrect.
     #[error("proxy authentication failed")]
     AuthenticationFailed,
     /// Pending request bound is full.
     #[error("proxy pending request limit reached")]
     PendingLimit,
+    /// Pending CONNECT reached its exclusive expiry.
+    #[error("proxy pending CONNECT expired")]
+    PendingExpired,
     /// Process-local proxy instance counter cannot advance.
     #[error("proxy instance sequence exhausted")]
     InstanceSequenceExhausted,
     /// Request sequence cannot advance.
     #[error("proxy request sequence exhausted")]
     RequestSequenceExhausted,
+    /// Publication sequence cannot advance.
+    #[error("proxy publication sequence exhausted")]
+    PublicationSequenceExhausted,
+    /// Registry generation cannot advance.
+    #[error("proxy publication registry generation exhausted")]
+    RegistryGenerationExhausted,
+    /// Caller did not present the exact current registry generation.
+    #[error("proxy publication registry generation is stale")]
+    StaleRegistryGeneration,
+    /// Publication registry reached its configured capacity.
+    #[error("proxy publication registry capacity reached")]
+    PublicationLimit,
+    /// Exact logical origin already has a publication.
+    #[error("proxy origin publication already exists")]
+    PublicationAlreadyExists,
+    /// Admission belongs to another, replaced, revoked, or restarted registry.
+    #[error("proxy origin publication mismatch")]
+    PublicationMismatch,
     /// Pending token belongs to another proxy, was changed, or was consumed.
     #[error("proxy pending CONNECT mismatch")]
     PendingMismatch,
-    /// Engine bridge capability does not authorize this exact current origin.
-    #[error("browser bridge authorization mismatch")]
-    BridgeAuthorizationMismatch,
+    /// Engine-issued provider authority is not valid for the exact current binding.
+    #[error("provider authority does not match the current proxy binding")]
+    ProviderAuthorityMismatch,
+    /// Provider authority predates its validity window.
+    #[error("provider authority is not yet valid")]
+    ProviderAuthorityNotYetValid,
+    /// Provider authority or its short publication lifetime expired.
+    #[error("provider authority publication expired")]
+    ProviderAuthorityExpired,
 }
 
 #[cfg(test)]
@@ -957,15 +1776,23 @@ pub enum ProxyError {
     reason = "tests fail immediately on invalid deterministic proxy fixtures"
 )]
 mod tests {
-    use hns_browser_testkit::{
-        STRICT_HNS_ORIGIN, STRICT_RUNTIME_SESSION, StrictRegtestDaneFixture,
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use hns_dane_engine::{
+        EngineConfig, IcannOriginAuthentication, IcannOriginAuthenticationRequest,
+        NamespaceDecision, RuntimeSessionId,
     };
-    use hns_dane::DaneLimits;
-    use hns_dane_engine::{CompletionContext, EngineConfig, RuntimeSessionId, ValidatedDaneInput};
-    use hns_dns_wire::ParseLimits;
-    use hns_resolution_policy::{Network, PolicySnapshot, ResolutionTransport};
+    use hns_namespace_resolution::{
+        AbsenceKind, ApplicationProtocol, CanonicalHost, EvidenceProvenance, Freshness,
+        IcannChainState, OriginPlanInput, OriginQuery, ProtocolCapabilities, RootLookup,
+        SelectionPolicy, ServiceBinding, ServiceBindingInput, ServiceTransport, ValidatedAbsence,
+        ValidatedOriginPlan, decide_namespace,
+    };
+    use hns_resolution_policy::{Network, PolicySnapshot};
 
     use super::*;
+
+    const AUTHORITY_NOW: u64 = 1_700_000_000;
 
     fn ready_engine(session: [u8; 16]) -> Engine {
         let engine = Engine::new(EngineConfig {
@@ -989,22 +1816,147 @@ mod tests {
         ProxyAuthorization::from_capability([7; 16], [9; 32])
     }
 
-    fn session(session_id: [u8; 16], maximum_pending: usize) -> (Engine, ProxySession) {
-        let engine = ready_engine(session_id);
+    fn proxy_for_engine(
+        engine: &Engine,
+        process_session: [u8; 16],
+        maximum_pending: usize,
+        maximum_publications: usize,
+    ) -> ProxySession {
+        proxy_for_engine_with_limits(
+            engine,
+            process_session,
+            ProxyLimits {
+                maximum_pending,
+                maximum_publications,
+                ..ProxyLimits::default()
+            },
+        )
+    }
+
+    fn proxy_for_engine_with_limits(
+        engine: &Engine,
+        process_session: [u8; 16],
+        limits: ProxyLimits,
+    ) -> ProxySession {
         let snapshot = engine.snapshot().unwrap();
         let config = ProxyConfig::new(
             LoopbackEndpoint::new("127.0.0.1:39000".parse().unwrap()).unwrap(),
+            ProxyInstanceIdentity::new(process_session, 1, 1).unwrap(),
             snapshot.runtime_session,
             snapshot.runtime_generation,
             HostScope::from_verified_hns_tld("alpha").unwrap(),
             authorization(),
-            ProxyLimits {
-                maximum_pending,
-                ..ProxyLimits::default()
-            },
+            limits,
         )
         .unwrap();
-        (engine, ProxySession::new(config).unwrap())
+        ProxySession::new(config).unwrap()
+    }
+
+    fn session(session_id: [u8; 16], maximum_pending: usize) -> (Engine, ProxySession) {
+        let engine = ready_engine(session_id);
+        let proxy = proxy_for_engine(&engine, [90; 16], maximum_pending, 4);
+        (engine, proxy)
+    }
+
+    fn active_engine(session_id: [u8; 16]) -> Engine {
+        let engine = ready_engine(session_id);
+        for state in [
+            AuthorityState::DnssecVerified,
+            AuthorityState::BrowserBridgeReady,
+            AuthorityState::Active,
+        ] {
+            engine.advance_authority_state(state).unwrap();
+        }
+        engine
+    }
+
+    fn provider_decision(host: &str) -> NamespaceDecision {
+        let query = OriginQuery::new(
+            CanonicalHost::parse(host).unwrap(),
+            OriginScheme::Https,
+            None,
+            ProtocolCapabilities::all(),
+        );
+        let target = query.host().clone();
+        let port = query.origin_port();
+        let freshness = Freshness::new(AUTHORITY_NOW - 10, AUTHORITY_NOW + 100).unwrap();
+        let service = ServiceBinding::new(ServiceBindingInput {
+            priority: None,
+            service_target: target.clone(),
+            mandatory_keys: Vec::new(),
+            advertised_alpn: Vec::new(),
+            selected_protocol: ApplicationProtocol::Http11,
+            effective_port: port,
+            transport: ServiceTransport::Tcp,
+            connection_hints: Vec::new(),
+            ech_config: None,
+            parameters: Vec::new(),
+        })
+        .unwrap();
+        let icann = ValidatedOriginPlan::new(OriginPlanInput {
+            namespace: Namespace::Icann,
+            query: query.clone(),
+            alias_path: Vec::new(),
+            terminal_target: target.clone(),
+            endpoint_alias_path: Vec::new(),
+            endpoint_target: target,
+            endpoints: vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+                port.get(),
+            )],
+            service,
+            tls_policy: TlsTrustPolicy::WebPkiAuthenticatedAbsence,
+            tlsa_records: Vec::new(),
+            provenance: EvidenceProvenance::IcannDoh {
+                chain_state: IcannChainState::Secure,
+            },
+            freshness,
+        })
+        .unwrap();
+        let hns_absence = ValidatedAbsence::new(
+            Namespace::Hns,
+            query.clone(),
+            AbsenceKind::HnsCurrentUrkelNonInclusion,
+            EvidenceProvenance::Hns {
+                network: HnsNetwork::Regtest,
+                tree_root: [21; 32],
+                height: 42,
+            },
+            freshness,
+        )
+        .unwrap();
+        decide_namespace(
+            &query,
+            RootLookup::Absent(hns_absence),
+            RootLookup::Present(icann),
+            SelectionPolicy::default(),
+            AUTHORITY_NOW,
+        )
+        .unwrap()
+    }
+
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the test adapter implements the optional trusted-authenticator result"
+    )]
+    fn trusted_icann_webpki(
+        request: &IcannOriginAuthenticationRequest,
+    ) -> Option<IcannOriginAuthentication> {
+        Some(request.attest_webpki_verified())
+    }
+
+    fn provider_authority(
+        engine: &Engine,
+        decision: &NamespaceDecision,
+    ) -> ProviderAuthorityContext {
+        let context = engine
+            .bind_icann_origin_context(decision, &trusted_icann_webpki, AUTHORITY_NOW)
+            .unwrap();
+        engine
+            .authorize_provider_injection(decision, &context, AUTHORITY_NOW)
+            .unwrap()
+            .into_context()
+            .unwrap()
     }
 
     fn connect_request_for(host: &str, authorization: &str) -> Vec<u8> {
@@ -1053,7 +2005,12 @@ mod tests {
         ));
         let request = connect_request(&proxy.authorization_header_value());
         assert!(matches!(
-            proxy.admit_connect(&engine, "192.0.2.1:50000".parse().unwrap(), &request),
+            proxy.admit_connect(
+                &engine,
+                "192.0.2.1:50000".parse().unwrap(),
+                &request,
+                1,
+            ),
             Err(ProxyError::NonLoopbackClient)
         ));
     }
@@ -1084,7 +2041,7 @@ mod tests {
         let authorization = proxy.authorization_header_value();
         let valid = connect_request(&authorization);
         let pending = proxy
-            .admit_connect(&engine, "127.0.0.1:50000".parse().unwrap(), &valid)
+            .admit_connect(&engine, "127.0.0.1:50000".parse().unwrap(), &valid, 1)
             .unwrap();
         assert_eq!(pending.host(), "www.alpha");
         assert_eq!(pending.port(), 443);
@@ -1117,7 +2074,8 @@ mod tests {
                 .admit_connect(
                     &engine,
                     "127.0.0.1:50000".parse().unwrap(),
-                    &invalid
+                    &invalid,
+                    1,
                 )
                 .is_err());
         }
@@ -1129,21 +2087,48 @@ mod tests {
         let (_, mut second) = session([3; 16], 1);
         let request = connect_request(&first.authorization_header_value());
         let pending = first
-            .admit_connect(&engine, "127.0.0.1:50000".parse().unwrap(), &request)
+            .admit_connect(&engine, "127.0.0.1:50000".parse().unwrap(), &request, 10)
             .unwrap();
+        assert_eq!(pending.admitted_at(), 10);
+        assert_eq!(
+            pending.expires_at(),
+            10 + DEFAULT_MAXIMUM_PENDING_LIFETIME_SECONDS
+        );
         assert!(matches!(
-            first.admit_connect(&engine, "127.0.0.1:50001".parse().unwrap(), &request),
+            first.admit_connect(
+                &engine,
+                "127.0.0.1:50001".parse().unwrap(),
+                &request,
+                10,
+            ),
             Err(ProxyError::PendingLimit)
         ));
         assert!(matches!(
             second.cancel(&pending),
             Err(ProxyError::PendingMismatch)
         ));
-        first.cancel(&pending).unwrap();
+        let replacement = first
+            .admit_connect(
+                &engine,
+                "127.0.0.1:50002".parse().unwrap(),
+                &request,
+                pending.expires_at(),
+            )
+            .unwrap();
         assert!(matches!(
             first.cancel(&pending),
             Err(ProxyError::PendingMismatch)
         ));
+        assert!(matches!(
+            first.admit_connect(
+                &engine,
+                "127.0.0.1:50003".parse().unwrap(),
+                &request,
+                replacement.admitted_at() - 1,
+            ),
+            Err(ProxyError::ClockRollback)
+        ));
+        first.cancel(&replacement).unwrap();
     }
 
     #[test]
@@ -1160,117 +2145,212 @@ mod tests {
         engine.update_policy(before.generation(), next).unwrap();
         let request = connect_request(&proxy.authorization_header_value());
         assert!(matches!(
-            proxy.admit_connect(&engine, "127.0.0.1:50000".parse().unwrap(), &request),
+            proxy.admit_connect(
+                &engine,
+                "127.0.0.1:50000".parse().unwrap(),
+                &request,
+                1,
+            ),
             Err(ProxyError::StaleRuntime)
         ));
     }
 
     #[test]
-    fn strict_regtest_path_mints_only_an_exact_current_tunnel_grant() {
-        let fixture = StrictRegtestDaneFixture::new().unwrap();
-        let validation_time = fixture.validation_time();
-        let (engine, mut proxy) = session(STRICT_RUNTIME_SESSION, 4);
-        let authorization = proxy.authorization_header_value();
-        let exact_request = connect_request_for(STRICT_HNS_ORIGIN, &authorization);
+    fn provider_publication_is_atomic_bounded_and_restart_scoped() {
+        let engine = active_engine([7; 16]);
+        let decision = provider_decision("www.alpha");
+        let mut proxy = proxy_for_engine(&engine, [90; 16], 4, 1);
+        let initial_generation = proxy.registry_generation();
+
+        let stale_authority = provider_authority(&engine, &decision);
+        assert!(matches!(
+            proxy.publish_authority(
+                &engine,
+                initial_generation + 1,
+                stale_authority,
+                AUTHORITY_NOW,
+            ),
+            Err(ProxyError::StaleRegistryGeneration)
+        ));
+        assert_eq!(proxy.registry_generation(), initial_generation);
+        assert_eq!(proxy.publication_count(), 0);
+
+        let authority = provider_authority(&engine, &decision);
+        let decision_fingerprint = authority.decision_fingerprint();
+        let authority_valid_from = authority.valid_from();
+        let authority_valid_until = authority.valid_until();
+        let admission = proxy
+            .publish_authority(&engine, initial_generation, authority, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(admission.host(), "www.alpha");
+        assert_eq!(admission.origin_port(), 443);
+        assert_eq!(admission.registry_generation(), initial_generation + 1);
+        assert_eq!(proxy.publication_count(), 1);
+        assert!(!format!("{admission:?}").contains("www.alpha"));
+
+        let other = provider_decision("other.alpha");
+        let capacity_authority = provider_authority(&engine, &other);
+        let capacity_generation = proxy.registry_generation();
+        assert!(matches!(
+            proxy.publish_authority(
+                &engine,
+                capacity_generation,
+                capacity_authority,
+                AUTHORITY_NOW,
+            ),
+            Err(ProxyError::PublicationLimit)
+        ));
+        assert_eq!(proxy.registry_generation(), capacity_generation);
+        assert_eq!(proxy.publication_count(), 1);
+
+        let mut restarted = proxy_for_engine(&engine, [91; 16], 4, 1);
+        let restarted_request =
+            connect_request_for("www.alpha", &restarted.authorization_header_value());
+        let restarted_pending = restarted
+            .admit_connect(
+                &engine,
+                "127.0.0.1:50000".parse().unwrap(),
+                &restarted_request,
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+        let restarted_generation = restarted.registry_generation();
+        assert!(matches!(
+            restarted.authorize_connect(
+                &engine,
+                restarted_pending,
+                &admission,
+                restarted_generation,
+                AUTHORITY_NOW,
+            ),
+            Err(ProxyError::PublicationMismatch)
+        ));
+
+        let request = connect_request_for("www.alpha", &proxy.authorization_header_value());
         let pending = proxy
-            .admit_connect(&engine, "127.0.0.1:50000".parse().unwrap(), &exact_request)
-            .unwrap();
-
-        let attempt = engine
-            .admit_resolution(
-                ResolutionTransport::DirectAuthoritativeTcp,
-                fixture.query().clone(),
-            )
-            .unwrap();
-        let parsed = engine
-            .parse_response(&attempt, fixture.response(), ParseLimits::requester())
-            .unwrap();
-        let validated = fixture.validate_response(parsed.message()).unwrap();
-        engine
-            .advance_authority_state(AuthorityState::DnssecVerified)
-            .unwrap();
-        let certificate_chain = [fixture.certificate()];
-        let completion = engine
-            .complete_resolution_with_validated_tlsa(
-                &attempt,
-                &parsed,
-                ValidatedDaneInput {
-                    validated: &validated,
-                    certificate_chain_der: &certificate_chain,
-                    origin_sni: STRICT_HNS_ORIGIN,
-                    validation_unix_time: i64::from(validation_time),
-                    limits: DaneLimits::default(),
-                },
-                CompletionContext::default(),
-            )
-            .unwrap();
-        let bridge = engine
-            .authorize_browser_bridge(&completion, u64::from(validation_time))
-            .unwrap();
-        let grant = proxy
-            .authorize_connect(&engine, pending, &bridge, u64::from(validation_time))
-            .unwrap();
-        assert_eq!(grant.host(), STRICT_HNS_ORIGIN);
-        assert_eq!(grant.port(), 443);
-        assert_eq!(
-            grant.runtime_generation(),
-            engine.snapshot().unwrap().runtime_generation
-        );
-        assert_eq!(grant.runtime_session(), STRICT_RUNTIME_SESSION);
-        assert_eq!(grant.authorization_event(), bridge.event_sequence());
-        assert_eq!(grant.valid_from(), bridge.valid_from());
-        assert_eq!(grant.valid_until(), bridge.valid_until());
-
-        let wrong_origin = proxy
             .admit_connect(
                 &engine,
                 "127.0.0.1:50001".parse().unwrap(),
-                &connect_request(&authorization),
+                &request,
+                AUTHORITY_NOW,
             )
             .unwrap();
-        assert!(matches!(
-            proxy.authorize_connect(&engine, wrong_origin, &bridge, u64::from(validation_time)),
-            Err(ProxyError::BridgeAuthorizationMismatch)
-        ));
-
-        let too_early = proxy
-            .admit_connect(&engine, "127.0.0.1:50002".parse().unwrap(), &exact_request)
-            .unwrap();
-        assert!(matches!(
-            proxy.authorize_connect(
+        let grant_generation = proxy.registry_generation();
+        let grant = proxy
+            .authorize_connect(
                 &engine,
-                too_early,
-                &bridge,
-                bridge.valid_from().checked_sub(1).unwrap()
-            ),
-            Err(ProxyError::BridgeAuthorizationMismatch)
-        ));
-
-        let expired = proxy
-            .admit_connect(&engine, "127.0.0.1:50003".parse().unwrap(), &exact_request)
-            .unwrap();
-        assert!(matches!(
-            proxy.authorize_connect(
-                &engine,
-                expired,
-                &bridge,
-                bridge.valid_until().checked_add(1).unwrap()
-            ),
-            Err(ProxyError::BridgeAuthorizationMismatch)
-        ));
-
-        let stale_event = proxy
-            .admit_connect(&engine, "127.0.0.1:50004".parse().unwrap(), &exact_request)
-            .unwrap();
-        let _new_attempt = engine
-            .admit_resolution(
-                ResolutionTransport::DirectAuthoritativeTcp,
-                fixture.query().clone(),
+                pending,
+                &admission,
+                grant_generation,
+                AUTHORITY_NOW,
             )
             .unwrap();
+        assert_eq!(grant.host(), "www.alpha");
+        assert_eq!(grant.scheme(), OriginScheme::Https);
+        assert_eq!(grant.port(), 443);
+        assert_eq!(grant.selected_namespace(), Namespace::Icann);
+        assert_eq!(
+            grant.authenticated_context(),
+            AuthenticatedContextStatus::IcannWebPkiAuthenticatedAbsence
+        );
+        assert_eq!(grant.hns_network(), HnsNetwork::Regtest);
+        assert_eq!(grant.service_port(), 443);
+        assert_eq!(
+            grant.tls_policy(),
+            TlsTrustPolicy::WebPkiAuthenticatedAbsence
+        );
+        assert_eq!(grant.runtime_session(), [7; 16]);
+        assert_eq!(grant.policy_generation(), 1);
+        assert_eq!(grant.decision_fingerprint(), decision_fingerprint);
+        assert_eq!(grant.authority_valid_from(), authority_valid_from);
+        assert_eq!(grant.authority_valid_until(), authority_valid_until);
+        assert_eq!(grant.endpoint(), proxy.endpoint());
+        assert_eq!(grant.process_session(), [90; 16]);
+        assert_eq!(grant.process_generation(), 1);
+        assert_eq!(grant.listener_generation(), 1);
+        assert_eq!(grant.registry_generation(), proxy.registry_generation());
+        assert_eq!(grant.valid_from(), AUTHORITY_NOW);
+        assert_eq!(
+            grant.valid_until(),
+            AUTHORITY_NOW + DEFAULT_MAXIMUM_GRANT_LIFETIME_SECONDS
+        );
+        let revalidation_generation = proxy.registry_generation();
+        proxy
+            .revalidate_tunnel_grant(
+                &engine,
+                &grant,
+                revalidation_generation,
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+
+        let replacement_authority = provider_authority(&engine, &decision);
+        let previous_publication_generation = admission.publication_generation();
+        let replacement_generation = proxy.registry_generation();
+        let replacement = proxy
+            .replace_authority(
+                &engine,
+                replacement_generation,
+                admission,
+                replacement_authority,
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+        assert!(replacement.publication_generation() > previous_publication_generation);
+        assert!(grant.registry_generation() < proxy.registry_generation());
+        let stale_grant_generation = proxy.registry_generation();
         assert!(matches!(
-            proxy.authorize_connect(&engine, stale_event, &bridge, u64::from(validation_time)),
-            Err(ProxyError::BridgeAuthorizationMismatch)
+            proxy.revalidate_tunnel_grant(
+                &engine,
+                &grant,
+                stale_grant_generation,
+                AUTHORITY_NOW,
+            ),
+            Err(ProxyError::PublicationMismatch)
+        ));
+        let revocation_generation = proxy.registry_generation();
+        let revoked_generation = proxy
+            .revoke_authority(revocation_generation, replacement)
+            .unwrap();
+        assert_eq!(revoked_generation, proxy.registry_generation());
+        assert_eq!(proxy.publication_count(), 0);
+
+        let mut reclaiming = proxy_for_engine_with_limits(
+            &engine,
+            [92; 16],
+            ProxyLimits {
+                maximum_publications: 1,
+                maximum_publication_lifetime_seconds: 1,
+                maximum_grant_lifetime_seconds: 1,
+                ..ProxyLimits::default()
+            },
+        );
+        let expiring_authority = provider_authority(&engine, &decision);
+        let expiring_generation = reclaiming.registry_generation();
+        let expired = reclaiming
+            .publish_authority(
+                &engine,
+                expiring_generation,
+                expiring_authority,
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+        let reclaim_generation = reclaiming.registry_generation();
+        let replacement_authority = provider_authority(&engine, &other);
+        let reclaimed = reclaiming
+            .publish_authority(
+                &engine,
+                reclaim_generation,
+                replacement_authority,
+                AUTHORITY_NOW + 1,
+            )
+            .unwrap();
+        assert_eq!(reclaiming.registry_generation(), reclaim_generation + 1);
+        assert_eq!(reclaiming.publication_count(), 1);
+        assert_eq!(reclaimed.host(), "other.alpha");
+        assert!(matches!(
+            reclaiming.validate_admission(&expired),
+            Err(ProxyError::PublicationMismatch)
         ));
     }
 }

@@ -93,6 +93,19 @@ pub struct EngineSnapshot {
     pub policy: PolicySnapshot,
 }
 
+impl EngineSnapshot {
+    /// Canonical Handshake network identity for cross-crate authority binding.
+    #[must_use]
+    pub const fn hns_network(self) -> HnsNetwork {
+        match self.network {
+            Network::Mainnet => HnsNetwork::Mainnet,
+            Network::Testnet => HnsNetwork::Testnet,
+            Network::Regtest => HnsNetwork::Regtest,
+            Network::Simnet => HnsNetwork::Simnet,
+        }
+    }
+}
+
 /// Exact URL origin whose namespace decision is being authorized.
 ///
 /// This value is derived from [`NamespaceDecision::query`]. It deliberately

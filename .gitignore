@@ -1,4 +1,5 @@
 /target/
+/dist/
 *.profraw
 *.profdata
 __pycache__/

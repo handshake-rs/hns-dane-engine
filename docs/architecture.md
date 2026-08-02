@@ -185,19 +185,34 @@ proxy/target identity collision, seals the query locally, pads the outer client 
 the target response locally. The gateway receives only locally parsed/correlated DNS or a
 fail-closed failure class. The engine atomically converts a successful gateway selection into its
 current-generation attempt, parsed response, and derived completion context.
-`hns-loopback-proxy` is a platform-neutral two-phase proxy gate. It binds one non-cloneable session
-to an exact numeric-loopback endpoint, runtime session/generation, immutable HNS TLD scope,
-per-instance capability, origin port, and request bounds. Phase one admits one strictly parsed,
-authenticated loopback `CONNECT` into a bounded opaque pending set. Phase two consumes that pending
-token and a non-forgeable engine browser-bridge authorization to return an exact-host tunnel grant.
-The non-cloneable grant carries the exact authorizing event and inclusive validity window. Wrong
-instances, origins, generations, policies, events, or times fail closed.
+`hns-loopback-proxy` is a platform-neutral admission and publication gate. It binds one
+non-cloneable session to an exact numeric-loopback endpoint, browser runtime session/generation,
+immutable HNS TLD scope, per-instance capability, fresh native-process session/generation, exact
+listener generation, and request/registry/time bounds. Its private in-memory registry can publish
+only by consuming an engine-issued `ProviderAuthorityContext`; no diagnostic decision or
+caller-constructed field set can create an admission. Publish, same-origin replace, and exact-handle
+revoke are atomic `&mut` transitions requiring the current registry generation. Capacity is finite,
+publication lifetimes are capped, and a fully validated successful publish reclaims expired records
+before insertion within the same single generation advance; failed mutations leave the registry
+unchanged. Every new process/listener session begins empty, so retained handles fail closed after
+crash or restart.
+
+The strict authenticated loopback `CONNECT` phase creates one bounded opaque pending token stamped
+with its admission time and hard-bounded exclusive expiry. The session accepts only trusted
+nondecreasing time and prunes expired records before testing capacity. Final admission consumes that
+token, rejects expiry, and revalidates the exact published logical origin, namespace, HNS network,
+TCP service, TLS/authentication path, runtime session/generation/event, policy generation, decision
+fingerprint, validity interval, registry/publication generations, endpoint, and process/listener
+lifecycle. The resulting exact-origin grant is opaque, non-cloneable, non-serializable, and
+short-lived. A separate full-binding revalidation immediately before native I/O rejects any
+intervening publish/replace/revoke, engine event, expiry, clock rollback, or restart.
 `hns-browser-testkit` builds a reusable strict regtest lineage—mined header, Urkel/`NameState`
 resource, DS-authenticated DNSKEY, signed TLSA, and certificate bytes—without retaining the
 temporary DNSSEC signing key. Engine and proxy tests consume the same fixture.
 `hns-dane-engine-ffi` contains the narrowly audited unsafe pointer boundary and versioned C ABI.
-Adapters own sockets, clocks, secure storage, threads, UI, platform lifecycle, local CA material,
-exact-host certificate issuance, and proxy/TLS byte forwarding.
+Adapters own DNS wire I/O, sockets, clocks, secure storage, threads, UI, platform lifecycle, local
+CA material, exact-host certificate issuance, origin authentication execution, and proxy/TLS byte
+forwarding. The publication core performs none of those operations.
 
 The dependency boundary is deliberate: these crates do not depend on Tokio, JNI, Swift, Chromium,
 SQLite, operating-system DNS, or a particular network stack. Callers can execute the deterministic
@@ -221,6 +236,7 @@ Header sync currently selects only among bounded candidates extending the same v
 PKIX usages 0/1 intentionally have no WebPKI path. The existing C ABI still exposes the earlier
 single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI
 v2/mobile integration. The Rust-only namespace-decision/provider-injection
-authority is likewise pending opaque namespace/context handles in a future C
-ABI revision; raw caller-constructible allow fields are intentionally not
-exported as a substitute.
+authority and its loopback-publication consumer are likewise pending opaque
+namespace/context handles and native adapter work in a future C ABI revision;
+raw caller-constructible allow fields are intentionally not exported as a
+substitute. No platform product enables this provider path yet.

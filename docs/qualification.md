@@ -86,6 +86,12 @@ Recorded foundation coverage and current source status:
   decision and exact expiry, other-session, revoked generation,
   degraded/revoked/stopped authority, retained ICANN token replay across
   another exact request or any changed binding, and ICANN DANE/WebPKI mismatch;
+  plus source-only, unexecuted loopback publication cases for
+  authorized-context-only creation, complete provider/process/listener binding,
+  bounded registry and lifetimes, atomic expired-publication reclamation,
+  rollback-safe expiring pending records,
+  generation-checked atomic publish/replace/revoke, short-grant revalidation,
+  and restart isolation;
 - canonical shared `hns-rs` network genesis, 236-byte header, proof-of-work, median-time,
   difficulty-transition, and chainwork validation for contiguous light-chain extensions;
 - transactional bounded header batches and retention of the exact 147-entry Handshake retarget
@@ -210,8 +216,8 @@ Not yet implemented:
 - origin TLS socket/SNI execution (the Rust API checks the adapter-reported exact SNI);
 - live validating ICANN DoH I/O and browser request-surface wiring (the shared
   owner/evidence decision contract and Rust provider-authority context are
-  implemented in source here but have not been consumed or qualified by either
-  platform adapter);
+  implemented, and the source-only loopback core consumes the context, but no
+  platform adapter has consumed or qualified the boundary);
 - authenticated authoritative DoH, HNSR transport, HIP-76/77 provider roles, and the native
   Brontide socket adapter for the implemented HIP-76/77 requester boundary;
 - filesystem/mobile preferences adapters and atomic durable writes;
@@ -220,15 +226,18 @@ Not yet implemented:
 - native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf
   lifecycle, mobile ABI packaging, platform bridges, and C ABI exposure of
   the Rust-only namespace-decision/provider-injection authority (the shared
-  proxy and Rust provider-admission cores are implemented);
+  proxy admission/publication and Rust provider-authority cores are implemented
+  only as unqualified source);
 - fuzz targets, HSD-generated live DNSSEC fixture generation, and performance benchmarks.
 
 The strict Rust facade has a non-forgeable
 header/Urkel/resource/DS/DNSKEY/CNAME/TLSA path and derives DANE-EE or DANE-TA
 evidence locally. Rust facade version 3 also has source for a fail-closed
-exact-origin provider-injection authority and opaque authorized-only context,
+exact-origin provider-injection authority, opaque authorized-only context, and
+bounded loopback publication consumer,
 while the legacy C ABI still accepts prerequisite verdicts and exposes neither
 the full proof workflow nor opaque namespace/provider contexts. The new Rust
-context, its platform consumption, and the unreleased 0.2 line still require
-the applicable qualification gate. This repository therefore does not claim
-that the complete browser engine or ecosystem is qualified.
+context/publication source, native platform consumption, and the unreleased
+0.2 line still require the applicable qualification gate. Platform provider
+availability remains disabled. This repository therefore does not claim that
+the complete browser engine or ecosystem is qualified.

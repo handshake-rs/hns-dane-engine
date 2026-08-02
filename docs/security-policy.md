@@ -9,10 +9,12 @@ For an HNS HTTPS origin, success requires all of:
 5. local DANE origin validation, including SNI; and
 6. an admission token from the current runtime and policy generations.
 
-Opening a browser tunnel additionally requires a non-forgeable browser-bridge authorization minted
-from that engine's latest strict completion. The authorization binds the exact normalized origin,
-runtime session/generation, policy generation, event sequence, and current chain-anchor validity
-window. Legacy completions based on caller-supplied prerequisite verdicts cannot mint one.
+Opening a browser tunnel additionally requires an engine-issued
+`ProviderAuthorityContext` consumed into the current process/listener publication registry. For HNS,
+only the latest strict completion can authenticate the exact namespace decision from which the
+provider authority is minted. The publication binds the complete provider, runtime, policy, event,
+decision, lifetime, registry, process, and listener tuple. Legacy completions based on
+caller-supplied prerequisite verdicts cannot authorize this path.
 
 For an ICANN HTTPS or WSS origin, the shared policy derives
 `_<effective-port>._<transport>.<canonical-host>.` without a hostname allowlist. The browser adapter
@@ -237,25 +239,44 @@ ICANN authenticated absence/proven-insecure delegation; evidence remains explici
 state is claimed.
 
 The shared loopback-proxy gate accepts only a nonzero numeric loopback endpoint and a loopback
-client. Native adapters must generate a fresh unpredictable 128-bit realm nonce and 256-bit
-capability for every proxy instance. The derived fixed-width Basic token is compared in constant
-time, exactly one authentication header is required, secret-bearing debug output is redacted, and
-owned intermediate/retained secret buffers are cleared when practical. The returned authorization
-header remains a secret owned by the adapter and must never be logged or persisted.
+client. Native adapters must generate a fresh unpredictable 128-bit realm nonce, 256-bit capability,
+and nonzero 128-bit process session for every process start. Process and listener generations must
+advance on their respective lifecycle replacement. The derived fixed-width Basic token is compared
+in constant time, exactly one authentication header is required, secret-bearing debug output is
+redacted, and owned intermediate/retained secret buffers are cleared when practical. The returned
+authorization header remains a secret owned by the adapter and must never be logged or persisted.
 
 `CONNECT` admission requires one complete bounded CRLF header, the exact `CONNECT host:port
-HTTP/1.1` form, one equal `Host`, one valid capability, the configured secure port, strict
-ASCII/punycode DNS labels, and the immutable HNS TLD label boundary. IP literals, legacy numeric IP
-forms, request bodies, transfer encodings, upgrades, duplicate credentials, and ambiguous
-authorities fail closed. Pending admissions are bounded and scoped to one non-cloneable process
-instance. A pending token is consumed before bridge authorization succeeds or fails, preventing
-retry with changed evidence.
+HTTP/1.1` form, one equal `Host`, one valid capability, a nonzero port, strict ASCII/punycode DNS
+labels, and the immutable HNS TLD label boundary. IP literals, legacy numeric IP forms, request
+bodies, transfer encodings, upgrades, duplicate credentials, and ambiguous authorities fail closed.
+Pending admissions are bounded, carry a hard-capped exclusive expiry, and are scoped to one
+non-cloneable process instance. The native host supplies trusted nondecreasing time; rollback is
+rejected, and expired entries are pruned before capacity is tested. A pending token is consumed
+before provider publication authorization succeeds or fails, including expiry rejection, preventing
+retry with changed evidence. Its host and port must then equal the published HTTPS logical origin
+exactly; the selected TCP service port is carried separately for the native origin adapter.
 
-A non-cloneable `TunnelGrant` authorizes only its exact host and port under its exact runtime event
-and inclusive validity window; it is not a certificate, a WebPKI verdict, or permission to
-resolve another origin. Native hosts still own the listener, local CA, exact-host leaf creation,
-upstream TLS, and byte forwarding. They must bind those operations to the grant and stop on
-runtime/policy revocation or lifecycle cancellation.
+The publication registry is private, in-memory, and bounded. Its only authority-bearing input is a
+consumed `ProviderAuthorityContext` minted in an `Authorized` outcome. It copies the exact logical
+origin, selected namespace, HNS network, selected TCP service, TLS/authentication path, runtime
+session/generation/event, policy generation, decision fingerprint, and original validity interval,
+then binds them to the exact endpoint, process session/generation, listener generation, publication
+identity, and registry generation. Diagnostic decisions are never accepted. Publish, same-origin
+replace, and exact-handle revoke require the current registry generation and change no state on a
+stale or invalid request. Publications have finite capacity and a capped absolute lifetime. The
+fully validated successful-publish transaction reclaims expired publications before insertion under
+its single registry-generation advance; validation or capacity failure leaves the registry
+unchanged. The registry is not serialized; process/listener restart creates an empty instance and
+rejects every old handle.
+
+An opaque, non-cloneable, non-serializable `TunnelGrant` authorizes only one exact CONNECT under a
+short exclusive-expiry window. It is not a certificate, a WebPKI verdict, wallet permission, or
+permission to resolve another origin. Native hosts must revalidate its complete binding immediately
+before listener/origin I/O; any registry mutation, authority event, lifecycle replacement, or expiry
+rejects it. Native hosts still own DNS wire I/O, the listener, local CA, exact-host leaf creation,
+upstream TLS, origin dialing, and byte forwarding, and must stop on runtime/policy revocation or
+lifecycle cancellation. No provider path is enabled in a platform product by this source.
 
 The persisted policy CRC detects accidental corruption only. Platform adapters must use their normal
 integrity-protected settings or secure storage; the CRC is not a MAC or signature.
