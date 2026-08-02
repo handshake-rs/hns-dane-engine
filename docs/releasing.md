@@ -4,6 +4,10 @@ The public `hns-dane-engine` libraries use a shared version and are published
 together to crates.io. Published versions are permanent and cannot be
 overwritten.
 
+The current source is the unpublished `0.2.0` release candidate. The package
+line advanced from published `0.1.0` with the Rust facade v3 API; preparing or
+committing this source does not publish it or create a tag.
+
 ## Public package allowlist
 
 The release script publishes only these packages, in dependency order:

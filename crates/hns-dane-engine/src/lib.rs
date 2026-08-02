@@ -17,7 +17,7 @@ use std::fmt;
 use std::sync::RwLock;
 
 use hns_browser_observability::{
-    BrowserStatus, DegradedReason, IcannDnssecStatus, IcannTlsAction, Namespace, OutcomeKind,
+    BrowserStatus, DegradedReason, IcannDnssecStatus, IcannTlsAction, OutcomeKind,
     ProviderReadiness, RateLimitState, RevocationReason, RootFailureKind, SelectionReason,
     StatusError, StatusInput, TransportIdentities, UnsupportedEvidence,
 };
@@ -26,6 +26,11 @@ use hns_browser_runtime::{BrowserRuntime, RuntimeError, RuntimeStamp};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
 pub use hns_gateway::{Gateway, GatewayLimits, GatewaySelection};
+use hns_namespace_resolution::{
+    EvidenceProvenance, HnsNetwork, NamespaceDecision, ServiceTransport, TlsTrustPolicy,
+    decision_fingerprint,
+};
+pub use hns_namespace_resolution::{Namespace, OriginScheme};
 pub use hns_p2p_transport::{
     AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DnsRelayRequester,
     ExperimentalExchange, ExperimentalRequest, ExperimentalResponse, OdohRequester,
@@ -39,7 +44,7 @@ use hns_resolution_policy::{
 use hns_resolver::ValidatedTlsa;
 
 /// Stable Rust facade API version.
-pub const ENGINE_API_VERSION: u32 = 2;
+pub const ENGINE_API_VERSION: u32 = 3;
 /// Maximum UTF-8 bytes accepted for one transport identity.
 pub const MAX_TRANSPORT_IDENTITY_BYTES: usize = 256;
 
@@ -87,6 +92,409 @@ pub struct EngineSnapshot {
     pub authority_state: AuthorityState,
     /// Persistent policy.
     pub policy: PolicySnapshot,
+}
+
+/// Exact URL origin whose namespace decision is being authorized.
+///
+/// This value is derived from [`NamespaceDecision::query`]. It deliberately
+/// retains the URL-origin port, not an HTTPS/SVCB-selected backend port: two
+/// pages have the same logical authority only when scheme, canonical host,
+/// and URL port all match.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LogicalOrigin {
+    scheme: OriginScheme,
+    host: String,
+    port: u16,
+}
+
+impl LogicalOrigin {
+    /// Derive an exact logical origin from an authoritative decision query.
+    #[must_use]
+    pub fn from_namespace_decision(decision: &NamespaceDecision) -> Self {
+        let query = decision.query();
+        Self {
+            scheme: query.scheme(),
+            host: query.host().as_str().to_owned(),
+            port: query.origin_port().get(),
+        }
+    }
+
+    /// URL scheme selected by the platform parser.
+    #[must_use]
+    pub const fn scheme(&self) -> OriginScheme {
+        self.scheme
+    }
+
+    /// Canonical lower-case ASCII DNS host without a root dot.
+    #[must_use]
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    /// Effective URL-origin port (explicit or the scheme default).
+    #[must_use]
+    pub const fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Whether the origin uses a TLS-protected URL scheme.
+    #[must_use]
+    pub const fn is_secure(&self) -> bool {
+        self.scheme.uses_tls()
+    }
+}
+
+/// Authentication path bound to an origin context.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum AuthenticatedContextStatus {
+    /// No successful TLS authentication was supplied.
+    Unauthenticated = 0,
+    /// The selected HNS origin was verified with current DANE evidence.
+    HnsDaneVerified = 1,
+    /// The selected ICANN origin was verified with DNSSEC-backed DANE.
+    IcannDaneVerified = 2,
+    /// ICANN TLSA absence was authenticated before successful WebPKI.
+    IcannWebPkiAuthenticatedAbsence = 3,
+    /// ICANN delegation insecurity was proven before successful WebPKI.
+    IcannWebPkiInsecureDelegation = 4,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IcannTlsAuthenticationKind {
+    DaneVerified,
+    WebPkiVerified,
+}
+
+/// Exact decision-bound request presented to the trusted ICANN TLS adapter.
+///
+/// Fields are private so the adapter must inspect the engine-derived logical
+/// origin and decision identity rather than accepting page-supplied fields.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IcannOriginAuthenticationRequest {
+    logical_origin: LogicalOrigin,
+    service_port: u16,
+    decision_fingerprint: [u8; 32],
+    hns_network: HnsNetwork,
+    tls_policy: TlsTrustPolicy,
+    valid_until: u64,
+    runtime_session: [u8; 16],
+    runtime_generation: u64,
+    policy_generation: u64,
+    event_sequence: u64,
+}
+
+impl IcannOriginAuthenticationRequest {
+    /// Exact HTTPS logical origin whose platform TLS result is requested.
+    #[must_use]
+    pub const fn logical_origin(&self) -> &LogicalOrigin {
+        &self.logical_origin
+    }
+
+    /// Exact effective TCP service port selected by the ICANN plan.
+    #[must_use]
+    pub const fn service_port(&self) -> u16 {
+        self.service_port
+    }
+
+    /// Complete query/policy/outcome identity being authenticated.
+    #[must_use]
+    pub const fn decision_fingerprint(&self) -> [u8; 32] {
+        self.decision_fingerprint
+    }
+
+    /// HNS network retained by the dual-root decision.
+    #[must_use]
+    pub const fn hns_network(&self) -> HnsNetwork {
+        self.hns_network
+    }
+
+    /// Exact TLS policy selected by the ICANN plan.
+    #[must_use]
+    pub const fn tls_policy(&self) -> TlsTrustPolicy {
+        self.tls_policy
+    }
+
+    /// Exclusive expiry of the complete dual-root decision.
+    #[must_use]
+    pub const fn valid_until(&self) -> u64 {
+        self.valid_until
+    }
+
+    /// Mint an opaque token after locally verifying ICANN DANE.
+    ///
+    /// This method is a trusted-adapter boundary. Calling it asserts that the
+    /// embedding browser verified the exact request against local TLS state.
+    #[must_use]
+    pub fn attest_dane_verified(&self) -> IcannOriginAuthentication {
+        IcannOriginAuthentication {
+            request: self.clone(),
+            kind: IcannTlsAuthenticationKind::DaneVerified,
+        }
+    }
+
+    /// Mint an opaque token after locally verifying ICANN WebPKI.
+    ///
+    /// This method is a trusted-adapter boundary. Calling it asserts that the
+    /// embedding browser verified the exact request against local TLS state.
+    #[must_use]
+    pub fn attest_webpki_verified(&self) -> IcannOriginAuthentication {
+        IcannOriginAuthentication {
+            request: self.clone(),
+            kind: IcannTlsAuthenticationKind::WebPkiVerified,
+        }
+    }
+}
+
+/// Opaque exact-decision token minted by a trusted ICANN TLS adapter.
+///
+/// All fields are private. The engine accepts the token only for the identical
+/// origin, selected service, complete decision fingerprint, network, policy,
+/// expiry, runtime session/generation, policy generation, and event sequence.
+pub struct IcannOriginAuthentication {
+    request: IcannOriginAuthenticationRequest,
+    kind: IcannTlsAuthenticationKind,
+}
+
+/// Trusted embedding-browser security principal for ICANN TLS authentication.
+///
+/// The engine invokes this callback with an exact decision-bound request and
+/// immediately mints a private [`AuthenticatedOriginContext`]. A page must
+/// never implement or influence this callback. Rust cannot isolate malicious
+/// code in the same process; the adapter implementation is therefore an
+/// explicit security principal and must consult the browser's local TLS state.
+pub trait TrustedIcannOriginAuthenticator {
+    /// Authenticate the exact request, or return `None` to deny it.
+    fn authenticate(
+        &self,
+        request: &IcannOriginAuthenticationRequest,
+    ) -> Option<IcannOriginAuthentication>;
+}
+
+impl<F> TrustedIcannOriginAuthenticator for F
+where
+    F: Fn(&IcannOriginAuthenticationRequest) -> Option<IcannOriginAuthentication>,
+{
+    fn authenticate(
+        &self,
+        request: &IcannOriginAuthenticationRequest,
+    ) -> Option<IcannOriginAuthentication> {
+        self(request)
+    }
+}
+
+/// Authentication evidence atomically stamped to one namespace decision.
+///
+/// Fields are private so consumers cannot splice an authenticated status from
+/// one origin or decision into another. The engine's three `bind_*_context`
+/// methods are the only constructors.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthenticatedOriginContext {
+    logical_origin: LogicalOrigin,
+    selected_namespace: Option<Namespace>,
+    status: AuthenticatedContextStatus,
+    runtime_session: [u8; 16],
+    runtime_generation: u64,
+    policy_generation: u64,
+    event_sequence: u64,
+    decision_fingerprint: [u8; 32],
+    valid_from: u64,
+    valid_until: u64,
+}
+
+impl AuthenticatedOriginContext {
+    /// Exact logical origin authenticated by this context.
+    #[must_use]
+    pub const fn logical_origin(&self) -> &LogicalOrigin {
+        &self.logical_origin
+    }
+
+    /// Namespace selected by the bound dual-root decision.
+    #[must_use]
+    pub const fn selected_namespace(&self) -> Option<Namespace> {
+        self.selected_namespace
+    }
+
+    /// Exact authentication path, or `Unauthenticated`.
+    #[must_use]
+    pub const fn status(&self) -> AuthenticatedContextStatus {
+        self.status
+    }
+
+    /// Runtime session that stamped this context.
+    #[must_use]
+    pub const fn runtime_session(&self) -> [u8; 16] {
+        self.runtime_session
+    }
+
+    /// Runtime generation that stamped this context.
+    #[must_use]
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
+    }
+
+    /// Policy generation that stamped this context.
+    #[must_use]
+    pub const fn policy_generation(&self) -> u64 {
+        self.policy_generation
+    }
+
+    /// Authority event sequence that stamped this context.
+    #[must_use]
+    pub const fn event_sequence(&self) -> u64 {
+        self.event_sequence
+    }
+
+    /// Exact query/policy/outcome decision identity.
+    #[must_use]
+    pub const fn decision_fingerprint(&self) -> [u8; 32] {
+        self.decision_fingerprint
+    }
+
+    /// First time at which the authentication may be consumed.
+    #[must_use]
+    pub const fn valid_from(&self) -> u64 {
+        self.valid_from
+    }
+
+    /// Exclusive decision/authentication expiry bound.
+    #[must_use]
+    pub const fn valid_until(&self) -> u64 {
+        self.valid_until
+    }
+}
+
+/// Closed fail-closed reason for denying wallet-provider injection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum ProviderInjectionDenialReason {
+    /// Cleartext HTTP/WebSocket origins never receive a wallet provider.
+    InsecureOrigin = 1,
+    /// The authoritative dual-root result selected no usable namespace.
+    NoSelectedNamespace = 2,
+    /// No successful authentication is bound to the context.
+    UnauthenticatedContext = 3,
+    /// The context belongs to another logical origin.
+    OriginMismatch = 4,
+    /// The context belongs to another selected namespace.
+    NamespaceMismatch = 5,
+    /// The context belongs to another authoritative namespace decision.
+    DecisionMismatch = 6,
+    /// Namespace evidence is not fresh at the decision time.
+    DecisionStale = 7,
+    /// HNS evidence belongs to another configured network.
+    NetworkMismatch = 8,
+    /// The context belongs to another runtime session.
+    StaleRuntimeSession = 9,
+    /// The context belongs to an older runtime generation.
+    StaleRuntimeGeneration = 10,
+    /// The context belongs to an older policy generation.
+    StalePolicyGeneration = 11,
+    /// Authority events advanced after the context was authenticated.
+    StaleAuthenticationEvent = 12,
+    /// Browser authority has not reached an injection-capable state.
+    AuthorityNotReady = 13,
+    /// Browser authority entered a recoverable degraded state.
+    AuthorityDegraded = 14,
+    /// Browser authority was explicitly revoked.
+    AuthorityRevoked = 15,
+    /// Browser authority was stopped.
+    AuthorityStopped = 16,
+    /// Authentication path conflicts with the selected plan's TLS policy.
+    AuthenticationPolicyMismatch = 17,
+    /// Authentication predates its validity interval.
+    AuthenticationNotYetValid = 18,
+    /// Authentication or decision evidence expired.
+    AuthenticationExpired = 19,
+    /// TLS-protected but non-HTTPS schemes are outside provider injection.
+    UnsupportedOriginScheme = 20,
+}
+
+/// All-outcomes wallet-provider injection decision.
+///
+/// Consumers must inspect [`Self::permitted`] and must not infer permission
+/// from authority state, namespace selection, or authentication alone.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderInjectionDecision {
+    logical_origin: LogicalOrigin,
+    selected_namespace: Option<Namespace>,
+    authenticated_context: AuthenticatedContextStatus,
+    runtime_session: [u8; 16],
+    runtime_generation: u64,
+    policy_generation: u64,
+    event_sequence: u64,
+    decision_fingerprint: [u8; 32],
+    authority_state: AuthorityState,
+    permitted: bool,
+    denial_reason: Option<ProviderInjectionDenialReason>,
+}
+
+impl ProviderInjectionDecision {
+    /// Exact URL origin evaluated for injection.
+    #[must_use]
+    pub const fn logical_origin(&self) -> &LogicalOrigin {
+        &self.logical_origin
+    }
+
+    /// Namespace selected by the authoritative decision.
+    #[must_use]
+    pub const fn selected_namespace(&self) -> Option<Namespace> {
+        self.selected_namespace
+    }
+
+    /// Authentication path presented for this decision.
+    #[must_use]
+    pub const fn authenticated_context(&self) -> AuthenticatedContextStatus {
+        self.authenticated_context
+    }
+
+    /// Current browser-authority runtime session.
+    #[must_use]
+    pub const fn runtime_session(&self) -> [u8; 16] {
+        self.runtime_session
+    }
+
+    /// Current browser-authority runtime generation.
+    #[must_use]
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
+    }
+
+    /// Current policy generation.
+    #[must_use]
+    pub const fn policy_generation(&self) -> u64 {
+        self.policy_generation
+    }
+
+    /// Current browser-authority event sequence.
+    #[must_use]
+    pub const fn event_sequence(&self) -> u64 {
+        self.event_sequence
+    }
+
+    /// Exact authoritative namespace-decision identity.
+    #[must_use]
+    pub const fn decision_fingerprint(&self) -> [u8; 32] {
+        self.decision_fingerprint
+    }
+
+    /// Current browser authority state used for the atomic result.
+    #[must_use]
+    pub const fn authority_state(&self) -> AuthorityState {
+        self.authority_state
+    }
+
+    /// Whether wallet-provider injection is permitted.
+    #[must_use]
+    pub const fn permitted(&self) -> bool {
+        self.permitted
+    }
+
+    /// Closed denial reason; absent exactly when permission is granted.
+    #[must_use]
+    pub const fn denial_reason(&self) -> Option<ProviderInjectionDenialReason> {
+        self.denial_reason
+    }
 }
 
 /// Runtime-owned fields needed to produce shared status.
@@ -320,6 +728,8 @@ pub struct DaneCompletion {
     provenance: ResolutionProvenance,
     dane_match: DaneMatch,
     origin_sni: Option<String>,
+    bridge_service_port: Option<u16>,
+    bridge_tlsa_records: Option<Vec<Vec<u8>>>,
     bridge_valid_from: Option<u64>,
     bridge_valid_until: Option<u64>,
 }
@@ -342,6 +752,12 @@ impl DaneCompletion {
     pub fn origin_sni(&self) -> Option<&str> {
         self.origin_sni.as_deref()
     }
+
+    /// Exact TCP TLSA service port, absent for the legacy prerequisite API.
+    #[must_use]
+    pub const fn bridge_service_port(&self) -> Option<u16> {
+        self.bridge_service_port
+    }
 }
 
 impl fmt::Debug for DaneCompletion {
@@ -353,6 +769,11 @@ impl fmt::Debug for DaneCompletion {
             .field(
                 "origin_sni",
                 &self.origin_sni.as_ref().map(|_| "[redacted]"),
+            )
+            .field("bridge_service_port", &self.bridge_service_port)
+            .field(
+                "bridge_tlsa_records",
+                &self.bridge_tlsa_records.as_ref().map(Vec::len),
             )
             .field("bridge_valid_from", &self.bridge_valid_from)
             .field("bridge_valid_until", &self.bridge_valid_until)
@@ -370,6 +791,7 @@ pub struct BrowserBridgeAuthorization {
     valid_from: u64,
     valid_until: u64,
     origin: String,
+    service_port: u16,
 }
 
 impl BrowserBridgeAuthorization {
@@ -414,6 +836,12 @@ impl BrowserBridgeAuthorization {
     pub fn origin(&self) -> &str {
         &self.origin
     }
+
+    /// Exact TCP TLSA service port authenticated for the origin.
+    #[must_use]
+    pub const fn service_port(&self) -> u16 {
+        self.service_port
+    }
 }
 
 impl fmt::Debug for BrowserBridgeAuthorization {
@@ -427,6 +855,7 @@ impl fmt::Debug for BrowserBridgeAuthorization {
             .field("valid_from", &self.valid_from)
             .field("valid_until", &self.valid_until)
             .field("origin", &"[redacted]")
+            .field("service_port", &self.service_port)
             .finish()
     }
 }
@@ -488,6 +917,291 @@ impl Engine {
             network: state.network,
             authority_state: runtime.authority_state(),
             policy: state.policy.snapshot(),
+        })
+    }
+
+    /// Mint a private unauthenticated context for an all-outcomes denial.
+    pub fn bind_unauthenticated_origin_context(
+        &self,
+        decision: &NamespaceDecision,
+        now: u64,
+    ) -> Result<AuthenticatedOriginContext, EngineError> {
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        Ok(stamp_origin_context(
+            &state,
+            decision,
+            AuthenticatedContextStatus::Unauthenticated,
+            now,
+            decision.expires_at_unix(),
+        ))
+    }
+
+    /// Bind an exact ICANN decision through the trusted browser TLS principal.
+    ///
+    /// The callback receives the engine-derived HTTPS origin, complete decision
+    /// fingerprint, selected TLS policy, network, and expiry. Its result cannot
+    /// be retained and rebound to another decision: the engine immediately
+    /// stamps it into a private context under the current runtime generations.
+    pub fn bind_icann_origin_context<A: TrustedIcannOriginAuthenticator>(
+        &self,
+        decision: &NamespaceDecision,
+        authenticator: &A,
+        now: u64,
+    ) -> Result<AuthenticatedOriginContext, EngineError> {
+        let logical_origin = LogicalOrigin::from_namespace_decision(decision);
+        let plan = decision
+            .selected_plan()
+            .ok_or(EngineError::ProviderAuthenticationMismatch)?;
+        if logical_origin.scheme() != OriginScheme::Https
+            || decision.selected_namespace() != Some(Namespace::Icann)
+            || plan.service().transport() != ServiceTransport::Tcp
+            || !decision.is_fresh_at(now)
+        {
+            return Err(EngineError::ProviderAuthenticationMismatch);
+        }
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        let runtime = state.runtime.snapshot();
+        let policy_generation = state.policy.snapshot().generation();
+        if !network_matches(state.network, decision.hns_network())
+            || !matches!(
+                runtime.authority_state(),
+                AuthorityState::BrowserBridgeReady | AuthorityState::Active
+            )
+        {
+            return Err(EngineError::ProviderAuthenticationMismatch);
+        }
+        let request = IcannOriginAuthenticationRequest {
+            logical_origin,
+            service_port: plan.service().effective_port().get(),
+            decision_fingerprint: *decision_fingerprint(decision).as_bytes(),
+            hns_network: decision.hns_network(),
+            tls_policy: plan.tls_policy(),
+            valid_until: decision.expires_at_unix(),
+            runtime_session: runtime.session_bytes(),
+            runtime_generation: runtime.generation(),
+            policy_generation,
+            event_sequence: runtime.event_sequence(),
+        };
+        drop(state);
+        let authentication = authenticator
+            .authenticate(&request)
+            .ok_or(EngineError::ProviderAuthenticationMismatch)?;
+        if authentication.request != request {
+            return Err(EngineError::ProviderAuthenticationMismatch);
+        }
+        let status = match (request.tls_policy, authentication.kind) {
+            (TlsTrustPolicy::Dane, IcannTlsAuthenticationKind::DaneVerified) => {
+                AuthenticatedContextStatus::IcannDaneVerified
+            }
+            (
+                TlsTrustPolicy::WebPkiAuthenticatedAbsence,
+                IcannTlsAuthenticationKind::WebPkiVerified,
+            ) => AuthenticatedContextStatus::IcannWebPkiAuthenticatedAbsence,
+            (
+                TlsTrustPolicy::WebPkiInsecureDelegation,
+                IcannTlsAuthenticationKind::WebPkiVerified,
+            ) => AuthenticatedContextStatus::IcannWebPkiInsecureDelegation,
+            _ => return Err(EngineError::ProviderAuthenticationMismatch),
+        };
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        let current_runtime = state.runtime.snapshot();
+        if !network_matches(state.network, decision.hns_network())
+            || current_runtime.session_bytes() != request.runtime_session
+            || current_runtime.generation() != request.runtime_generation
+            || state.policy.snapshot().generation() != request.policy_generation
+            || current_runtime.event_sequence() != request.event_sequence
+            || !decision.is_fresh_at(now)
+        {
+            return Err(EngineError::ProviderAuthenticationMismatch);
+        }
+        Ok(stamp_origin_context(
+            &state,
+            decision,
+            status,
+            now,
+            decision.expires_at_unix(),
+        ))
+    }
+
+    /// Atomically bind a strict HNS completion to one exact namespace decision.
+    ///
+    /// The selected decision must be HTTPS/HNS/DANE and must carry the same
+    /// effective TCP service port, canonical TLSA RRset, HNS network, and exact
+    /// proof height/tree root as the completion. Only then is a private context
+    /// minted from the current runtime session/generation/event tuple.
+    pub fn bind_hns_origin_context(
+        &self,
+        decision: &NamespaceDecision,
+        completion: &DaneCompletion,
+        now: u64,
+    ) -> Result<AuthenticatedOriginContext, EngineError> {
+        let logical_origin = LogicalOrigin::from_namespace_decision(decision);
+        let origin = completion
+            .origin_sni
+            .as_ref()
+            .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        let service_port = completion
+            .bridge_service_port
+            .ok_or(EngineError::UnsupportedBridgeService)?;
+        let records = completion
+            .bridge_tlsa_records
+            .as_ref()
+            .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        let valid_from = completion
+            .bridge_valid_from
+            .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        let completion_valid_until = completion
+            .bridge_valid_until
+            .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        if now < valid_from {
+            return Err(EngineError::CompletionNotYetValid);
+        }
+        if now > completion_valid_until {
+            return Err(EngineError::CompletionExpired);
+        }
+        let Some(plan) = decision.selected_plan() else {
+            return Err(EngineError::ProviderAuthenticationMismatch);
+        };
+        let plan_records_match =
+            plan.tlsa_records().len() == records.len()
+                && plan.tlsa_records().iter().zip(records).all(
+                    |(plan_record, completion_record)| plan_record.rdata() == completion_record,
+                );
+        let anchor_matches = completion.provenance.chain_anchor.is_some_and(|anchor| {
+            matches!(
+                plan.provenance(),
+                EvidenceProvenance::Hns {
+                    network,
+                    tree_root,
+                    height,
+                } if *network == decision.hns_network()
+                    && *tree_root == anchor.tree_root
+                    && *height == anchor.height
+            )
+        });
+        if logical_origin.scheme() != OriginScheme::Https
+            || logical_origin.host() != origin
+            || decision.selected_namespace() != Some(Namespace::Hns)
+            || plan.tls_policy() != TlsTrustPolicy::Dane
+            || plan.service().transport() != ServiceTransport::Tcp
+            || plan.service().effective_port().get() != service_port
+            || !decision.is_fresh_at(now)
+            || !plan_records_match
+            || !anchor_matches
+        {
+            return Err(EngineError::ProviderAuthenticationMismatch);
+        }
+
+        let mut state = self.state.write().map_err(|_| EngineError::LockPoisoned)?;
+        let runtime_before = state.runtime.snapshot();
+        if !network_matches(state.network, decision.hns_network())
+            || !matches!(
+                runtime_before.authority_state(),
+                AuthorityState::DaneOriginVerified
+                    | AuthorityState::BrowserBridgeReady
+                    | AuthorityState::Active
+            )
+        {
+            return Err(EngineError::ProviderAuthenticationMismatch);
+        }
+        if state.last_provenance.as_ref() != Some(&completion.provenance)
+            || completion.provenance.runtime_session != runtime_before.session_bytes()
+            || completion.provenance.runtime_generation != runtime_before.generation()
+            || completion.provenance.policy_generation != state.policy.snapshot().generation()
+            || !completion.provenance.evidence.fully_verified()
+        {
+            return Err(EngineError::CompletionNotCurrent);
+        }
+        if runtime_before.authority_state() == AuthorityState::DaneOriginVerified {
+            state
+                .runtime
+                .transition(AuthorityState::BrowserBridgeReady)
+                .map_err(map_runtime_error)?;
+        } else {
+            state.runtime.admit_event().map_err(map_runtime_error)?;
+        }
+        Ok(stamp_origin_context(
+            &state,
+            decision,
+            AuthenticatedContextStatus::HnsDaneVerified,
+            valid_from,
+            decision
+                .expires_at_unix()
+                .min(completion_valid_until.saturating_add(1)),
+        ))
+    }
+
+    /// Atomically decide whether the wallet provider may be injected.
+    ///
+    /// Every call returns a typed allow-or-deny outcome. A denial is normal
+    /// policy output rather than an error; errors are reserved for internal
+    /// engine failures such as a poisoned lock.
+    pub fn provider_injection_decision(
+        &self,
+        decision: &NamespaceDecision,
+        context: &AuthenticatedOriginContext,
+        now: u64,
+    ) -> Result<ProviderInjectionDecision, EngineError> {
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        let runtime = state.runtime.snapshot();
+        let logical_origin = LogicalOrigin::from_namespace_decision(decision);
+        let selected_namespace = decision.selected_namespace();
+        let fingerprint = *decision_fingerprint(decision).as_bytes();
+        let policy_generation = state.policy.snapshot().generation();
+        let authority_state = runtime.authority_state();
+
+        let denial_reason = if !logical_origin.is_secure() {
+            Some(ProviderInjectionDenialReason::InsecureOrigin)
+        } else if logical_origin.scheme() != OriginScheme::Https {
+            Some(ProviderInjectionDenialReason::UnsupportedOriginScheme)
+        } else if selected_namespace.is_none() {
+            Some(ProviderInjectionDenialReason::NoSelectedNamespace)
+        } else if context.status == AuthenticatedContextStatus::Unauthenticated {
+            Some(ProviderInjectionDenialReason::UnauthenticatedContext)
+        } else if context.logical_origin != logical_origin {
+            Some(ProviderInjectionDenialReason::OriginMismatch)
+        } else if context.selected_namespace != selected_namespace {
+            Some(ProviderInjectionDenialReason::NamespaceMismatch)
+        } else if context.decision_fingerprint != fingerprint {
+            Some(ProviderInjectionDenialReason::DecisionMismatch)
+        } else if !decision.is_fresh_at(now) {
+            Some(ProviderInjectionDenialReason::DecisionStale)
+        } else if !network_matches(state.network, decision.hns_network()) {
+            Some(ProviderInjectionDenialReason::NetworkMismatch)
+        } else if let Some(reason) = authority_denial(authority_state) {
+            Some(reason)
+        } else if context.runtime_session != runtime.session_bytes() {
+            Some(ProviderInjectionDenialReason::StaleRuntimeSession)
+        } else if context.runtime_generation != runtime.generation() {
+            Some(ProviderInjectionDenialReason::StaleRuntimeGeneration)
+        } else if context.policy_generation != policy_generation {
+            Some(ProviderInjectionDenialReason::StalePolicyGeneration)
+        } else if context.event_sequence != runtime.event_sequence() {
+            Some(ProviderInjectionDenialReason::StaleAuthenticationEvent)
+        } else {
+            authentication_policy_denial(decision, context.status)
+                .or_else(|| {
+                    (now < context.valid_from)
+                        .then_some(ProviderInjectionDenialReason::AuthenticationNotYetValid)
+                })
+                .or_else(|| {
+                    (now >= context.valid_until)
+                        .then_some(ProviderInjectionDenialReason::AuthenticationExpired)
+                })
+        };
+
+        Ok(ProviderInjectionDecision {
+            logical_origin,
+            selected_namespace,
+            authenticated_context: context.status,
+            runtime_session: runtime.session_bytes(),
+            runtime_generation: runtime.generation(),
+            policy_generation,
+            event_sequence: runtime.event_sequence(),
+            decision_fingerprint: fingerprint,
+            authority_state,
+            permitted: denial_reason.is_none(),
+            denial_reason,
         })
     }
 
@@ -795,6 +1509,8 @@ impl Engine {
             provenance,
             dane_match,
             origin_sni: None,
+            bridge_service_port: None,
+            bridge_tlsa_records: None,
             bridge_valid_from: None,
             bridge_valid_until: None,
         })
@@ -873,6 +1589,8 @@ impl Engine {
             provenance,
             dane_match,
             origin_sni: Some(input.origin_sni.trim_end_matches('.').to_ascii_lowercase()),
+            bridge_service_port: tlsa_tcp_service_port(input.validated.requested_owner()),
+            bridge_tlsa_records: Some(canonical_tlsa_rdata(input.validated.records())),
             bridge_valid_from: Some(hns_authority.anchor().validated_at().get()),
             bridge_valid_until: Some(hns_authority.anchor().valid_until().get()),
         })
@@ -898,6 +1616,9 @@ impl Engine {
         let valid_until = completion
             .bridge_valid_until
             .ok_or(EngineError::LegacyCompletionNotBridgeable)?;
+        let service_port = completion
+            .bridge_service_port
+            .ok_or(EngineError::UnsupportedBridgeService)?;
         if now < valid_from {
             return Err(EngineError::CompletionNotYetValid);
         }
@@ -939,6 +1660,7 @@ impl Engine {
             valid_from,
             valid_until,
             origin: origin.clone(),
+            service_port,
         })
     }
 
@@ -994,6 +1716,28 @@ impl Engine {
     }
 }
 
+fn stamp_origin_context(
+    state: &EngineState,
+    decision: &NamespaceDecision,
+    status: AuthenticatedContextStatus,
+    valid_from: u64,
+    valid_until: u64,
+) -> AuthenticatedOriginContext {
+    let runtime = state.runtime.snapshot();
+    AuthenticatedOriginContext {
+        logical_origin: LogicalOrigin::from_namespace_decision(decision),
+        selected_namespace: decision.selected_namespace(),
+        status,
+        runtime_session: runtime.session_bytes(),
+        runtime_generation: runtime.generation(),
+        policy_generation: state.policy.snapshot().generation(),
+        event_sequence: runtime.event_sequence(),
+        decision_fingerprint: *decision_fingerprint(decision).as_bytes(),
+        valid_from,
+        valid_until,
+    }
+}
+
 fn exact_tlsa_answers(attempt: &ResolutionAttempt, response: &ParsedResponse) -> Vec<Tlsa> {
     response
         .message
@@ -1011,6 +1755,33 @@ fn exact_tlsa_answers(attempt: &ResolutionAttempt, response: &ParsedResponse) ->
         .collect()
 }
 
+fn canonical_tlsa_rdata(records: &[Tlsa]) -> Vec<Vec<u8>> {
+    let mut canonical = records
+        .iter()
+        .map(|record| {
+            let mut rdata = Vec::with_capacity(3 + record.association_data.len());
+            rdata.push(record.usage);
+            rdata.push(record.selector);
+            rdata.push(record.matching_type);
+            rdata.extend_from_slice(&record.association_data);
+            rdata
+        })
+        .collect::<Vec<_>>();
+    canonical.sort_unstable();
+    canonical.dedup();
+    canonical
+}
+
+fn tlsa_tcp_service_port(owner: &hns_dns_wire::Name) -> Option<u16> {
+    let labels = owner.labels();
+    let port_label = labels.first()?.strip_prefix(b"_")?;
+    if labels.get(1)?.as_slice() != b"_tcp" {
+        return None;
+    }
+    let port = std::str::from_utf8(port_label).ok()?.parse::<u16>().ok()?;
+    (port != 0).then_some(port)
+}
+
 const fn network_id(network: Network) -> u8 {
     match network {
         Network::Mainnet => 0,
@@ -1018,6 +1789,65 @@ const fn network_id(network: Network) -> u8 {
         Network::Regtest => 2,
         Network::Simnet => 3,
     }
+}
+
+const fn network_matches(network: Network, hns_network: HnsNetwork) -> bool {
+    matches!(
+        (network, hns_network),
+        (Network::Mainnet, HnsNetwork::Mainnet)
+            | (Network::Testnet, HnsNetwork::Testnet)
+            | (Network::Regtest, HnsNetwork::Regtest)
+            | (Network::Simnet, HnsNetwork::Simnet)
+    )
+}
+
+const fn authority_denial(state: AuthorityState) -> Option<ProviderInjectionDenialReason> {
+    match state {
+        AuthorityState::BrowserBridgeReady | AuthorityState::Active => None,
+        AuthorityState::Degraded => Some(ProviderInjectionDenialReason::AuthorityDegraded),
+        AuthorityState::Revoked => Some(ProviderInjectionDenialReason::AuthorityRevoked),
+        AuthorityState::Stopped => Some(ProviderInjectionDenialReason::AuthorityStopped),
+        AuthorityState::Uninitialized
+        | AuthorityState::LocalStateOpened
+        | AuthorityState::HeaderSyncing
+        | AuthorityState::HeaderCurrent
+        | AuthorityState::ProofReady
+        | AuthorityState::ResolutionTransportReady
+        | AuthorityState::DnssecVerified
+        | AuthorityState::DaneOriginVerified => {
+            Some(ProviderInjectionDenialReason::AuthorityNotReady)
+        }
+    }
+}
+
+fn authentication_policy_denial(
+    decision: &NamespaceDecision,
+    status: AuthenticatedContextStatus,
+) -> Option<ProviderInjectionDenialReason> {
+    let Some(plan) = decision.selected_plan() else {
+        return Some(ProviderInjectionDenialReason::AuthenticationPolicyMismatch);
+    };
+    let matches = matches!(
+        (decision.selected_namespace(), plan.tls_policy(), status),
+        (
+            Some(Namespace::Hns),
+            TlsTrustPolicy::Dane,
+            AuthenticatedContextStatus::HnsDaneVerified
+        ) | (
+            Some(Namespace::Icann),
+            TlsTrustPolicy::Dane,
+            AuthenticatedContextStatus::IcannDaneVerified
+        ) | (
+            Some(Namespace::Icann),
+            TlsTrustPolicy::WebPkiAuthenticatedAbsence,
+            AuthenticatedContextStatus::IcannWebPkiAuthenticatedAbsence
+        ) | (
+            Some(Namespace::Icann),
+            TlsTrustPolicy::WebPkiInsecureDelegation,
+            AuthenticatedContextStatus::IcannWebPkiInsecureDelegation
+        )
+    );
+    (!matches).then_some(ProviderInjectionDenialReason::AuthenticationPolicyMismatch)
 }
 
 const fn unavailable_evidence() -> ValidationEvidence {
@@ -1168,6 +1998,10 @@ pub enum EngineError {
     ChainAnchorMismatch,
     /// Legacy prerequisite completion has no engine-verified origin binding.
     LegacyCompletionNotBridgeable,
+    /// The validated TLSA owner is not a nonzero TCP service usable by the bridge.
+    UnsupportedBridgeService,
+    /// TLS evidence does not bind the exact provider namespace decision.
+    ProviderAuthenticationMismatch,
     /// Completion is no longer the engine's latest current-generation result.
     CompletionNotCurrent,
     /// Completion's chain-currency validity window elapsed.
@@ -1245,6 +2079,11 @@ impl fmt::Display for EngineError {
             Self::LegacyCompletionNotBridgeable => {
                 formatter.write_str("legacy DANE completion cannot authorize a browser bridge")
             }
+            Self::UnsupportedBridgeService => {
+                formatter.write_str("DANE completion does not authenticate a supported TCP service")
+            }
+            Self::ProviderAuthenticationMismatch => formatter
+                .write_str("TLS evidence does not bind the exact provider namespace decision"),
             Self::CompletionNotCurrent => {
                 formatter.write_str("DANE completion is not current for this engine")
             }
@@ -1306,9 +2145,19 @@ impl From<PolicyError> for EngineError {
 )]
 mod tests {
     use super::*;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
     use hns_browser_testkit::{STRICT_HNS_ORIGIN, StrictRegtestDaneFixture};
     use hns_dns_wire::{Flags, Header, Name, ResourceRecord};
+    use hns_namespace_resolution::{
+        AbsenceKind, ApplicationProtocol, CanonicalHost, CanonicalTlsa, EvidenceProvenance,
+        Freshness, IcannChainState, OriginPlanInput, OriginQuery, ProtocolCapabilities, RootLookup,
+        SelectionPolicy, ServiceBinding, ServiceBindingInput, ServiceParameter, ServiceTransport,
+        ValidatedAbsence, ValidatedOriginPlan, decide_namespace,
+    };
     use hns_resolution_policy::{DnsRelayRequesterPolicy, EvidenceState, ObliviousDnsPolicy};
+
+    const AUTHORITY_NOW: u64 = 1_700_000_000;
 
     const RESPONSE_WITH_UNTRUSTED_AD: &[u8] =
         b"\x12\x34\x84\x20\x00\x01\x00\x01\x00\x00\x00\x00\x07example\x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x7f\x00\x00\x01";
@@ -1349,6 +2198,282 @@ mod tests {
             .advance_authority_state(AuthorityState::Active)
             .unwrap();
         engine
+    }
+
+    fn active_engine_in_session(session: [u8; 16], network: Network) -> Engine {
+        let engine = ready_engine_in_session(session, network);
+        engine
+            .advance_authority_state(AuthorityState::BrowserBridgeReady)
+            .unwrap();
+        engine
+            .advance_authority_state(AuthorityState::Active)
+            .unwrap();
+        engine
+    }
+
+    fn authority_query(host: &str, scheme: OriginScheme) -> OriginQuery {
+        OriginQuery::new(
+            CanonicalHost::parse(host).unwrap(),
+            scheme,
+            None,
+            ProtocolCapabilities::all(),
+        )
+    }
+
+    fn authority_provenance(namespace: Namespace, network: HnsNetwork) -> EvidenceProvenance {
+        match namespace {
+            Namespace::Hns => EvidenceProvenance::Hns {
+                network,
+                tree_root: [21; 32],
+                height: 42,
+            },
+            Namespace::Icann => EvidenceProvenance::IcannDoh {
+                chain_state: IcannChainState::Secure,
+            },
+        }
+    }
+
+    fn authority_freshness() -> Freshness {
+        Freshness::new(AUTHORITY_NOW - 10, AUTHORITY_NOW + 100).unwrap()
+    }
+
+    fn authority_absence(
+        namespace: Namespace,
+        query: &OriginQuery,
+        network: HnsNetwork,
+    ) -> ValidatedAbsence {
+        ValidatedAbsence::new(
+            namespace,
+            query.clone(),
+            match namespace {
+                Namespace::Hns => AbsenceKind::HnsCurrentUrkelNonInclusion,
+                Namespace::Icann => AbsenceKind::DnssecAuthenticatedNxDomain,
+            },
+            authority_provenance(namespace, network),
+            authority_freshness(),
+        )
+        .unwrap()
+    }
+
+    fn authority_plan(
+        namespace: Namespace,
+        query: &OriginQuery,
+        tls_policy: TlsTrustPolicy,
+        network: HnsNetwork,
+    ) -> ValidatedOriginPlan {
+        let port = query.origin_port();
+        let target = query.host().clone();
+        let service = ServiceBinding::new(ServiceBindingInput {
+            priority: None,
+            service_target: target.clone(),
+            mandatory_keys: Vec::new(),
+            advertised_alpn: Vec::new(),
+            selected_protocol: ApplicationProtocol::Http11,
+            effective_port: port,
+            transport: ServiceTransport::Tcp,
+            connection_hints: Vec::new(),
+            ech_config: None,
+            parameters: Vec::new(),
+        })
+        .unwrap();
+        let tlsa_records = if tls_policy == TlsTrustPolicy::Dane {
+            vec![CanonicalTlsa::new(vec![3, 0, 0, 1]).unwrap()]
+        } else {
+            Vec::new()
+        };
+        ValidatedOriginPlan::new(OriginPlanInput {
+            namespace,
+            query: query.clone(),
+            alias_path: Vec::new(),
+            terminal_target: target.clone(),
+            endpoint_alias_path: Vec::new(),
+            endpoint_target: target,
+            endpoints: vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+                port.get(),
+            )],
+            service,
+            tls_policy,
+            tlsa_records,
+            provenance: authority_provenance(namespace, network),
+            freshness: authority_freshness(),
+        })
+        .unwrap()
+    }
+
+    fn authority_decision(
+        host: &str,
+        scheme: OriginScheme,
+        selected: Namespace,
+        network: HnsNetwork,
+    ) -> NamespaceDecision {
+        let tls_policy = match (selected, scheme.uses_tls()) {
+            (_, false) => TlsTrustPolicy::Cleartext,
+            (Namespace::Hns, true) => TlsTrustPolicy::Dane,
+            (Namespace::Icann, true) => TlsTrustPolicy::WebPkiAuthenticatedAbsence,
+        };
+        authority_decision_with_tls_policy(host, scheme, selected, network, tls_policy)
+    }
+
+    fn authority_decision_with_tls_policy(
+        host: &str,
+        scheme: OriginScheme,
+        selected: Namespace,
+        network: HnsNetwork,
+        tls_policy: TlsTrustPolicy,
+    ) -> NamespaceDecision {
+        let query = authority_query(host, scheme);
+        let selected_lookup =
+            RootLookup::Present(authority_plan(selected, &query, tls_policy, network));
+        let absent = match selected {
+            Namespace::Hns => {
+                RootLookup::Absent(authority_absence(Namespace::Icann, &query, network))
+            }
+            Namespace::Icann => {
+                RootLookup::Absent(authority_absence(Namespace::Hns, &query, network))
+            }
+        };
+        let (hns, icann) = match selected {
+            Namespace::Hns => (selected_lookup, absent),
+            Namespace::Icann => (absent, selected_lookup),
+        };
+        decide_namespace(
+            &query,
+            hns,
+            icann,
+            SelectionPolicy::default(),
+            AUTHORITY_NOW,
+        )
+        .unwrap()
+    }
+
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the test adapter implements the optional trusted-authenticator result"
+    )]
+    fn trusted_icann_webpki(
+        request: &IcannOriginAuthenticationRequest,
+    ) -> Option<IcannOriginAuthentication> {
+        Some(request.attest_webpki_verified())
+    }
+
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the test adapter implements the optional trusted-authenticator result"
+    )]
+    fn trusted_icann_dane(
+        request: &IcannOriginAuthenticationRequest,
+    ) -> Option<IcannOriginAuthentication> {
+        Some(request.attest_dane_verified())
+    }
+
+    fn no_root_decision(
+        host: &str,
+        scheme: OriginScheme,
+        network: HnsNetwork,
+    ) -> NamespaceDecision {
+        let query = authority_query(host, scheme);
+        decide_namespace(
+            &query,
+            RootLookup::Absent(authority_absence(Namespace::Hns, &query, network)),
+            RootLookup::Absent(authority_absence(Namespace::Icann, &query, network)),
+            SelectionPolicy::default(),
+            AUTHORITY_NOW,
+        )
+        .unwrap()
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "splice tests vary each origin/plan binding independently"
+    )]
+    fn hns_decision_for_completion(
+        completion: &DaneCompletion,
+        scheme: OriginScheme,
+        origin_port: u16,
+        service_port: u16,
+        network: HnsNetwork,
+        tree_root: [u8; 32],
+        tlsa_records: Vec<Vec<u8>>,
+    ) -> NamespaceDecision {
+        let host = CanonicalHost::parse(completion.origin_sni.as_ref().unwrap()).unwrap();
+        let explicit_port = (origin_port != scheme.default_port().get())
+            .then(|| std::num::NonZeroU16::new(origin_port).unwrap());
+        let query = OriginQuery::new(
+            host.clone(),
+            scheme,
+            explicit_port,
+            ProtocolCapabilities::all(),
+        );
+        let service_port = std::num::NonZeroU16::new(service_port).unwrap();
+        let priority = (service_port != query.origin_port()).then_some(1);
+        let parameters = priority.map_or_else(Vec::new, |_| {
+            vec![ServiceParameter::new(3, service_port.get().to_be_bytes().to_vec()).unwrap()]
+        });
+        let service = ServiceBinding::new(ServiceBindingInput {
+            priority,
+            service_target: host.clone(),
+            mandatory_keys: Vec::new(),
+            advertised_alpn: Vec::new(),
+            selected_protocol: ApplicationProtocol::Http11,
+            effective_port: service_port,
+            transport: ServiceTransport::Tcp,
+            connection_hints: Vec::new(),
+            ech_config: None,
+            parameters,
+        })
+        .unwrap();
+        let valid_from = completion.bridge_valid_from.unwrap();
+        let expires_at = completion
+            .bridge_valid_until
+            .unwrap()
+            .checked_add(1)
+            .unwrap();
+        let freshness = Freshness::new(valid_from, expires_at).unwrap();
+        let anchor = completion.provenance.chain_anchor.unwrap();
+        let hns_plan = ValidatedOriginPlan::new(OriginPlanInput {
+            namespace: Namespace::Hns,
+            query: query.clone(),
+            alias_path: Vec::new(),
+            terminal_target: host.clone(),
+            endpoint_alias_path: Vec::new(),
+            endpoint_target: host,
+            endpoints: vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+                service_port.get(),
+            )],
+            service,
+            tls_policy: TlsTrustPolicy::Dane,
+            tlsa_records: tlsa_records
+                .into_iter()
+                .map(|rdata| CanonicalTlsa::new(rdata).unwrap())
+                .collect(),
+            provenance: EvidenceProvenance::Hns {
+                network,
+                tree_root,
+                height: anchor.height,
+            },
+            freshness,
+        })
+        .unwrap();
+        let icann_absence = ValidatedAbsence::new(
+            Namespace::Icann,
+            query.clone(),
+            AbsenceKind::DnssecAuthenticatedNxDomain,
+            EvidenceProvenance::IcannDoh {
+                chain_state: IcannChainState::Secure,
+            },
+            freshness,
+        )
+        .unwrap();
+        decide_namespace(
+            &query,
+            RootLookup::Present(hns_plan),
+            RootLookup::Absent(icann_absence),
+            SelectionPolicy::default(),
+            valid_from,
+        )
+        .unwrap()
     }
 
     fn icann_observability(
@@ -1492,6 +2617,362 @@ mod tests {
     }
 
     #[test]
+    fn provider_injection_allows_exact_current_icann_context() {
+        let engine = active_engine_without_dane();
+        let decision = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let context = engine
+            .bind_icann_origin_context(&decision, &trusted_icann_webpki, AUTHORITY_NOW)
+            .unwrap();
+        let outcome = engine
+            .provider_injection_decision(&decision, &context, AUTHORITY_NOW)
+            .unwrap();
+
+        assert!(outcome.permitted());
+        assert_eq!(outcome.denial_reason(), None);
+        assert_eq!(outcome.logical_origin().host(), "wallet.example");
+        assert_eq!(outcome.logical_origin().port(), 443);
+        assert_eq!(outcome.selected_namespace(), Some(Namespace::Icann));
+        assert_eq!(
+            outcome.authenticated_context(),
+            AuthenticatedContextStatus::IcannWebPkiAuthenticatedAbsence
+        );
+    }
+
+    #[test]
+    fn icann_tokens_are_exact_decision_bound_and_policy_typed() {
+        use std::cell::RefCell;
+
+        let engine = active_engine_without_dane();
+        let first = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let saved_request = RefCell::new(None);
+        let capture = |request: &IcannOriginAuthenticationRequest| {
+            assert_eq!(request.logical_origin().host(), "wallet.example");
+            assert_eq!(request.logical_origin().port(), 443);
+            assert_eq!(request.service_port(), 443);
+            assert_eq!(request.hns_network(), HnsNetwork::Mainnet);
+            assert_eq!(
+                request.tls_policy(),
+                TlsTrustPolicy::WebPkiAuthenticatedAbsence
+            );
+            assert_eq!(request.valid_until(), AUTHORITY_NOW + 100);
+            saved_request.replace(Some(request.clone()));
+            Some(request.attest_webpki_verified())
+        };
+        assert!(
+            engine
+                .bind_icann_origin_context(&first, &capture, AUTHORITY_NOW)
+                .is_ok()
+        );
+
+        let second = authority_decision(
+            "other.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let replay = |_: &IcannOriginAuthenticationRequest| {
+            Some(
+                saved_request
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .attest_webpki_verified(),
+            )
+        };
+        assert!(matches!(
+            engine.bind_icann_origin_context(&second, &replay, AUTHORITY_NOW),
+            Err(EngineError::ProviderAuthenticationMismatch)
+        ));
+
+        let dane = authority_decision_with_tls_policy(
+            "dane.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+            TlsTrustPolicy::Dane,
+        );
+        assert!(matches!(
+            engine.bind_icann_origin_context(&dane, &trusted_icann_webpki, AUTHORITY_NOW),
+            Err(EngineError::ProviderAuthenticationMismatch)
+        ));
+        let dane_context = engine
+            .bind_icann_origin_context(&dane, &trusted_icann_dane, AUTHORITY_NOW)
+            .unwrap();
+        let outcome = engine
+            .provider_injection_decision(&dane, &dane_context, AUTHORITY_NOW)
+            .unwrap();
+        assert!(outcome.permitted());
+        assert_eq!(
+            outcome.authenticated_context(),
+            AuthenticatedContextStatus::IcannDaneVerified
+        );
+    }
+
+    #[test]
+    fn provider_injection_denies_origin_namespace_and_network_substitution() {
+        let engine = active_engine_without_dane();
+        let icann = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let context = engine
+            .bind_icann_origin_context(&icann, &trusted_icann_webpki, AUTHORITY_NOW)
+            .unwrap();
+
+        let other_origin = authority_decision(
+            "other.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        assert_eq!(
+            engine
+                .provider_injection_decision(&other_origin, &context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::OriginMismatch)
+        );
+
+        let other_namespace = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Hns,
+            HnsNetwork::Mainnet,
+        );
+        assert_eq!(
+            engine
+                .provider_injection_decision(&other_namespace, &context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::NamespaceMismatch)
+        );
+
+        let other_network = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Testnet,
+        );
+        let testnet_engine = active_engine_in_session([13; 16], Network::Testnet);
+        let other_network_context = testnet_engine
+            .bind_icann_origin_context(&other_network, &trusted_icann_webpki, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            engine
+                .provider_injection_decision(&other_network, &other_network_context, AUTHORITY_NOW,)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::NetworkMismatch)
+        );
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the denial matrix keeps related authority and scheme outcomes together"
+    )]
+    fn provider_injection_denies_stale_degraded_and_insecure_contexts() {
+        let engine = active_engine_without_dane();
+        let decision = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let context = engine
+            .bind_icann_origin_context(&decision, &trusted_icann_webpki, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            engine
+                .provider_injection_decision(&decision, &context, AUTHORITY_NOW + 100)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::DecisionStale)
+        );
+
+        let unauthenticated = engine
+            .bind_unauthenticated_origin_context(&decision, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            engine
+                .provider_injection_decision(&decision, &unauthenticated, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::UnauthenticatedContext)
+        );
+
+        engine
+            .advance_authority_state(AuthorityState::Degraded)
+            .unwrap();
+        assert_eq!(
+            engine
+                .provider_injection_decision(&decision, &context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::AuthorityDegraded)
+        );
+
+        let active = active_engine_without_dane();
+        let insecure = authority_decision(
+            "wallet.example",
+            OriginScheme::Http,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let insecure_context = active
+            .bind_unauthenticated_origin_context(&insecure, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            active
+                .provider_injection_decision(&insecure, &insecure_context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::InsecureOrigin)
+        );
+
+        let websocket = authority_decision(
+            "wallet.example",
+            OriginScheme::Ws,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let websocket_context = active
+            .bind_unauthenticated_origin_context(&websocket, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            active
+                .provider_injection_decision(&websocket, &websocket_context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::InsecureOrigin)
+        );
+
+        let secure_websocket = authority_decision(
+            "wallet.example",
+            OriginScheme::Wss,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let secure_websocket_context = active
+            .bind_unauthenticated_origin_context(&secure_websocket, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            active
+                .provider_injection_decision(
+                    &secure_websocket,
+                    &secure_websocket_context,
+                    AUTHORITY_NOW,
+                )
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::UnsupportedOriginScheme)
+        );
+
+        let neither = no_root_decision("missing.example", OriginScheme::Https, HnsNetwork::Mainnet);
+        let neither_context = active
+            .bind_unauthenticated_origin_context(&neither, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            active
+                .provider_injection_decision(&neither, &neither_context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::NoSelectedNamespace)
+        );
+    }
+
+    #[test]
+    fn provider_injection_denies_revoked_and_stopped_authority() {
+        let decision = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        for (state, reason) in [
+            (
+                AuthorityState::Revoked,
+                ProviderInjectionDenialReason::AuthorityRevoked,
+            ),
+            (
+                AuthorityState::Stopped,
+                ProviderInjectionDenialReason::AuthorityStopped,
+            ),
+        ] {
+            let engine = active_engine_without_dane();
+            let context = engine
+                .bind_icann_origin_context(&decision, &trusted_icann_webpki, AUTHORITY_NOW)
+                .unwrap();
+            engine.advance_authority_state(state).unwrap();
+            assert_eq!(
+                engine
+                    .provider_injection_decision(&decision, &context, AUTHORITY_NOW)
+                    .unwrap()
+                    .denial_reason(),
+                Some(reason)
+            );
+        }
+    }
+
+    #[test]
+    fn provider_injection_rejects_runtime_session_and_generation_replay() {
+        let decision = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let first = active_engine_in_session([31; 16], Network::Mainnet);
+        let context = first
+            .bind_icann_origin_context(&decision, &trusted_icann_webpki, AUTHORITY_NOW)
+            .unwrap();
+        let second = active_engine_in_session([32; 16], Network::Mainnet);
+        assert_eq!(
+            second
+                .provider_injection_decision(&decision, &context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::StaleRuntimeSession)
+        );
+
+        let mut next_policy = first.snapshot().unwrap().policy.config();
+        next_policy.user_configured_recursive_hns_doh =
+            !next_policy.user_configured_recursive_hns_doh;
+        first
+            .update_policy(first.snapshot().unwrap().policy.generation(), next_policy)
+            .unwrap();
+        for state in [
+            AuthorityState::HeaderSyncing,
+            AuthorityState::HeaderCurrent,
+            AuthorityState::ProofReady,
+            AuthorityState::ResolutionTransportReady,
+            AuthorityState::BrowserBridgeReady,
+            AuthorityState::Active,
+        ] {
+            first.advance_authority_state(state).unwrap();
+        }
+        assert_eq!(
+            first
+                .provider_injection_decision(&decision, &context, AUTHORITY_NOW)
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::StaleRuntimeGeneration)
+        );
+    }
+
+    #[test]
     fn correlates_then_derives_local_dane_evidence() {
         let engine = ready_engine();
         let (query, response, certificate) = exact_certificate_exchange();
@@ -1619,6 +3100,185 @@ mod tests {
             engine.authorize_browser_bridge(&completed, u64::from(validation_time - 1)),
             Err(EngineError::CompletionNotYetValid)
         ));
+
+        let anchor = completed.provenance().chain_anchor.unwrap();
+        let exact_records = completed.bridge_tlsa_records.clone().unwrap();
+        let exact_decision = hns_decision_for_completion(
+            &completed,
+            OriginScheme::Https,
+            443,
+            443,
+            HnsNetwork::Regtest,
+            anchor.tree_root,
+            exact_records.clone(),
+        );
+        let origin_context = engine
+            .bind_hns_origin_context(&exact_decision, &completed, u64::from(validation_time))
+            .unwrap();
+        assert!(
+            engine
+                .provider_injection_decision(
+                    &exact_decision,
+                    &origin_context,
+                    u64::from(validation_time),
+                )
+                .unwrap()
+                .permitted()
+        );
+
+        let different_origin_port = hns_decision_for_completion(
+            &completed,
+            OriginScheme::Https,
+            444,
+            443,
+            HnsNetwork::Regtest,
+            anchor.tree_root,
+            exact_records.clone(),
+        );
+        assert_eq!(
+            engine
+                .provider_injection_decision(
+                    &different_origin_port,
+                    &origin_context,
+                    u64::from(validation_time),
+                )
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::OriginMismatch)
+        );
+
+        let different_service_port = hns_decision_for_completion(
+            &completed,
+            OriginScheme::Https,
+            443,
+            444,
+            HnsNetwork::Regtest,
+            anchor.tree_root,
+            exact_records.clone(),
+        );
+        assert!(matches!(
+            engine.bind_hns_origin_context(
+                &different_service_port,
+                &completed,
+                u64::from(validation_time),
+            ),
+            Err(EngineError::ProviderAuthenticationMismatch)
+        ));
+
+        let mut different_records = exact_records.clone();
+        *different_records
+            .first_mut()
+            .and_then(|record| record.last_mut())
+            .unwrap() ^= 1;
+        let different_tlsa = hns_decision_for_completion(
+            &completed,
+            OriginScheme::Https,
+            443,
+            443,
+            HnsNetwork::Regtest,
+            anchor.tree_root,
+            different_records,
+        );
+        assert!(matches!(
+            engine
+                .bind_hns_origin_context(&different_tlsa, &completed, u64::from(validation_time),),
+            Err(EngineError::ProviderAuthenticationMismatch)
+        ));
+        assert_eq!(
+            engine
+                .provider_injection_decision(
+                    &different_tlsa,
+                    &origin_context,
+                    u64::from(validation_time),
+                )
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::DecisionMismatch)
+        );
+
+        let mut different_root = anchor.tree_root;
+        different_root[0] ^= 1;
+        let different_provenance = hns_decision_for_completion(
+            &completed,
+            OriginScheme::Https,
+            443,
+            443,
+            HnsNetwork::Regtest,
+            different_root,
+            exact_records.clone(),
+        );
+        assert!(matches!(
+            engine.bind_hns_origin_context(
+                &different_provenance,
+                &completed,
+                u64::from(validation_time),
+            ),
+            Err(EngineError::ProviderAuthenticationMismatch)
+        ));
+
+        let different_network = hns_decision_for_completion(
+            &completed,
+            OriginScheme::Https,
+            443,
+            443,
+            HnsNetwork::Testnet,
+            anchor.tree_root,
+            exact_records.clone(),
+        );
+        assert!(matches!(
+            engine.bind_hns_origin_context(
+                &different_network,
+                &completed,
+                u64::from(validation_time),
+            ),
+            Err(EngineError::ProviderAuthenticationMismatch)
+        ));
+
+        let websocket = hns_decision_for_completion(
+            &completed,
+            OriginScheme::Wss,
+            443,
+            443,
+            HnsNetwork::Regtest,
+            anchor.tree_root,
+            exact_records,
+        );
+        assert!(matches!(
+            engine.bind_hns_origin_context(&websocket, &completed, u64::from(validation_time),),
+            Err(EngineError::ProviderAuthenticationMismatch)
+        ));
+        assert_eq!(
+            engine
+                .provider_injection_decision(
+                    &websocket,
+                    &origin_context,
+                    u64::from(validation_time),
+                )
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::UnsupportedOriginScheme)
+        );
+
+        assert_eq!(
+            engine
+                .provider_injection_decision(
+                    &exact_decision,
+                    &origin_context,
+                    exact_decision.expires_at_unix(),
+                )
+                .unwrap()
+                .denial_reason(),
+            Some(ProviderInjectionDenialReason::DecisionStale)
+        );
+        assert!(matches!(
+            engine.bind_hns_origin_context(
+                &exact_decision,
+                &completed,
+                exact_decision.expires_at_unix(),
+            ),
+            Err(EngineError::CompletionExpired)
+        ));
+
         let bridge = engine
             .authorize_browser_bridge(&completed, u64::from(validation_time))
             .unwrap();

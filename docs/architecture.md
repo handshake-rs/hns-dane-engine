@@ -86,6 +86,24 @@ Its strict completion fields are private. A completion can mint a browser-bridge
 while it is the engine's latest fully verified current-generation result, its chain anchor is still
 valid, and its exact normalized origin remains bound. The older caller-prerequisite completion path
 cannot mint this capability.
+The Rust facade's provider-injection boundary derives the logical URL origin
+from the authoritative namespace query and permits HTTPS only. It binds a
+private authenticated context to that origin, its URL and selected service
+ports, the selected root, the complete decision fingerprint (and therefore the
+plan, TLSA RRset, and provenance), network, runtime session/generation, policy
+generation, authority event, and an absolute validity interval. Its second
+atomic check returns an all-outcomes typed decision and fails closed for
+cleartext or non-HTTPS schemes, unauthenticated, mismatched, stale,
+wrong-network, degraded, revoked, stopped, or TLS-policy-inconsistent contexts.
+The trusted ICANN adapter receives the engine-derived exact request and may
+mint only an opaque token for that request; the engine rejects a retained token
+after any decision or runtime field changes. The adapter is an explicit
+same-process security principal and must consult browser-local TLS state, never
+page input. HNS is bound directly from the engine's strict completion only
+when its TCP service, canonical TLSA RRset, network, proof height/tree root,
+provenance, and lifetime match the selected decision. No wallet state,
+permission database, signing, transaction, or marketplace behavior is owned
+here.
 `hns-browser-runtime` is the single authority-state graph and monotonic runtime clock. Each
 admitted operation carries a checked nonzero, caller-supplied runtime session, runtime generation,
 and event sequence; another session, a revoked generation, a future event, or any stamp observed
@@ -189,4 +207,7 @@ native adapter must connect the HIP-76/77 requester boundary to its established 
 Header sync currently selects only among bounded candidates extending the same validated base.
 PKIX usages 0/1 intentionally have no WebPKI path. The existing C ABI still exposes the earlier
 single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI
-v2/mobile integration.
+v2/mobile integration. The Rust-only namespace-decision/provider-injection
+authority is likewise pending opaque namespace/context handles in a future C
+ABI revision; raw caller-constructible allow fields are intentionally not
+exported as a substitute.

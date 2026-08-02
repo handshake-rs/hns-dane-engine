@@ -54,6 +54,32 @@ selection controls only as read-only. An IANA snapshot may be a lookup-order hin
 input, never namespace authority. Authenticated absence of a pinned or persistently bound root
 does not authorize an automatic switch to the other root.
 
+Wallet-provider injection is a separate browser-authority decision, not a
+property inferred from hostname syntax or page content. The Rust facade first
+requires HTTPS and binds the exact scheme, canonical host, URL-origin port,
+selected TCP service port, selected namespace, complete namespace-decision
+fingerprint (including plan, TLSA, and provenance), network, trusted local
+authentication path, runtime session/generation, policy generation, authority
+event, and absolute expiry into a private context. It then rechecks those
+fields under one engine lock. Cleartext and WSS/other non-HTTPS origins, no
+selected root, unauthenticated contexts, another
+origin/root/decision/network/session/generation/event, stale evidence,
+degraded/revoked/stopped authority, and a TLS path inconsistent with the
+selected plan all return an explicit denial.
+
+For ICANN, the trusted embedding adapter receives an exact engine-derived
+request and returns an opaque token minted from that request after local DANE
+or WebPKI verification. A token retained from another origin, decision,
+network, policy, expiry, runtime generation, or event is rejected. The
+embedding caller is an explicit security principal: Rust cannot isolate
+malicious same-process code, so page-controlled code must never implement or
+influence this adapter. For HNS, only the engine's current strict completion
+can be combined with a decision, and the TCP service port, canonical TLSA
+RRset, HNS network, proof height/tree root, provenance, and validity must match.
+This result authorizes only injection. Origin permissions, approval UI, key
+access, request dispatch, signing, and transaction policy remain
+wallet/platform responsibilities.
+
 Local matching accepts DANE-EE usage 3 and DANE-TA usage 2. It supports full-certificate selector 0
 and SPKI selector 1 with exact, SHA-256, and SHA-512 matching types 0, 1, and 2. Every terminal
 record is checked for supported fields and association length before any match is accepted.

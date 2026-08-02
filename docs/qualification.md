@@ -69,6 +69,17 @@ Covered:
   query/policy/root/configuration-bound decision and decision-derived cache fingerprints,
   including rejection of a silent switch away from an authentically absent pinned or persistently
   bound root;
+- exact HTTPS-only logical-origin derivation for provider injection; private
+  decision/authentication contexts; exact-request opaque ICANN adapter tokens;
+  strict HNS completion binding across URL/service ports, canonical TLSA,
+  network, proof anchor, and provenance; all-outcomes typed permission; runtime
+  session/generation, policy generation, authority event, decision
+  fingerprint, freshness, authentication lifetime, and selected TLS policy
+  rechecks; and negative coverage for HTTP, WS, WSS, unauthenticated, no-root,
+  other-origin/port/root/decision/TLSA/provenance/network, stale decision and
+  exact expiry, other-session, revoked generation, degraded/revoked/stopped
+  authority, retained ICANN token replay across another exact request or any
+  changed binding, and ICANN DANE/WebPKI mismatch;
 - canonical shared `hns-rs` network genesis, 236-byte header, proof-of-work, median-time,
   difficulty-transition, and chainwork validation for contiguous light-chain extensions;
 - transactional bounded header batches and retention of the exact 147-entry Handshake retarget
@@ -198,11 +209,16 @@ Not yet implemented:
 - filesystem/mobile preferences adapters and atomic durable writes;
 - live registry negotiation exchange and HSD draft-PR cross-language execution (the requester
   consumes and enforces an already authenticated `NegotiatedRegistry`);
-- native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf lifecycle, mobile ABI
-  packaging, and platform bridges (the shared proxy admission/capability core is implemented);
+- native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf
+  lifecycle, mobile ABI packaging, platform bridges, and C ABI exposure of
+  the Rust-only namespace-decision/provider-injection authority (the shared
+  proxy and Rust provider-admission cores are implemented);
 - fuzz targets, HSD-generated live DNSSEC fixture generation, and performance benchmarks.
 
-The strict Rust facade has a non-forgeable header/Urkel/resource/DS/DNSKEY/CNAME/TLSA path and
-derives DANE-EE or DANE-TA evidence locally. The legacy C ABI still accepts prerequisite verdicts
-until ABI v2 carries the full proof workflow. This repository therefore does not yet claim that the
-complete browser engine or ecosystem is qualified.
+The strict Rust facade has a non-forgeable
+header/Urkel/resource/DS/DNSKEY/CNAME/TLSA path and derives DANE-EE or DANE-TA
+evidence locally. Rust facade version 3 also has a fail-closed exact-origin
+provider-injection authority, while the legacy C ABI still accepts
+prerequisite verdicts and exposes neither the full proof workflow nor opaque
+namespace/provider contexts. This repository therefore does not yet claim
+that the complete browser engine or ecosystem is qualified.

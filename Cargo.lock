@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-observability"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-browser-runtime",
  "hns-icann-dane",
@@ -508,11 +508,11 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-runtime"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "hns-browser-testkit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake2",
  "hns-covenants",
@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "hns-cache"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-dns-wire",
  "sha2 0.10.9",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "hns-dane"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-dns-wire",
  "openssl",
@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "hns-dane-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-browser-observability",
  "hns-browser-runtime",
@@ -566,6 +566,7 @@ dependencies = [
  "hns-dane",
  "hns-dns-wire",
  "hns-gateway",
+ "hns-namespace-resolution",
  "hns-p2p-transport",
  "hns-resolution-policy",
  "hns-resolver",
@@ -573,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "hns-dane-engine-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-dane",
  "hns-dane-engine",
@@ -592,11 +593,11 @@ dependencies = [
 
 [[package]]
 name = "hns-dns-wire"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "hns-dnssec"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-dns-wire",
  "openssl",
@@ -613,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "hns-gateway"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-resolution-policy",
  "thiserror",
@@ -633,11 +634,11 @@ dependencies = [
 
 [[package]]
 name = "hns-icann-dane"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "hns-light-chain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake2",
  "hns-covenants",
@@ -650,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "hns-light-p2p"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-header-consensus",
  "hns-p2p-wire",
@@ -660,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "hns-light-sync"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-header-consensus",
  "hns-light-chain",
@@ -671,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "hns-loopback-proxy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hns-browser-testkit",
  "hns-dane",
@@ -698,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "hns-namespace-resolution"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "hns-odoh-protocol"
@@ -732,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "hns-p2p-transport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake2",
  "hex",
@@ -774,11 +775,11 @@ dependencies = [
 
 [[package]]
 name = "hns-resolution-policy"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "hns-resolver"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake2",
  "hns-covenants",
@@ -806,7 +807,7 @@ dependencies = [
 
 [[package]]
 name = "hns-transport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake2",
  "hns-covenants",

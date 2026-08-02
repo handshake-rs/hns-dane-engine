@@ -24,7 +24,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -34,33 +34,33 @@ keywords = ["handshake", "dane", "dnssec", "browser", "cryptography"]
 categories = ["cryptography", "network-programming", "web-programming"]
 
 [workspace.dependencies]
-hns-browser-observability = { version = "0.1.0", path = "crates/hns-browser-observability" }
-hns-browser-runtime = { version = "0.1.0", path = "crates/hns-browser-runtime" }
-hns-cache = { version = "0.1.0", path = "crates/hns-cache" }
+hns-browser-observability = { version = "0.2.0", path = "crates/hns-browser-observability" }
+hns-browser-runtime = { version = "0.2.0", path = "crates/hns-browser-runtime" }
+hns-cache = { version = "0.2.0", path = "crates/hns-cache" }
 hns-covenants = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
-hns-dane = { version = "0.1.0", path = "crates/hns-dane" }
-hns-dane-engine = { version = "0.1.0", path = "crates/hns-dane-engine" }
-hns-dane-engine-ffi = { version = "0.1.0", path = "crates/hns-dane-engine-ffi" }
+hns-dane = { version = "0.2.0", path = "crates/hns-dane" }
+hns-dane-engine = { version = "0.2.0", path = "crates/hns-dane-engine" }
+hns-dane-engine-ffi = { version = "0.2.0", path = "crates/hns-dane-engine-ffi" }
 hns-dns-relay-protocol = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
-hns-dns-wire = { version = "0.1.0", path = "crates/hns-dns-wire" }
-hns-dnssec = { version = "0.1.0", path = "crates/hns-dnssec" }
+hns-dns-wire = { version = "0.2.0", path = "crates/hns-dns-wire" }
+hns-dnssec = { version = "0.2.0", path = "crates/hns-dnssec" }
 hns-encoding = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
-hns-gateway = { version = "0.1.0", path = "crates/hns-gateway" }
+hns-gateway = { version = "0.2.0", path = "crates/hns-gateway" }
 hns-header-consensus = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
-hns-icann-dane = { version = "0.1.0", path = "crates/hns-icann-dane" }
-hns-light-chain = { version = "0.1.0", path = "crates/hns-light-chain" }
-hns-light-p2p = { version = "0.1.0", path = "crates/hns-light-p2p" }
-hns-light-sync = { version = "0.1.0", path = "crates/hns-light-sync" }
-hns-loopback-proxy = { version = "0.1.0", path = "crates/hns-loopback-proxy" }
-hns-namespace-resolution = { version = "0.1.0", path = "crates/hns-namespace-resolution" }
+hns-icann-dane = { version = "0.2.0", path = "crates/hns-icann-dane" }
+hns-light-chain = { version = "0.2.0", path = "crates/hns-light-chain" }
+hns-light-p2p = { version = "0.2.0", path = "crates/hns-light-p2p" }
+hns-light-sync = { version = "0.2.0", path = "crates/hns-light-sync" }
+hns-loopback-proxy = { version = "0.2.0", path = "crates/hns-loopback-proxy" }
+hns-namespace-resolution = { version = "0.2.0", path = "crates/hns-namespace-resolution" }
 hns-odoh-protocol = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
 hns-p2p-experimental = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
-hns-p2p-transport = { version = "0.1.0", path = "crates/hns-p2p-transport" }
+hns-p2p-transport = { version = "0.2.0", path = "crates/hns-p2p-transport" }
 hns-p2p-wire = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
 hns-primitives = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
-hns-resolution-policy = { version = "0.1.0", path = "crates/hns-resolution-policy" }
-hns-resolver = { version = "0.1.0", path = "crates/hns-resolver" }
-hns-transport = { version = "0.1.0", path = "crates/hns-transport" }
+hns-resolution-policy = { version = "0.2.0", path = "crates/hns-resolution-policy" }
+hns-resolver = { version = "0.2.0", path = "crates/hns-resolver" }
+hns-transport = { version = "0.2.0", path = "crates/hns-transport" }
 hns-urkel-proof = { version = "0.1.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "dde2da81f29df935f043978a6d517c1d60ceff31" }
 
 [workspace.lints.rust]

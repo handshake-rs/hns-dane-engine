@@ -8,6 +8,17 @@ query correlation, locally verified evidence, certificate matching, and
 structured provenance. Native adapters own platform I/O and persistence; they
 cannot substitute transport assertions for local validation.
 
+Rust facade version 3 also exposes the minimal browser-authority boundary for
+wallet-provider injection. It permits HTTPS only and stamps the exact logical
+origin and URL port, selected service port and namespace, complete
+namespace-decision fingerprint, network, authentication path, runtime and
+policy generations, authority event, and validity interval into a private
+context, then returns a typed allow-or-deny result. HNS requires a matching
+strict engine completion. ICANN uses an exact-request opaque token minted by a
+trusted embedding-browser adapter; that adapter is a security principal and
+must never accept page-controlled TLS assertions. The engine does not contain
+wallet, permissions, signing, or marketplace code.
+
 Published releases can be added with:
 
 ```bash

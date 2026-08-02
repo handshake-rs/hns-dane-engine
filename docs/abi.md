@@ -68,5 +68,9 @@ is true and is always the terminal HNS transport candidate. Value 8 is
 `LocalHnsProof`, the status-only provenance for origin data supplied directly
 by a locally verified HNS name proof. It is never a network transport-plan
 candidate and admission returns `HNS_DANE_TRANSPORT_DISABLED`. The Rust
-facade/runtime and shared observability schema remain version 2; the policy
-persistence schema is independently version 3.
+facade is version 3; browser-runtime and shared observability schemas remain
+version 2, and the policy persistence schema is independently version 3. The
+C ABI remains at its existing version and does not yet expose the Rust-only
+namespace-decision/provider-injection authority. A future ABI must carry opaque
+engine-issued decision/context handles rather than caller-constructible
+authentication or permission fields.

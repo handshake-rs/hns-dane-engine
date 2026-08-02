@@ -33,6 +33,13 @@
   evidence, and applies explicit pin, persistent binding, then ICANN first-use
   precedence without using an IANA suffix list as authority or silently
   switching away from an unavailable bound root;
+- a Rust facade v3 wallet-provider injection authority that permits only exact
+  HTTPS logical origins and atomically binds the selected namespace, URL and
+  service ports, complete namespace-decision fingerprint (including the plan,
+  TLSA, and provenance), network, runtime/policy/event generations, and
+  evidence lifetime to either a strict HNS completion or an opaque token minted
+  by the trusted ICANN TLS adapter, returning a closed allow-or-deny result
+  without importing wallet or marketplace logic;
 - local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation,
