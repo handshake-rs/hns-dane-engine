@@ -78,8 +78,9 @@ Recorded foundation coverage and current source status:
   across URL/service ports, canonical TLSA, network, proof anchor, and
   provenance; all-outcomes typed permission; a non-cloneable,
   non-serializable authorized-only provider context; engine-owned context
-  revalidation that consumes the old context and narrows replacement lifetime;
-  runtime session/generation, policy generation, authority event, decision
+  consuming decision revalidation plus borrowed opaque-context currentness;
+  admission-watermark survival across unrelated work; runtime
+  session/generation, policy generation, authority event, decision
   fingerprint, freshness, authentication lifetime, and selected TLS policy
   checks; plus negative cases for HTTP, WS, WSS, unauthenticated,
   no-root, other-origin/port/root/decision/TLSA/provenance/network, stale
@@ -88,7 +89,7 @@ Recorded foundation coverage and current source status:
   another exact request or any changed binding, and ICANN DANE/WebPKI mismatch;
   plus source-only, unexecuted loopback publication cases for
   authorized-context-only creation, complete provider/process/listener binding,
-  bounded registry and lifetimes, atomic expired-publication reclamation,
+  bounded registry and lifetimes, expired/engine-invalid publication reclamation,
   rollback-safe expiring pending records,
   generation-checked atomic publish/replace/revoke, short-grant revalidation,
   and restart isolation;
@@ -159,14 +160,15 @@ Recorded foundation coverage and current source status:
   stopped work—including an engine-level cross-session response-replay negative; explicit bypass
   edges cover pre-navigation bridge startup and authenticated-absence/proven-insecure ICANN WebPKI
   without entering the DANE state;
-- strict completion encapsulation and browser-bridge authorization bound to the latest fully
-  verified exact origin, runtime/policy generations, event sequence, and chain validity window;
+- strict completion encapsulation and browser-bridge authorization bound to each admitted fully
+  verified exact origin, runtime/policy security epoch, event sequence, and chain validity window;
+  interleaved completion retention and unrelated-event survival;
   legacy completion, stale provenance, wrong-origin, not-yet-valid, and expired authorization
   rejection;
 - numeric-loopback endpoint/client enforcement; fresh-instance capability and realm binding;
   fixed-width constant-time Basic-token comparison; credential-bearing debug redaction; strict
   bounded `CONNECT`/`Host` parsing; exact HNS TLD/port scope; body, upgrade, duplicate-auth, IP, and
-  malformed-authority rejection; bounded one-shot pending tokens; exact current-event rejection;
+  malformed-authority rejection; bounded one-shot pending tokens; invalidation-watermark rejection;
   non-cloneable validity-window-carrying tunnel grants; and process-instance isolation;
 - a shared end-to-end regtest fixture that mines and validates a header, verifies its committed
   Urkel/`NameState` DS resource, authenticates DNSKEY, validates a signed TLSA response, derives

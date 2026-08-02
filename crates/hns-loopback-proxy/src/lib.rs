@@ -535,7 +535,6 @@ impl fmt::Debug for PendingConnect {
     }
 }
 
-#[derive(Eq, PartialEq)]
 struct PublicationRecord {
     publication_id: u64,
     publication_generation: u64,
@@ -557,6 +556,7 @@ struct PublicationRecord {
     process_session: [u8; 16],
     process_generation: u64,
     listener_generation: u64,
+    authority: ProviderAuthorityContext,
 }
 
 /// Opaque handle to one atomically published provider authority.
@@ -969,9 +969,12 @@ impl ProxySession {
 
     /// Atomically publish one engine-issued provider authority.
     ///
-    /// The context is consumed even when publication fails. The registry is
-    /// unchanged unless every authority, lifecycle, bound, time, uniqueness,
-    /// capacity, and expected-generation check succeeds.
+    /// The context is consumed even when publication fails. Expired or
+    /// engine-invalid records are reclaimed before uniqueness and capacity
+    /// checks without advancing the generation because they can no longer
+    /// authorize a tunnel. Current records are unchanged unless every
+    /// authority, lifecycle, bound, time, uniqueness, capacity, and
+    /// expected-generation check succeeds.
     pub fn publish_authority(
         &mut self,
         engine: &Engine,
@@ -993,20 +996,24 @@ impl ProxySession {
             next_registry_generation,
             now,
         )?;
-        if self
-            .publications
-            .get(&logical_origin)
-            .is_some_and(|existing| Self::publication_record_is_live(existing, now))
-        {
+        let mut reclaimable = Vec::new();
+        let mut current_publications = 0_usize;
+        let mut duplicate = false;
+        for (origin, existing) in &self.publications {
+            if self.publication_is_current(engine, existing, now)? {
+                current_publications += 1;
+                duplicate |= origin == &logical_origin;
+            } else {
+                reclaimable.push(origin.clone());
+            }
+        }
+        for origin in reclaimable {
+            self.publications.remove(&origin);
+        }
+        if duplicate {
             return Err(ProxyError::PublicationAlreadyExists);
         }
-        if self
-            .publications
-            .values()
-            .filter(|existing| Self::publication_record_is_live(existing, now))
-            .count()
-            >= self.config.limits.maximum_publications
-        {
+        if current_publications >= self.config.limits.maximum_publications {
             return Err(ProxyError::PublicationLimit);
         }
         let admission = self.admission_for(
@@ -1014,8 +1021,6 @@ impl ProxySession {
             publication_id,
             next_registry_generation,
         );
-        self.publications
-            .retain(|_, existing| Self::publication_record_is_live(existing, now));
         self.publications.insert(logical_origin, record);
         self.publication_sequence = publication_id;
         self.registry_generation = next_registry_generation;
@@ -1128,7 +1133,7 @@ impl ProxySession {
         if admission.logical_origin.scheme() != OriginScheme::Https
             || admission.logical_origin.host() != record.host.as_str()
             || admission.logical_origin.port() != record.port
-            || !self.publication_is_current(publication, snapshot, now)
+            || !self.publication_is_current(engine, publication, now)?
         {
             return Err(ProxyError::ProviderAuthorityMismatch);
         }
@@ -1172,7 +1177,9 @@ impl ProxySession {
     /// This check is intentionally generation-wide: any publish, replace, or
     /// revoke invalidates an outstanding grant until the CONNECT is admitted
     /// again. It also rejects another process/listener instance, a replaced or
-    /// revoked exact-origin publication, engine advancement, and expiry.
+    /// revoked exact-origin publication, security-invalidating engine
+    /// transition, and expiry. Ordinary later engine admissions do not revoke
+    /// the retained opaque authority.
     pub fn revalidate_tunnel_grant(
         &mut self,
         engine: &Engine,
@@ -1223,7 +1230,7 @@ impl ProxySession {
             || publication.process_generation != grant.process_generation
             || publication.listener_generation != grant.listener_generation
             || grant.expires_at > publication.publication_valid_until
-            || !self.publication_is_current(publication, snapshot, now)
+            || !self.publication_is_current(engine, publication, now)?
         {
             return Err(ProxyError::ProviderAuthorityMismatch);
         }
@@ -1262,7 +1269,6 @@ impl ProxySession {
             || authority.runtime_session() != snapshot.runtime_session
             || authority.runtime_generation() != snapshot.runtime_generation
             || authority.policy_generation() != snapshot.policy.generation()
-            || authority.event_sequence() != snapshot.event_sequence
             || authority.hns_network() != snapshot.hns_network()
         {
             return Err(ProxyError::ProviderAuthorityMismatch);
@@ -1272,6 +1278,9 @@ impl ProxySession {
         }
         if now >= authority.valid_until() {
             return Err(ProxyError::ProviderAuthorityExpired);
+        }
+        if !engine.provider_authority_is_current(&authority, now)? {
+            return Err(ProxyError::ProviderAuthorityMismatch);
         }
         let publication_deadline = now
             .checked_add(
@@ -1308,6 +1317,7 @@ impl ProxySession {
                 process_session: identity.process_session(),
                 process_generation: identity.process_generation(),
                 listener_generation: identity.listener_generation(),
+                authority,
             },
         ))
     }
@@ -1363,23 +1373,28 @@ impl ProxySession {
 
     fn publication_is_current(
         &self,
+        engine: &Engine,
         publication: &PublicationRecord,
-        snapshot: EngineSnapshot,
         now: u64,
-    ) -> bool {
-        publication.runtime_session == snapshot.runtime_session
-            && publication.runtime_generation == snapshot.runtime_generation
-            && publication.policy_generation == snapshot.policy.generation()
-            && publication.event_sequence == snapshot.event_sequence
-            && publication.hns_network == snapshot.hns_network()
+    ) -> Result<bool, ProxyError> {
+        let authority = &publication.authority;
+        Ok(publication.selected_namespace == authority.selected_namespace()
+            && publication.authenticated_context == authority.authenticated_context()
+            && publication.hns_network == authority.hns_network()
+            && publication.service_port == authority.service_port()
+            && publication.tls_policy == authority.tls_policy()
+            && publication.runtime_session == authority.runtime_session()
+            && publication.runtime_generation == authority.runtime_generation()
+            && publication.policy_generation == authority.policy_generation()
+            && publication.event_sequence == authority.event_sequence()
+            && publication.decision_fingerprint == authority.decision_fingerprint()
+            && publication.authority_valid_from == authority.valid_from()
+            && publication.authority_valid_until == authority.valid_until()
             && now >= publication.authority_valid_from
             && now < publication.authority_valid_until
             && now >= publication.published_at
             && now < publication.publication_valid_until
-    }
-
-    fn publication_record_is_live(publication: &PublicationRecord, now: u64) -> bool {
-        now < publication.publication_valid_until
+            && engine.provider_authority_is_current(authority, now)?)
     }
 
     fn ensure_registry_generation(&self, expected: u64) -> Result<(), ProxyError> {
@@ -1870,6 +1885,19 @@ mod tests {
         engine
     }
 
+    fn recover_active_engine(engine: &Engine) {
+        for state in [
+            AuthorityState::HeaderSyncing,
+            AuthorityState::HeaderCurrent,
+            AuthorityState::ProofReady,
+            AuthorityState::ResolutionTransportReady,
+            AuthorityState::BrowserBridgeReady,
+            AuthorityState::Active,
+        ] {
+            engine.advance_authority_state(state).unwrap();
+        }
+    }
+
     fn provider_decision(host: &str) -> NamespaceDecision {
         let query = OriginQuery::new(
             CanonicalHost::parse(host).unwrap(),
@@ -2350,6 +2378,86 @@ mod tests {
         assert_eq!(reclaimed.host(), "other.alpha");
         assert!(matches!(
             reclaiming.validate_admission(&expired),
+            Err(ProxyError::PublicationMismatch)
+        ));
+    }
+
+    #[test]
+    fn publication_survives_unrelated_authority_admissions() {
+        let engine = active_engine([17; 16]);
+        let decision = provider_decision("www.alpha");
+        let mut proxy = proxy_for_engine(&engine, [93; 16], 2, 2);
+        let generation = proxy.registry_generation();
+        let admission = proxy
+            .publish_authority(
+                &engine,
+                generation,
+                provider_authority(&engine, &decision),
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+
+        let unrelated = provider_decision("other.alpha");
+        let _unrelated_authority = provider_authority(&engine, &unrelated);
+
+        let request = connect_request_for("www.alpha", &proxy.authorization_header_value());
+        let pending = proxy
+            .admit_connect(
+                &engine,
+                "127.0.0.1:50010".parse().unwrap(),
+                &request,
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+        let generation = proxy.registry_generation();
+        let grant = proxy
+            .authorize_connect(
+                &engine,
+                pending,
+                &admission,
+                generation,
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+        proxy
+            .revalidate_tunnel_grant(&engine, &grant, generation, AUTHORITY_NOW)
+            .unwrap();
+    }
+
+    #[test]
+    fn invalidated_publication_is_reclaimed_before_capacity() {
+        let engine = active_engine([18; 16]);
+        let first = provider_decision("www.alpha");
+        let second = provider_decision("other.alpha");
+        let mut proxy = proxy_for_engine(&engine, [94; 16], 2, 1);
+        let generation = proxy.registry_generation();
+        let stale = proxy
+            .publish_authority(
+                &engine,
+                generation,
+                provider_authority(&engine, &first),
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+
+        engine
+            .advance_authority_state(AuthorityState::Degraded)
+            .unwrap();
+        recover_active_engine(&engine);
+
+        let generation = proxy.registry_generation();
+        let replacement = proxy
+            .publish_authority(
+                &engine,
+                generation,
+                provider_authority(&engine, &second),
+                AUTHORITY_NOW,
+            )
+            .unwrap();
+        assert_eq!(replacement.host(), "other.alpha");
+        assert_eq!(proxy.publication_count(), 1);
+        assert!(matches!(
+            proxy.validate_admission(&stale),
             Err(ProxyError::PublicationMismatch)
         ));
     }

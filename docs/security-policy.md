@@ -11,9 +11,10 @@ For an HNS HTTPS origin, success requires all of:
 
 Opening a browser tunnel additionally requires an engine-issued
 `ProviderAuthorityContext` consumed into the current process/listener publication registry. For HNS,
-only the latest strict completion can authenticate the exact namespace decision from which the
-provider authority is minted. The publication binds the complete provider, runtime, policy, event,
-decision, lifetime, registry, process, and listener tuple. Legacy completions based on
+any strict completion whose private admission stamp remains valid in the current security epoch can
+authenticate its exact namespace decision. Unrelated completions do not revoke it. The publication
+binds the complete provider, runtime, policy, event, decision, lifetime, registry, process, and
+listener tuple. Legacy completions based on
 caller-supplied prerequisite verdicts cannot authorize this path.
 
 For an ICANN HTTPS or WSS origin, the shared policy derives
@@ -75,8 +76,8 @@ browser code that will install the provider must request a
 contained `ProviderAuthorityContext` has private fields, is neither cloneable
 nor serializable, and is minted only after the same complete check succeeds.
 It exposes typed bindings for the native provider host, which must revalidate
-the context with the engine before installation and after any navigation,
-namespace, authority, or policy event that could make the binding stale. A
+the context with the engine before installation and after navigation,
+namespace replacement, or a security-invalidating authority/policy event. A
 revalidation consumes the old context and returns either a replacement capped
 by the current decision expiry or a denial with no reusable authority. The
 context must never cross into page JavaScript, and its readable fields are
@@ -85,11 +86,14 @@ bindings rather than independent permission inputs.
 For ICANN, the trusted embedding adapter receives an exact engine-derived
 request and returns an opaque token minted from that request after local DANE
 or WebPKI verification. A token retained from another origin, decision,
-network, policy, expiry, runtime generation, or event is rejected. The
+network, policy, expiry, runtime generation, or invalidated admission epoch is
+rejected. Unrelated admitted work during authentication does not invalidate
+the token. The
 embedding caller is an explicit security principal: Rust cannot isolate
 malicious same-process code, so page-controlled code must never implement or
-influence this adapter. For HNS, only the engine's current strict completion
-can be combined with a decision, and the TCP service port, canonical TLSA
+influence this adapter. For HNS, only an engine strict completion admitted in
+the current security epoch can be combined with a decision, and the TCP
+service port, canonical TLSA
 RRset, HNS network, proof height/tree root, provenance, and validity must match.
 This result authorizes only injection. Origin permissions, approval UI, key
 access, request dispatch, signing, and transaction policy remain
@@ -234,7 +238,9 @@ the runtime cannot be cloned, and its snapshot fields are private. Parsing and c
 another session, a revoked generation, an event that was never admitted, or any stamp checked while
 authority is degraded, revoked, or stopped. Platform adapters must supply a fresh unpredictable
 session on every engine start; a constant or reused session violates this replay-isolation
-contract. Bridge readiness may bypass per-origin DANE only before navigation or after validated
+contract. An admitted stamp remains valid across later unrelated events, but the runtime's
+invalidation floor prevents any pre-failure stamp from becoming valid again after recovery. Bridge
+readiness may bypass per-origin DANE only before navigation or after validated
 ICANN authenticated absence/proven-insecure delegation; evidence remains explicit and no DANE
 state is claimed.
 
@@ -261,20 +267,24 @@ The publication registry is private, in-memory, and bounded. Its only authority-
 consumed `ProviderAuthorityContext` minted in an `Authorized` outcome. It copies the exact logical
 origin, selected namespace, HNS network, selected TCP service, TLS/authentication path, runtime
 session/generation/event, policy generation, decision fingerprint, and original validity interval,
-then binds them to the exact endpoint, process session/generation, listener generation, publication
+retains the opaque context for borrowed engine currentness checks, then binds it to the exact
+endpoint, process session/generation, listener generation, publication
 identity, and registry generation. Diagnostic decisions are never accepted. Publish, same-origin
 replace, and exact-handle revoke require the current registry generation and change no state on a
-stale or invalid request. Publications have finite capacity and a capped absolute lifetime. The
-fully validated successful-publish transaction reclaims expired publications before insertion under
-its single registry-generation advance; validation or capacity failure leaves the registry
-unchanged. The registry is not serialized; process/listener restart creates an empty instance and
-rejects every old handle.
+stale or invalid request. Publications have finite capacity and a capped absolute lifetime. Before
+duplicate/capacity checks, a publish attempt validates every retained opaque context and reclaims
+expired or engine-invalid records. Their removal does not advance the registry generation because
+they already cannot authorize; live records remain unchanged on failure. The registry is not
+serialized; process/listener restart creates an empty instance and rejects every old handle.
 
 An opaque, non-cloneable, non-serializable `TunnelGrant` authorizes only one exact CONNECT under a
 short exclusive-expiry window. It is not a certificate, a WebPKI verdict, wallet permission, or
 permission to resolve another origin. Native hosts must revalidate its complete binding immediately
-before listener/origin I/O; any registry mutation, authority event, lifecycle replacement, or expiry
-rejects it. Native hosts still own DNS wire I/O, the listener, local CA, exact-host leaf creation,
+before listener/origin I/O; any registry mutation, security-invalidating authority event, lifecycle
+replacement, or expiry rejects it. Ordinary unrelated admissions do not. Same-origin navigation or
+decision replacement must synchronously revoke or replace its publication because the engine keeps
+no unbounded per-origin navigation map. Native hosts still own DNS wire I/O, the listener, local CA,
+exact-host leaf creation,
 upstream TLS, origin dialing, and byte forwarding, and must stop on runtime/policy revocation or
 lifecycle cancellation. No provider path is enabled in a platform product by this source.
 

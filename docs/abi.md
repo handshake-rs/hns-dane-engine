@@ -73,8 +73,12 @@ version 2, and the policy persistence schema is independently version 3. The
 C ABI remains at its existing version and does not yet expose the Rust-only
 namespace-decision/provider-injection authority. The Rust facade now mints a
 private, non-cloneable, non-serializable provider context on exact success and
-revalidates it against current engine state. A future ABI must preserve that
+supports consuming decision revalidation plus borrowed currentness checks for a
+trusted native publication that retains the opaque context. Unrelated admitted
+work does not revoke it; runtime invalidation, policy/runtime replacement, and
+expiry do. A future ABI must preserve that
 model with opaque engine-issued decision/context handles and lifecycle methods
 rather than caller-constructible authentication or permission fields. Until
 then, C/mobile consumers must treat provider-authority integration as
-unavailable.
+unavailable. Navigation and same-origin decision replacement must revoke or
+replace the corresponding future opaque handle in the platform layer.

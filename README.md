@@ -40,8 +40,10 @@
   evidence lifetime to either a strict HNS completion or an opaque token minted
   by the trusted ICANN TLS adapter; it returns a closed allow-or-deny report and
   mints a non-cloneable, non-serializable provider-authority context only on
-  success, with engine-owned revalidation for native browser consumers and no
-  wallet or marketplace logic;
+  success, with engine-owned consuming and borrowed revalidation for native
+  browser consumers; private admission stamps survive unrelated work but not a
+  security-invalidating lifecycle/policy transition, and no wallet or
+  marketplace logic is included;
 - local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation,
@@ -58,7 +60,8 @@
   per-instance constant-time Basic capability checks, strict exact-origin `CONNECT` parsing,
   rollback-safe expiring pending admission, process/listener restart isolation, generation-checked
   atomic publish/replace/revoke operations that consume only the engine's opaque provider
-  authority, and short-lived exact-binding tunnel grants with current-generation revalidation;
+  authority, retain that opaque authority for engine-owned currentness checks, reclaim expired or
+  invalid publications before bounded admission, and issue short-lived exact-binding tunnel grants;
 - bounded shared mobile/Chromium status schema v2 covering the complete runtime/authority tuple,
   policy generations, actual transport including validating ICANN DoH and
   proof-contained local HNS origin data, intermediary identities,
@@ -139,7 +142,10 @@ publishes/replaces/revokes the exact origin under an expected generation, and lo
 publication on process or listener replacement. Native hosts still own DNS wire I/O, the listener,
 HTTP response I/O, origin dialing, per-install local CA, exact-host leaf issuance, and tunnel
 lifecycle. They must not begin those operations until the crate returns and immediately
-revalidates an exact-origin `TunnelGrant`.
+revalidates an exact-origin `TunnelGrant`. Ordinary unrelated admissions do not revoke a retained
+publication, but degradation, revocation, stop, policy/runtime invalidation, or expiry does.
+Same-origin navigation or namespace-decision replacement must synchronously revoke or replace the
+exact publication; the engine deliberately does not retain an unbounded per-origin navigation map.
 
 The repository is a standalone Cargo checkout. Its nine direct `hns-rs`
 packages inherit one canonical Git source pinned to commit

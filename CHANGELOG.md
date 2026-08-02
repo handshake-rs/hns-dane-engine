@@ -5,6 +5,11 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - Unreleased
 
+- Changed provider authority from latest-global-event semantics to private
+  engine-issued admission stamps. Exact HNS completions, ICANN authentication,
+  provider contexts, publications, and grants now survive unrelated admitted
+  work but remain invalid after degradation, revocation, stop, policy/runtime
+  replacement, or expiry; recovery cannot resurrect a pre-invalidation stamp.
 - Added Rust facade version 3's minimal, fail-closed wallet-provider injection
   authority: HTTPS-only logical origin, URL/service ports, selected namespace,
   private typed context, current runtime/policy/event stamps, complete
@@ -27,13 +32,15 @@ file. The public crates use a shared version and follow Semantic Versioning.
 - Added the source-only loopback provider publication boundary. Its bounded
   in-memory registry consumes that opaque context, binds every origin,
   namespace, network, TCP service, TLS/authentication, runtime, policy, event,
-  decision, process, and listener field, and applies generation-checked atomic
-  publish/replace/revoke operations. Opaque short-lived grants must be
-  revalidated after every registry or engine event. Pending CONNECT handles
+  decision, process, and listener field, retains the opaque engine authority,
+  and applies generation-checked atomic publish/replace/revoke operations.
+  Opaque short-lived grants must be revalidated after every registry mutation
+  or security-invalidating engine transition. Pending CONNECT handles
   also carry a hard-bounded exclusive expiry; trusted-clock rollback is
-  rejected and expired records are pruned before capacity checks. A fully
-  validated successful publish reclaims expired publications within the same
-  atomic generation advance, while failed mutations remain state-neutral. No
+  rejected and expired records are pruned before capacity checks. Each
+  publish attempt reclaims expired or engine-invalid publications before
+  duplicate/capacity checks; those records already lack authority and their
+  removal does not advance the registry generation. No
   DNS wire, listener, origin-proxy, TLS, platform-provider, or
   product-availability claim is made.
 - Ignored only the repository-root `/dist/` build-output directory; nested

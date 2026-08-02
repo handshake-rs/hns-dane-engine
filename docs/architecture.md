@@ -82,10 +82,11 @@ path validation.
 `hns-dane-engine` binds that evidence to a current policy generation, exact terminal response,
 origin SNI, certificate chain, Handshake network, common validation time, and structured provenance.
 It derives the reported chain anchor from resolver evidence and rejects conflicting caller context.
-Its strict completion fields are private. A completion can mint a browser-bridge authorization only
-while it is the engine's latest fully verified current-generation result, its chain anchor is still
-valid, and its exact normalized origin remains bound. The older caller-prerequisite completion path
-cannot mint this capability.
+Its strict completion fields are private. A completion carries its engine-issued admission stamp
+and can mint a browser-bridge authorization while that stamp remains admitted in the current
+security epoch, its chain anchor is still valid, and its exact normalized origin remains bound.
+Unrelated completions do not overwrite that authority; the retained `last_provenance` is diagnostic
+only. The older caller-prerequisite completion path cannot mint this capability.
 The Rust facade's provider-injection boundary derives the logical URL origin
 from the authoritative namespace query and permits HTTPS only. It binds a
 private authenticated context to that origin, its URL and selected service
@@ -103,12 +104,16 @@ session/generation/event, policy generation, and validity interval. Native
 browser code can move this context into its provider host and ask the engine to
 revalidate it against a current namespace decision. Revalidation consumes the
 old context and either returns a lifetime-narrowed replacement or a denial with
-no reusable authority; an authorized/denied enum keeps the denial path from
-being converted into a context and centralizes the trust-policy matrix in this
-engine.
+no reusable authority. A borrowed currentness check lets a trusted native
+publication retain the same opaque context without copying authority logic.
+Ordinary later admissions remain valid; the runtime invalidation floor rejects
+pre-degradation/revocation/stop stamps even after recovery. An authorized/denied
+enum keeps the denial path from being converted into a context and centralizes
+the trust-policy matrix in this engine.
 The trusted ICANN adapter receives the engine-derived exact request and may
 mint only an opaque token for that request; the engine rejects a retained token
-after any decision or runtime field changes. The adapter is an explicit
+after any decision binding or security epoch changes while allowing unrelated
+admissions during authentication. The adapter is an explicit
 same-process security principal and must consult browser-local TLS state, never
 page input. HNS is bound directly from the engine's strict completion only
 when its TCP service, canonical TLSA RRset, network, proof height/tree root,
@@ -164,8 +169,9 @@ lookup failures carry their canonical DNSSEC disposition and fail closed without
 selection. An ICANN failure is bound to validating-DoH provenance; an HNS-only failure is bound to
 unavailable transport. Secondary-root trust details remain outside a successful selected-plan status.
 Authority state and degraded/revocation reason combinations are checked inside the status
-constructor. The engine retains only the last current-generation provenance and clears it on
-degradation or revocation, a failed classification, or an authenticated `Neither` result.
+constructor. For bounded observability only, the engine retains the latest provenance and clears it
+on degradation or revocation, a failed classification, or an authenticated `Neither` result. This
+diagnostic slot is not completion or provider authority.
 `hns-cache` provides a runtime-independent bounded LRU for positive and authenticated-negative
 results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
 height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched
@@ -190,12 +196,15 @@ non-cloneable session to an exact numeric-loopback endpoint, browser runtime ses
 immutable HNS TLD scope, per-instance capability, fresh native-process session/generation, exact
 listener generation, and request/registry/time bounds. Its private in-memory registry can publish
 only by consuming an engine-issued `ProviderAuthorityContext`; no diagnostic decision or
-caller-constructed field set can create an admission. Publish, same-origin replace, and exact-handle
-revoke are atomic `&mut` transitions requiring the current registry generation. Capacity is finite,
-publication lifetimes are capped, and a fully validated successful publish reclaims expired records
-before insertion within the same single generation advance; failed mutations leave the registry
-unchanged. Every new process/listener session begins empty, so retained handles fail closed after
-crash or restart.
+caller-constructed field set can create an admission. The record retains that opaque context and
+borrows the engine's currentness check instead of reconstructing its security semantics from copied
+fields. Publish, same-origin replace, and exact-handle revoke are atomic `&mut` transitions requiring
+the current registry generation. Capacity is finite,
+publication lifetimes are capped, and a publish attempt classifies all records through the engine
+before duplicate/capacity decisions. Expired or engine-invalid records are reclaimed without a
+registry-generation advance because they can no longer authorize; current records change only on a
+successful mutation. Every new process/listener session begins empty, so retained handles fail
+closed after crash or restart.
 
 The strict authenticated loopback `CONNECT` phase creates one bounded opaque pending token stamped
 with its admission time and hard-bounded exclusive expiry. The session accepts only trusted
@@ -205,7 +214,10 @@ TCP service, TLS/authentication path, runtime session/generation/event, policy g
 fingerprint, validity interval, registry/publication generations, endpoint, and process/listener
 lifecycle. The resulting exact-origin grant is opaque, non-cloneable, non-serializable, and
 short-lived. A separate full-binding revalidation immediately before native I/O rejects any
-intervening publish/replace/revoke, engine event, expiry, clock rollback, or restart.
+intervening publish/replace/revoke, security-invalidating engine transition, expiry, clock rollback,
+or restart. Unrelated admitted work does not revoke the opaque publication. Navigation and
+same-origin decision replacement remain platform lifecycle events that must synchronously revoke or
+replace the exact publication; the engine keeps no unbounded per-origin navigation registry.
 `hns-browser-testkit` builds a reusable strict regtest lineage—mined header, Urkel/`NameState`
 resource, DS-authenticated DNSKEY, signed TLSA, and certificate bytes—without retaining the
 temporary DNSSEC signing key. Engine and proxy tests consume the same fixture.

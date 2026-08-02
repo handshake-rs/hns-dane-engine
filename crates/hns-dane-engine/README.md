@@ -17,11 +17,16 @@ context, then returns a typed allow-or-deny result. Exact success can mint a
 separate non-cloneable, non-serializable `ProviderAuthorityContext`; native
 browser code reads its typed origin/namespace/service/network and generation
 bindings and consumes/replaces it through engine revalidation instead of
-reproducing trust policy. HNS requires a matching strict engine completion.
+reproducing trust policy. A borrowed check lets a trusted native publication
+retain the opaque context. Its private admission stamp survives unrelated work
+but not degradation, revocation, stop, policy/runtime invalidation, or expiry.
+HNS requires a matching strict engine completion.
 ICANN uses an exact-request opaque token minted by a trusted embedding-browser adapter; that
 adapter is a security principal and must never accept page-controlled TLS
 assertions. The engine does not contain wallet, permissions, signing, or
 marketplace code. Platform wiring and C ABI handles remain unavailable.
+Navigation and same-origin decision replacement remain platform revoke-or-replace
+responsibilities; the engine keeps no unbounded per-origin navigation map.
 
 Published releases can be added with:
 
