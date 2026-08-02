@@ -17,6 +17,13 @@ file. The public crates use a shared version and follow Semantic Versioning.
 - Kept wallet state, permissions, signing, marketplace behavior, and the
   provider authority out of the unchanged C ABI until opaque namespace and
   context handles can preserve the same trust boundary.
+- Added a consumable Rust provider-authority outcome that mints a private,
+  non-cloneable, non-serializable context only after the complete injection
+  decision succeeds. The context exposes typed origin, namespace, service,
+  network, authentication, session/generation/event, policy-generation,
+  decision, and lifetime bindings. Consuming revalidation returns a
+  lifetime-narrowed replacement or a denial with no reusable context, without
+  browser products duplicating trust policy.
 - Advanced the shared package line because `0.1.0` is already published; this
   source change does not publish packages or create a tag.
 

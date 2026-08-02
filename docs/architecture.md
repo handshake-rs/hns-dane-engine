@@ -95,6 +95,17 @@ generation, authority event, and an absolute validity interval. Its second
 atomic check returns an all-outcomes typed decision and fails closed for
 cleartext or non-HTTPS schemes, unauthenticated, mismatched, stale,
 wrong-network, degraded, revoked, stopped, or TLS-policy-inconsistent contexts.
+The report is diagnostic rather than transferable authority. Exact success may
+instead return a non-cloneable, non-serializable `ProviderAuthorityContext`
+whose private fields retain the origin, selected namespace, effective TCP
+service, network, TLS/authentication path, decision fingerprint, runtime
+session/generation/event, policy generation, and validity interval. Native
+browser code can move this context into its provider host and ask the engine to
+revalidate it against a current namespace decision. Revalidation consumes the
+old context and either returns a lifetime-narrowed replacement or a denial with
+no reusable authority; an authorized/denied enum keeps the denial path from
+being converted into a context and centralizes the trust-policy matrix in this
+engine.
 The trusted ICANN adapter receives the engine-derived exact request and may
 mint only an opaque token for that request; the engine rejects a retained token
 after any decision or runtime field changes. The adapter is an explicit
@@ -103,7 +114,9 @@ page input. HNS is bound directly from the engine's strict completion only
 when its TCP service, canonical TLSA RRset, network, proof height/tree root,
 provenance, and lifetime match the selected decision. No wallet state,
 permission database, signing, transaction, or marketplace behavior is owned
-here.
+here. The context is a trusted native Rust boundary, not a wire token: it must
+not be serialized or exposed to page JavaScript. Platform code still owns
+wallet-session, permission-generation, and navigation-generation binding.
 `hns-browser-runtime` is the single authority-state graph and monotonic runtime clock. Each
 admitted operation carries a checked nonzero, caller-supplied runtime session, runtime generation,
 and event sequence; another session, a revoked generation, a future event, or any stamp observed

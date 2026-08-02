@@ -67,6 +67,19 @@ origin/root/decision/network/session/generation/event, stale evidence,
 degraded/revoked/stopped authority, and a TLS path inconsistent with the
 selected plan all return an explicit denial.
 
+The all-outcomes decision is a diagnostic report, not a capability. Native
+browser code that will install the provider must request a
+`ProviderAuthorityOutcome` and proceed only with its `Authorized` variant. The
+contained `ProviderAuthorityContext` has private fields, is neither cloneable
+nor serializable, and is minted only after the same complete check succeeds.
+It exposes typed bindings for the native provider host, which must revalidate
+the context with the engine before installation and after any navigation,
+namespace, authority, or policy event that could make the binding stale. A
+revalidation consumes the old context and returns either a replacement capped
+by the current decision expiry or a denial with no reusable authority. The
+context must never cross into page JavaScript, and its readable fields are
+bindings rather than independent permission inputs.
+
 For ICANN, the trusted embedding adapter receives an exact engine-derived
 request and returns an opaque token minted from that request after local DANE
 or WebPKI verification. A token retained from another origin, decision,
@@ -78,7 +91,9 @@ can be combined with a decision, and the TCP service port, canonical TLSA
 RRset, HNS network, proof height/tree root, provenance, and validity must match.
 This result authorizes only injection. Origin permissions, approval UI, key
 access, request dispatch, signing, and transaction policy remain
-wallet/platform responsibilities.
+wallet/platform responsibilities. Wallet-session, permission-generation, and
+navigation-generation checks must be composed by the platform provider host;
+this engine context neither replaces nor gains access to them.
 
 Local matching accepts DANE-EE usage 3 and DANE-TA usage 2. It supports full-certificate selector 0
 and SPKI selector 1 with exact, SHA-256, and SHA-512 matching types 0, 1, and 2. Every terminal

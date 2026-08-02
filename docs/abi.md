@@ -71,6 +71,10 @@ candidate and admission returns `HNS_DANE_TRANSPORT_DISABLED`. The Rust
 facade is version 3; browser-runtime and shared observability schemas remain
 version 2, and the policy persistence schema is independently version 3. The
 C ABI remains at its existing version and does not yet expose the Rust-only
-namespace-decision/provider-injection authority. A future ABI must carry opaque
-engine-issued decision/context handles rather than caller-constructible
-authentication or permission fields.
+namespace-decision/provider-injection authority. The Rust facade now mints a
+private, non-cloneable, non-serializable provider context on exact success and
+revalidates it against current engine state. A future ABI must preserve that
+model with opaque engine-issued decision/context handles and lifecycle methods
+rather than caller-constructible authentication or permission fields. Until
+then, C/mobile consumers must treat provider-authority integration as
+unavailable.

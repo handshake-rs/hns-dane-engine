@@ -1,8 +1,11 @@
 # Foundation qualification
 
-After one source-policy-verified fetch, Cargo metadata, tests, lint, and builds
-run with the repository's locked dependency graph and no network access.
-`cargo-deny` may separately refresh its advisory database:
+The command transcript below is retained evidence from published tag `v0.1.0`
+(commit `02c063ac3e94a91b222201fb51d95ff3ac19f026`). It does not qualify the
+current unreleased 0.2 provider-authority continuation. That source and its
+added test cases have not been built, linted, tested, benchmarked, or
+release-qualified in this continuation. `cargo-deny` may separately refresh
+its advisory database:
 
 ```text
 python3 -m unittest -v tests/test_cargo_source_policy.py
@@ -39,7 +42,7 @@ cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
   passed
 ```
 
-Covered:
+Recorded foundation coverage and current source status:
 
 - independently cloneable Cargo resolution with nine reviewed direct
   `hns-rs` packages and the exact eleven-package locked closure at
@@ -69,17 +72,20 @@ Covered:
   query/policy/root/configuration-bound decision and decision-derived cache fingerprints,
   including rejection of a silent switch away from an authentically absent pinned or persistently
   bound root;
-- exact HTTPS-only logical-origin derivation for provider injection; private
-  decision/authentication contexts; exact-request opaque ICANN adapter tokens;
-  strict HNS completion binding across URL/service ports, canonical TLSA,
-  network, proof anchor, and provenance; all-outcomes typed permission; runtime
-  session/generation, policy generation, authority event, decision
+- unqualified 0.2 source and unexecuted test cases for exact HTTPS-only
+  logical-origin derivation; private decision/authentication contexts;
+  exact-request opaque ICANN adapter tokens; strict HNS completion binding
+  across URL/service ports, canonical TLSA, network, proof anchor, and
+  provenance; all-outcomes typed permission; a non-cloneable,
+  non-serializable authorized-only provider context; engine-owned context
+  revalidation that consumes the old context and narrows replacement lifetime;
+  runtime session/generation, policy generation, authority event, decision
   fingerprint, freshness, authentication lifetime, and selected TLS policy
-  rechecks; and negative coverage for HTTP, WS, WSS, unauthenticated, no-root,
-  other-origin/port/root/decision/TLSA/provenance/network, stale decision and
-  exact expiry, other-session, revoked generation, degraded/revoked/stopped
-  authority, retained ICANN token replay across another exact request or any
-  changed binding, and ICANN DANE/WebPKI mismatch;
+  checks; plus negative cases for HTTP, WS, WSS, unauthenticated,
+  no-root, other-origin/port/root/decision/TLSA/provenance/network, stale
+  decision and exact expiry, other-session, revoked generation,
+  degraded/revoked/stopped authority, retained ICANN token replay across
+  another exact request or any changed binding, and ICANN DANE/WebPKI mismatch;
 - canonical shared `hns-rs` network genesis, 236-byte header, proof-of-work, median-time,
   difficulty-transition, and chainwork validation for contiguous light-chain extensions;
 - transactional bounded header batches and retention of the exact 147-entry Handshake retarget
@@ -202,8 +208,10 @@ Not yet implemented:
 - subdelegation discovery and a complete live authoritative DNSSEC walk beyond the on-chain TLD
   DNSKEY path;
 - origin TLS socket/SNI execution (the Rust API checks the adapter-reported exact SNI);
-- live validating ICANN DoH I/O and browser request-surface wiring (the shared owner/evidence
-  decision contract is implemented here and must be consumed by each platform adapter);
+- live validating ICANN DoH I/O and browser request-surface wiring (the shared
+  owner/evidence decision contract and Rust provider-authority context are
+  implemented in source here but have not been consumed or qualified by either
+  platform adapter);
 - authenticated authoritative DoH, HNSR transport, HIP-76/77 provider roles, and the native
   Brontide socket adapter for the implemented HIP-76/77 requester boundary;
 - filesystem/mobile preferences adapters and atomic durable writes;
@@ -217,8 +225,10 @@ Not yet implemented:
 
 The strict Rust facade has a non-forgeable
 header/Urkel/resource/DS/DNSKEY/CNAME/TLSA path and derives DANE-EE or DANE-TA
-evidence locally. Rust facade version 3 also has a fail-closed exact-origin
-provider-injection authority, while the legacy C ABI still accepts
-prerequisite verdicts and exposes neither the full proof workflow nor opaque
-namespace/provider contexts. This repository therefore does not yet claim
+evidence locally. Rust facade version 3 also has source for a fail-closed
+exact-origin provider-injection authority and opaque authorized-only context,
+while the legacy C ABI still accepts prerequisite verdicts and exposes neither
+the full proof workflow nor opaque namespace/provider contexts. The new Rust
+context, its platform consumption, and the unreleased 0.2 line still require
+the applicable qualification gate. This repository therefore does not claim
 that the complete browser engine or ecosystem is qualified.

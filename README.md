@@ -38,8 +38,10 @@
   service ports, complete namespace-decision fingerprint (including the plan,
   TLSA, and provenance), network, runtime/policy/event generations, and
   evidence lifetime to either a strict HNS completion or an opaque token minted
-  by the trusted ICANN TLS adapter, returning a closed allow-or-deny result
-  without importing wallet or marketplace logic;
+  by the trusted ICANN TLS adapter; it returns a closed allow-or-deny report and
+  mints a non-cloneable, non-serializable provider-authority context only on
+  success, with engine-owned revalidation for native browser consumers and no
+  wallet or marketplace logic;
 - local DANE-EE and private-path DANE-TA validation for full certificates and SPKI using exact,
   SHA-256, or SHA-512 associations;
 - persistent typed requester/provider policy with generation-safe revocation,
@@ -156,3 +158,8 @@ The minimum supported compiler is Rust 1.89.0. See `docs/architecture.md`,
 `docs/security-policy.md`, `docs/abi.md`, `docs/provenance.md`,
 `docs/supply-chain.md`, and `docs/qualification.md` for boundaries, pinned
 compatibility inputs, exact coverage, and remaining work.
+
+The provider-authority Rust source is a production-continuation boundary, not
+a complete platform integration. Mobile/Chromium request wiring and opaque C
+ABI handles remain unavailable, and the unreleased 0.2 source has not passed a
+new release qualification gate.

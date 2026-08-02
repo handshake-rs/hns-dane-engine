@@ -26,11 +26,10 @@ use hns_browser_runtime::{BrowserRuntime, RuntimeError, RuntimeStamp};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
 pub use hns_gateway::{Gateway, GatewayLimits, GatewaySelection};
-use hns_namespace_resolution::{
-    EvidenceProvenance, HnsNetwork, NamespaceDecision, ServiceTransport, TlsTrustPolicy,
-    decision_fingerprint,
+use hns_namespace_resolution::{EvidenceProvenance, ServiceTransport, decision_fingerprint};
+pub use hns_namespace_resolution::{
+    HnsNetwork, Namespace, NamespaceDecision, OriginScheme, TlsTrustPolicy,
 };
-pub use hns_namespace_resolution::{Namespace, OriginScheme};
 pub use hns_p2p_transport::{
     AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DnsRelayRequester,
     ExperimentalExchange, ExperimentalRequest, ExperimentalResponse, OdohRequester,
@@ -494,6 +493,185 @@ impl ProviderInjectionDecision {
     #[must_use]
     pub const fn denial_reason(&self) -> Option<ProviderInjectionDenialReason> {
         self.denial_reason
+    }
+}
+
+/// Opaque, engine-issued authority for one exact provider-injection boundary.
+///
+/// The fields are private and the type is deliberately neither `Clone` nor
+/// serializable. A trusted native browser integration may inspect its typed
+/// bindings and move it into the provider host, but must never expose it to
+/// page JavaScript or treat its fields as caller-provided policy. Use
+/// [`Engine::revalidate_provider_authority`] to consume and replace it before a
+/// navigation installs the provider and whenever an authority, namespace, or
+/// policy event may have advanced.
+pub struct ProviderAuthorityContext {
+    origin_context: AuthenticatedOriginContext,
+    selected_namespace: Namespace,
+    hns_network: HnsNetwork,
+    service_port: u16,
+    tls_policy: TlsTrustPolicy,
+}
+
+impl ProviderAuthorityContext {
+    /// Exact HTTPS logical origin authorized for provider injection.
+    #[must_use]
+    pub const fn logical_origin(&self) -> &LogicalOrigin {
+        self.origin_context.logical_origin()
+    }
+
+    /// Exact namespace selected for this authority.
+    #[must_use]
+    pub const fn selected_namespace(&self) -> Namespace {
+        self.selected_namespace
+    }
+
+    /// Trusted authentication path admitted by the engine.
+    #[must_use]
+    pub const fn authenticated_context(&self) -> AuthenticatedContextStatus {
+        self.origin_context.status()
+    }
+
+    /// Handshake network bound by the complete namespace decision.
+    #[must_use]
+    pub const fn hns_network(&self) -> HnsNetwork {
+        self.hns_network
+    }
+
+    /// Exact TCP service port selected by the authoritative plan.
+    #[must_use]
+    pub const fn service_port(&self) -> u16 {
+        self.service_port
+    }
+
+    /// Exact TLS policy admitted for the selected plan.
+    #[must_use]
+    pub const fn tls_policy(&self) -> TlsTrustPolicy {
+        self.tls_policy
+    }
+
+    /// Browser-authority process session bound to this context.
+    #[must_use]
+    pub const fn runtime_session(&self) -> [u8; 16] {
+        self.origin_context.runtime_session()
+    }
+
+    /// Browser-authority generation bound to this context.
+    #[must_use]
+    pub const fn runtime_generation(&self) -> u64 {
+        self.origin_context.runtime_generation()
+    }
+
+    /// Persistent trust-policy generation bound to this context.
+    #[must_use]
+    pub const fn policy_generation(&self) -> u64 {
+        self.origin_context.policy_generation()
+    }
+
+    /// Exact authority event bound to this context.
+    #[must_use]
+    pub const fn event_sequence(&self) -> u64 {
+        self.origin_context.event_sequence()
+    }
+
+    /// Complete query, plan, root outcome, evidence, and policy identity.
+    #[must_use]
+    pub const fn decision_fingerprint(&self) -> [u8; 32] {
+        self.origin_context.decision_fingerprint()
+    }
+
+    /// First time at which this authority may be consumed.
+    #[must_use]
+    pub const fn valid_from(&self) -> u64 {
+        self.origin_context.valid_from()
+    }
+
+    /// Exclusive expiry of this authority.
+    #[must_use]
+    pub const fn valid_until(&self) -> u64 {
+        self.origin_context.valid_until()
+    }
+
+    fn matches_decision(&self, decision: &NamespaceDecision) -> bool {
+        let Some(plan) = decision.selected_plan() else {
+            return false;
+        };
+        self.logical_origin() == &LogicalOrigin::from_namespace_decision(decision)
+            && decision.selected_namespace() == Some(self.selected_namespace)
+            && decision.hns_network() == self.hns_network
+            && plan.service().transport() == ServiceTransport::Tcp
+            && plan.service().effective_port().get() == self.service_port
+            && plan.tls_policy() == self.tls_policy
+            && *decision_fingerprint(decision).as_bytes() == self.decision_fingerprint()
+    }
+}
+
+impl fmt::Debug for ProviderAuthorityContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderAuthorityContext")
+            .field("logical_origin", &"[redacted]")
+            .field("selected_namespace", &self.selected_namespace)
+            .field("authenticated_context", &self.authenticated_context())
+            .field("hns_network", &self.hns_network)
+            .field("service_port", &self.service_port)
+            .field("tls_policy", &self.tls_policy)
+            .field("runtime_session", &self.runtime_session())
+            .field("runtime_generation", &self.runtime_generation())
+            .field("policy_generation", &self.policy_generation())
+            .field("event_sequence", &self.event_sequence())
+            .field("decision_fingerprint", &"[redacted]")
+            .field("valid_from", &self.valid_from())
+            .field("valid_until", &self.valid_until())
+            .finish()
+    }
+}
+
+/// Typed result of requesting a provider authority from the engine.
+///
+/// Only `Authorized` carries a context usable by trusted browser code. A
+/// denied result cannot be converted into an authority by inspecting its
+/// status fields.
+#[derive(Debug)]
+#[must_use = "provider authority outcomes must be matched before injection"]
+pub enum ProviderAuthorityOutcome {
+    /// The engine minted an opaque authority for the exact current decision.
+    Authorized(ProviderAuthorityContext),
+    /// Injection was denied with the complete typed decision and reason.
+    Denied(ProviderInjectionDecision),
+}
+
+impl ProviderAuthorityOutcome {
+    /// Whether this outcome contains an engine-issued authority context.
+    #[must_use]
+    pub const fn is_authorized(&self) -> bool {
+        matches!(self, Self::Authorized(_))
+    }
+
+    /// Borrow the authority context, if injection was authorized.
+    #[must_use]
+    pub const fn context(&self) -> Option<&ProviderAuthorityContext> {
+        match self {
+            Self::Authorized(context) => Some(context),
+            Self::Denied(_) => None,
+        }
+    }
+
+    /// Borrow the typed denial, if injection was denied.
+    #[must_use]
+    pub const fn denial(&self) -> Option<&ProviderInjectionDecision> {
+        match self {
+            Self::Authorized(_) => None,
+            Self::Denied(decision) => Some(decision),
+        }
+    }
+
+    /// Consume an authorized outcome without reconstructing trust policy.
+    pub fn into_context(self) -> Result<ProviderAuthorityContext, ProviderInjectionDecision> {
+        match self {
+            Self::Authorized(context) => Ok(context),
+            Self::Denied(decision) => Err(decision),
+        }
     }
 }
 
@@ -1135,7 +1313,10 @@ impl Engine {
     ///
     /// Every call returns a typed allow-or-deny outcome. A denial is normal
     /// policy output rather than an error; errors are reserved for internal
-    /// engine failures such as a poisoned lock.
+    /// engine failures such as a poisoned lock. This report is suitable for
+    /// trusted UI and diagnostics. Browser integrations that will actually
+    /// install a provider must use [`Self::authorize_provider_injection`] and
+    /// retain its opaque [`ProviderAuthorityContext`].
     pub fn provider_injection_decision(
         &self,
         decision: &NamespaceDecision,
@@ -1143,66 +1324,60 @@ impl Engine {
         now: u64,
     ) -> Result<ProviderInjectionDecision, EngineError> {
         let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
-        let runtime = state.runtime.snapshot();
-        let logical_origin = LogicalOrigin::from_namespace_decision(decision);
-        let selected_namespace = decision.selected_namespace();
-        let fingerprint = *decision_fingerprint(decision).as_bytes();
-        let policy_generation = state.policy.snapshot().generation();
-        let authority_state = runtime.authority_state();
+        Ok(evaluate_provider_injection(&state, decision, context, now))
+    }
 
-        let denial_reason = if !logical_origin.is_secure() {
-            Some(ProviderInjectionDenialReason::InsecureOrigin)
-        } else if logical_origin.scheme() != OriginScheme::Https {
-            Some(ProviderInjectionDenialReason::UnsupportedOriginScheme)
-        } else if selected_namespace.is_none() {
-            Some(ProviderInjectionDenialReason::NoSelectedNamespace)
-        } else if context.status == AuthenticatedContextStatus::Unauthenticated {
-            Some(ProviderInjectionDenialReason::UnauthenticatedContext)
-        } else if context.logical_origin != logical_origin {
-            Some(ProviderInjectionDenialReason::OriginMismatch)
-        } else if context.selected_namespace != selected_namespace {
-            Some(ProviderInjectionDenialReason::NamespaceMismatch)
-        } else if context.decision_fingerprint != fingerprint {
-            Some(ProviderInjectionDenialReason::DecisionMismatch)
-        } else if !decision.is_fresh_at(now) {
-            Some(ProviderInjectionDenialReason::DecisionStale)
-        } else if !network_matches(state.network, decision.hns_network()) {
-            Some(ProviderInjectionDenialReason::NetworkMismatch)
-        } else if let Some(reason) = authority_denial(authority_state) {
-            Some(reason)
-        } else if context.runtime_session != runtime.session_bytes() {
-            Some(ProviderInjectionDenialReason::StaleRuntimeSession)
-        } else if context.runtime_generation != runtime.generation() {
-            Some(ProviderInjectionDenialReason::StaleRuntimeGeneration)
-        } else if context.policy_generation != policy_generation {
-            Some(ProviderInjectionDenialReason::StalePolicyGeneration)
-        } else if context.event_sequence != runtime.event_sequence() {
-            Some(ProviderInjectionDenialReason::StaleAuthenticationEvent)
-        } else {
-            authentication_policy_denial(decision, context.status)
-                .or_else(|| {
-                    (now < context.valid_from)
-                        .then_some(ProviderInjectionDenialReason::AuthenticationNotYetValid)
-                })
-                .or_else(|| {
-                    (now >= context.valid_until)
-                        .then_some(ProviderInjectionDenialReason::AuthenticationExpired)
-                })
-        };
+    /// Validate policy and mint an opaque provider authority on exact success.
+    ///
+    /// The typed outcome prevents a denied status report from being mistaken
+    /// for a capability. The authorized context contains no wallet state or
+    /// permissions and is valid only for the exact origin, selected namespace,
+    /// plan, runtime session/generation/event, policy generation, and lifetime
+    /// checked by [`Self::provider_injection_decision`].
+    pub fn authorize_provider_injection(
+        &self,
+        decision: &NamespaceDecision,
+        context: &AuthenticatedOriginContext,
+        now: u64,
+    ) -> Result<ProviderAuthorityOutcome, EngineError> {
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        let evaluation = evaluate_provider_injection(&state, decision, context, now);
+        Ok(provider_authority_outcome(
+            decision,
+            context.clone(),
+            evaluation,
+            now,
+        ))
+    }
 
-        Ok(ProviderInjectionDecision {
-            logical_origin,
-            selected_namespace,
-            authenticated_context: context.status,
-            runtime_session: runtime.session_bytes(),
-            runtime_generation: runtime.generation(),
-            policy_generation,
-            event_sequence: runtime.event_sequence(),
-            decision_fingerprint: fingerprint,
-            authority_state,
-            permitted: denial_reason.is_none(),
-            denial_reason,
-        })
+    /// Revalidate an existing provider authority against current engine state.
+    ///
+    /// Revalidation consumes the old, non-cloneable context. A successful
+    /// result contains a replacement whose lifetime is narrowed to the current
+    /// decision; a denial contains no reusable authority. Any navigation or
+    /// namespace mismatch, authority event, process session, runtime generation,
+    /// policy generation, or expiry change returns a typed denial. Browser
+    /// products therefore do not need to reproduce the engine's trust-policy
+    /// matrix.
+    pub fn revalidate_provider_authority(
+        &self,
+        decision: &NamespaceDecision,
+        authority: ProviderAuthorityContext,
+        now: u64,
+    ) -> Result<ProviderAuthorityOutcome, EngineError> {
+        let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
+        let mut evaluation =
+            evaluate_provider_injection(&state, decision, &authority.origin_context, now);
+        if evaluation.permitted() && !authority.matches_decision(decision) {
+            evaluation.permitted = false;
+            evaluation.denial_reason = Some(ProviderInjectionDenialReason::DecisionMismatch);
+        }
+        Ok(provider_authority_outcome(
+            decision,
+            authority.origin_context,
+            evaluation,
+            now,
+        ))
     }
 
     /// Export the exact persistent policy representation.
@@ -1736,6 +1911,107 @@ fn stamp_origin_context(
         valid_from,
         valid_until,
     }
+}
+
+fn evaluate_provider_injection(
+    state: &EngineState,
+    decision: &NamespaceDecision,
+    context: &AuthenticatedOriginContext,
+    now: u64,
+) -> ProviderInjectionDecision {
+    let runtime = state.runtime.snapshot();
+    let logical_origin = LogicalOrigin::from_namespace_decision(decision);
+    let selected_namespace = decision.selected_namespace();
+    let fingerprint = *decision_fingerprint(decision).as_bytes();
+    let policy_generation = state.policy.snapshot().generation();
+    let authority_state = runtime.authority_state();
+
+    let denial_reason = if !logical_origin.is_secure() {
+        Some(ProviderInjectionDenialReason::InsecureOrigin)
+    } else if logical_origin.scheme() != OriginScheme::Https {
+        Some(ProviderInjectionDenialReason::UnsupportedOriginScheme)
+    } else if selected_namespace.is_none() {
+        Some(ProviderInjectionDenialReason::NoSelectedNamespace)
+    } else if context.status == AuthenticatedContextStatus::Unauthenticated {
+        Some(ProviderInjectionDenialReason::UnauthenticatedContext)
+    } else if context.logical_origin != logical_origin {
+        Some(ProviderInjectionDenialReason::OriginMismatch)
+    } else if context.selected_namespace != selected_namespace {
+        Some(ProviderInjectionDenialReason::NamespaceMismatch)
+    } else if context.decision_fingerprint != fingerprint {
+        Some(ProviderInjectionDenialReason::DecisionMismatch)
+    } else if !decision.is_fresh_at(now) {
+        Some(ProviderInjectionDenialReason::DecisionStale)
+    } else if !network_matches(state.network, decision.hns_network()) {
+        Some(ProviderInjectionDenialReason::NetworkMismatch)
+    } else if let Some(reason) = authority_denial(authority_state) {
+        Some(reason)
+    } else if context.runtime_session != runtime.session_bytes() {
+        Some(ProviderInjectionDenialReason::StaleRuntimeSession)
+    } else if context.runtime_generation != runtime.generation() {
+        Some(ProviderInjectionDenialReason::StaleRuntimeGeneration)
+    } else if context.policy_generation != policy_generation {
+        Some(ProviderInjectionDenialReason::StalePolicyGeneration)
+    } else if context.event_sequence != runtime.event_sequence() {
+        Some(ProviderInjectionDenialReason::StaleAuthenticationEvent)
+    } else {
+        authentication_policy_denial(decision, context.status)
+            .or_else(|| {
+                (now < context.valid_from)
+                    .then_some(ProviderInjectionDenialReason::AuthenticationNotYetValid)
+            })
+            .or_else(|| {
+                (now >= context.valid_until)
+                    .then_some(ProviderInjectionDenialReason::AuthenticationExpired)
+            })
+    };
+
+    ProviderInjectionDecision {
+        logical_origin,
+        selected_namespace,
+        authenticated_context: context.status,
+        runtime_session: runtime.session_bytes(),
+        runtime_generation: runtime.generation(),
+        policy_generation,
+        event_sequence: runtime.event_sequence(),
+        decision_fingerprint: fingerprint,
+        authority_state,
+        permitted: denial_reason.is_none(),
+        denial_reason,
+    }
+}
+
+fn provider_authority_outcome(
+    decision: &NamespaceDecision,
+    mut context: AuthenticatedOriginContext,
+    mut evaluation: ProviderInjectionDecision,
+    now: u64,
+) -> ProviderAuthorityOutcome {
+    if !evaluation.permitted() {
+        return ProviderAuthorityOutcome::Denied(evaluation);
+    }
+    let (Some(selected_namespace), Some(plan)) =
+        (decision.selected_namespace(), decision.selected_plan())
+    else {
+        evaluation.permitted = false;
+        evaluation.denial_reason = Some(ProviderInjectionDenialReason::NoSelectedNamespace);
+        return ProviderAuthorityOutcome::Denied(evaluation);
+    };
+    if plan.service().transport() != ServiceTransport::Tcp {
+        evaluation.permitted = false;
+        evaluation.denial_reason =
+            Some(ProviderInjectionDenialReason::AuthenticationPolicyMismatch);
+        return ProviderAuthorityOutcome::Denied(evaluation);
+    }
+    context.valid_from = context.valid_from.max(now);
+    context.valid_until = context.valid_until.min(decision.expires_at_unix());
+    ProviderAuthorityOutcome::Authorized(ProviderAuthorityContext {
+        origin_context: context,
+        selected_namespace,
+        hns_network: decision.hns_network(),
+        service_port: plan.service().effective_port().get(),
+        tls_policy: plan.tls_policy(),
+    })
 }
 
 fn exact_tlsa_answers(attempt: &ResolutionAttempt, response: &ParsedResponse) -> Vec<Tlsa> {
@@ -2640,6 +2916,83 @@ mod tests {
         assert_eq!(
             outcome.authenticated_context(),
             AuthenticatedContextStatus::IcannWebPkiAuthenticatedAbsence
+        );
+
+        let authority = engine
+            .authorize_provider_injection(&decision, &context, AUTHORITY_NOW)
+            .unwrap()
+            .into_context()
+            .unwrap();
+        assert_eq!(authority.logical_origin().host(), "wallet.example");
+        assert_eq!(authority.logical_origin().port(), 443);
+        assert_eq!(authority.selected_namespace(), Namespace::Icann);
+        assert_eq!(authority.hns_network(), HnsNetwork::Mainnet);
+        assert_eq!(authority.service_port(), 443);
+        assert_eq!(
+            authority.tls_policy(),
+            TlsTrustPolicy::WebPkiAuthenticatedAbsence
+        );
+        assert_eq!(authority.runtime_session(), [13; 16]);
+        assert_eq!(authority.runtime_generation(), 1);
+        assert_eq!(authority.policy_generation(), 1);
+        assert_eq!(authority.valid_until(), AUTHORITY_NOW + 100);
+        assert!(!format!("{authority:?}").contains("wallet.example"));
+
+        let refreshed = engine
+            .revalidate_provider_authority(&decision, authority, AUTHORITY_NOW)
+            .unwrap();
+        assert!(refreshed.is_authorized());
+        assert!(refreshed.context().is_some());
+        assert!(refreshed.denial().is_none());
+    }
+
+    #[test]
+    fn provider_authority_revalidation_fails_closed_after_binding_changes() {
+        let engine = active_engine_without_dane();
+        let decision = authority_decision(
+            "wallet.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let context = engine
+            .bind_icann_origin_context(&decision, &trusted_icann_webpki, AUTHORITY_NOW)
+            .unwrap();
+        let authority = engine
+            .authorize_provider_injection(&decision, &context, AUTHORITY_NOW)
+            .unwrap()
+            .into_context()
+            .unwrap();
+
+        let other_origin = authority_decision(
+            "other.example",
+            OriginScheme::Https,
+            Namespace::Icann,
+            HnsNetwork::Mainnet,
+        );
+        let denied = engine
+            .revalidate_provider_authority(&other_origin, authority, AUTHORITY_NOW)
+            .unwrap();
+        assert!(!denied.is_authorized());
+        assert_eq!(
+            denied.denial().and_then(ProviderInjectionDecision::denial_reason),
+            Some(ProviderInjectionDenialReason::OriginMismatch)
+        );
+
+        let authority = engine
+            .authorize_provider_injection(&decision, &context, AUTHORITY_NOW)
+            .unwrap()
+            .into_context()
+            .unwrap();
+        engine
+            .advance_authority_state(AuthorityState::Degraded)
+            .unwrap();
+        let denied = engine
+            .revalidate_provider_authority(&decision, authority, AUTHORITY_NOW)
+            .unwrap();
+        assert_eq!(
+            denied.denial().and_then(ProviderInjectionDecision::denial_reason),
+            Some(ProviderInjectionDenialReason::AuthorityDegraded)
         );
     }
 
