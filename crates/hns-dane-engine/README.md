@@ -24,9 +24,12 @@ HNS requires a matching strict engine completion.
 ICANN uses an exact-request opaque token minted by a trusted embedding-browser adapter; that
 adapter is a security principal and must never accept page-controlled TLS
 assertions. The engine does not contain wallet, permissions, signing, or
-marketplace code. Platform wiring and C ABI handles remain unavailable.
-Navigation and same-origin decision replacement remain platform revoke-or-replace
-responsibilities; the engine keeps no unbounded per-origin navigation map.
+marketplace code. A separate consumer ABI can take ownership of an already
+authorized Rust context for typed inspection, currentness checks, and
+destruction, but exposes no C mint/import path. Pure-C authority construction
+and platform wiring remain unavailable. Navigation and same-origin decision
+replacement remain platform revoke-or-replace responsibilities; the engine
+keeps no unbounded per-origin navigation map.
 
 Published releases can be added with:
 

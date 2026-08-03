@@ -174,5 +174,8 @@ compatibility inputs, exact coverage, and remaining work.
 The provider-authority and loopback-publication Rust source is a
 production-continuation boundary, not a complete platform integration. It does
 not enable a provider in any product. Mobile/Chromium request wiring, native
-listener/TLS I/O, and opaque C ABI handles remain unavailable and disabled,
-and the unreleased 0.2 source has not passed a new release qualification gate.
+listener/TLS I/O, pure-C authority minting, and product integration remain
+unavailable and disabled. The source-only provider-authority consumer ABI can
+retain and inspect a context moved from trusted Rust, but cannot create one
+from C. The unreleased 0.2 source has not passed a new release qualification
+gate.

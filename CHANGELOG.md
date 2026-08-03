@@ -19,9 +19,14 @@ file. The public crates use a shared version and follow Semantic Versioning.
   authenticate a provider context.
 - Replaced caller-selectable ICANN authentication verdicts with exact-request
   opaque tokens minted by an explicitly trusted embedding-browser principal.
-- Kept wallet state, permissions, signing, marketplace behavior, and the
-  provider authority out of the unchanged C ABI until opaque namespace and
-  context handles can preserve the same trust boundary.
+- Added a separate provider-authority consumer ABI that retains only a context
+  moved from an authorized Rust outcome. Native code can inspect its immutable
+  origin, namespace, authentication, network, TLS, service, runtime, policy,
+  decision, and lifetime bindings; copy the bounded exact host; check it
+  against current engine state; and destroy it. There is no C mint, import,
+  clone, serialization, wallet permission, signing, value, or marketplace
+  operation. Pure-C namespace/authentication minting and product wiring remain
+  unavailable.
 - Added a consumable Rust provider-authority outcome that mints a private,
   non-cloneable, non-serializable context only after the complete injection
   decision succeeds. The context exposes typed origin, namespace, service,

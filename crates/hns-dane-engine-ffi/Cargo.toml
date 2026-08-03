@@ -21,6 +21,9 @@ hns-dane-engine.workspace = true
 hns-dns-wire.workspace = true
 hns-resolution-policy.workspace = true
 
+[dev-dependencies]
+hns-namespace-resolution.workspace = true
+
 [lints.rust]
 missing_docs = "warn"
 unsafe_code = "allow"

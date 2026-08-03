@@ -7,6 +7,15 @@ Rust panics, while pointer validity, buffer lengths, and allocation ownership
 remain explicit caller obligations. The public header is
 [`include/hns_dane_engine.h`](include/hns_dane_engine.h).
 
+The provider-authority consumer ABI accepts only an opaque context moved from
+an engine-authorized Rust outcome. Native code can inspect its immutable typed
+bindings, copy its bounded canonical host, check it against current engine
+state, and destroy it. C cannot construct, import, clone, or serialize an
+authority. Pure-C namespace/context minting and product provider wiring remain
+unavailable. Each handle retains the exact live Rust engine used for
+currentness checks until native destruction; a mismatched engine/context pair
+cannot become authority through its output projection.
+
 Published releases can be added with:
 
 ```bash

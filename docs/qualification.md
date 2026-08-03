@@ -2,9 +2,10 @@
 
 The command transcript below is retained evidence from published tag `v0.1.0`
 (commit `02c063ac3e94a91b222201fb51d95ff3ac19f026`). It does not qualify the
-current unreleased 0.2 provider-authority continuation. That source and its
-added test cases have not been built, linted, tested, benchmarked, or
-release-qualified in this continuation. `cargo-deny` may separately refresh
+current unreleased 0.2 provider-authority continuation. That continuation has
+not received the full lint, benchmark, C-header, or release qualification
+gate. The narrow provider-authority ABI regression recorded below is the only
+test evidence added in this continuation. `cargo-deny` may separately refresh
 its advisory database:
 
 ```text
@@ -42,6 +43,20 @@ cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
   passed
 ```
 
+Current unreleased focused evidence (2026-08-03):
+
+```text
+CARGO_TARGET_DIR=/home/den/.codex/targets/hns-dane-engine-authority-abi-aug3 \
+TMPDIR=/home/den/.codex/tmp/hns-dane-engine-authority-abi-aug3 \
+cargo test --offline -p hns-dane-engine-ffi provider_authority_ffi -- --test-threads=1
+  2 passed; 0 failed; 5 filtered out
+```
+
+The first locked invocation stopped before compilation because the workspace
+lockfile still carried a stale `hns-loopback-proxy` dependency list. The same
+focused command regenerated that local-package stanza offline; the corrected
+lockfile is committed with this continuation.
+
 Recorded foundation coverage and current source status:
 
 - independently cloneable Cargo resolution with nine reviewed direct
@@ -72,7 +87,7 @@ Recorded foundation coverage and current source status:
   query/policy/root/configuration-bound decision and decision-derived cache fingerprints,
   including rejection of a silent switch away from an authentically absent pinned or persistently
   bound root;
-- unqualified 0.2 source and unexecuted test cases for exact HTTPS-only
+- unqualified 0.2 source and test cases for exact HTTPS-only
   logical-origin derivation; private decision/authentication contexts;
   exact-request opaque ICANN adapter tokens; strict HNS completion binding
   across URL/service ports, canonical TLSA, network, proof anchor, and
@@ -226,10 +241,10 @@ Not yet implemented:
 - live registry negotiation exchange and HSD draft-PR cross-language execution (the requester
   consumes and enforces an already authenticated `NegotiatedRegistry`);
 - native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf
-  lifecycle, mobile ABI packaging, platform bridges, and C ABI exposure of
-  the Rust-only namespace-decision/provider-injection authority (the shared
-  proxy admission/publication and Rust provider-authority cores are implemented
-  only as unqualified source);
+  lifecycle, mobile ABI packaging, platform bridges, pure-C namespace/context
+  minting, strict-completion and trusted-ICANN bindings (the shared proxy
+  admission/publication core, Rust provider-authority core, and authorized-only
+  opaque consumer/lifecycle ABI are implemented only as unqualified source);
 - fuzz targets, HSD-generated live DNSSEC fixture generation, and performance benchmarks.
 
 The strict Rust facade has a non-forgeable
@@ -237,9 +252,14 @@ header/Urkel/resource/DS/DNSKEY/CNAME/TLSA path and derives DANE-EE or DANE-TA
 evidence locally. Rust facade version 3 also has source for a fail-closed
 exact-origin provider-injection authority, opaque authorized-only context, and
 bounded loopback publication consumer,
-while the legacy C ABI still accepts prerequisite verdicts and exposes neither
-the full proof workflow nor opaque namespace/provider contexts. The new Rust
-context/publication source, native platform consumption, and the unreleased
-0.2 line still require the applicable qualification gate. Platform provider
-availability remains disabled. This repository therefore does not claim that
-the complete browser engine or ecosystem is qualified.
+while the legacy C resolution ABI still accepts prerequisite verdicts and
+exposes neither the full proof workflow nor opaque namespace/authentication
+contexts. The source-only consumer ABI can retain an authorized Rust provider
+context, inspect its immutable bindings, copy its bounded host, check engine
+currentness, and destroy it, but cannot mint authority from C. Its two focused
+Rust ABI regressions passed in this continuation; the C header smoke, full
+workspace, lint, benchmark, and release gates were not rerun. The new
+Rust context/publication source, native platform consumption, and the
+unreleased 0.2 line still require the applicable qualification gate. Platform
+provider availability remains disabled. This repository therefore does not
+claim that the complete browser engine or ecosystem is qualified.

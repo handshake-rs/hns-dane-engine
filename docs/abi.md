@@ -18,6 +18,10 @@ Ownership rules:
 - `hns_dane_engine_v1_destroy` consumes it exactly once after concurrent calls stop.
 - `hns_dane_engine_v1_admit` transfers one attempt handle to the caller.
 - `hns_dane_engine_v1_attempt_destroy` consumes it exactly once.
+- trusted Rust code may move an authorized `ProviderAuthorityContext` into one
+  `HnsDaneProviderAuthority`; C has no constructor or import function.
+- `hns_dane_engine_provider_v1_authority_destroy` consumes that handle exactly
+  once after concurrent borrowed calls stop; destroying null is a no-op.
 - all other input pointers are borrowed only for the duration of the call.
 
 Policy structs include both `struct_size` and `abi_version`; reserved bytes
@@ -70,15 +74,47 @@ by a locally verified HNS name proof. It is never a network transport-plan
 candidate and admission returns `HNS_DANE_TRANSPORT_DISABLED`. The Rust
 facade is version 3; browser-runtime and shared observability schemas remain
 version 2, and the policy persistence schema is independently version 3. The
-C ABI remains at its existing version and does not yet expose the Rust-only
-namespace-decision/provider-injection authority. The Rust facade now mints a
-private, non-cloneable, non-serializable provider context on exact success and
-supports consuming decision revalidation plus borrowed currentness checks for a
-trusted native publication that retains the opaque context. Unrelated admitted
-work does not revoke it; runtime invalidation, policy/runtime replacement, and
-expiry do. A future ABI must preserve that
-model with opaque engine-issued decision/context handles and lifecycle methods
-rather than caller-constructible authentication or permission fields. Until
-then, C/mobile consumers must treat provider-authority integration as
-unavailable. Navigation and same-origin decision replacement must revoke or
-replace the corresponding future opaque handle in the platform layer.
+C runtime and policy entry points retain their existing versions. A separate
+provider-authority consumer ABI starts at version 1 without reinterpreting any
+older structure or reserved byte.
+
+The provider-authority ABI deliberately has no C mint, clone, serialize,
+deserialize, or import operation. A trusted Rust authority host may move only
+an engine-issued `ProviderAuthorityContext` from an authorized outcome through
+`provider_authority_into_ffi` together with the exact live `Arc<Engine>` that
+will evaluate it. This transfers one opaque,
+non-cloneable/non-serializable authority to native ownership. A denial or a
+caller-built field set cannot enter this path. The handle retains the engine
+until destruction. Pairing a context with an engine that does not admit its
+session/generation binding can only produce a non-current handle; its readable
+projection grants nothing.
+
+`HnsDaneProviderAuthorityInfoV1` is a 120-byte output-only immutable
+projection. It carries the origin scheme and port, selected namespace,
+authentication status, HNS network, TLS policy, selected TCP service port,
+runtime session/generation/event, policy generation, decision fingerprint,
+and absolute validity interval. The canonical host remains behind
+`hns_dane_engine_provider_v1_authority_copy_host`, which follows the policy
+export sizing convention and copies exact UTF-8 bytes without an implicit NUL.
+Neither projection can reconstruct authority or substitute for the opaque
+handle.
+
+Before provider publication or use, trusted native code calls
+`hns_dane_engine_provider_v1_authority_is_current` with the originating live
+engine retained inside the handle and trusted current Unix time. Ordinary
+expiry or a retained-engine, session, network, policy, runtime, or invalidation
+mismatch returns `HNS_DANE_OK` with zero; unrelated admitted work retains
+currentness. Degradation, revocation, stop, or generation replacement cannot
+be reversed by later recovery. The handle must never cross into page
+JavaScript. Navigation and same-origin decision replacement synchronously
+destroy or replace it in the platform layer.
+The platform supplies this time from trusted native lifecycle state, rejects
+rollback, and never accepts a page-provided timestamp.
+
+This is a consumer/lifecycle boundary, not complete pure-C authorization.
+The C ABI still does not construct opaque namespace decisions, authenticated
+origin contexts, or strict HNS completions, and does not expose the trusted
+ICANN authenticator callback. A native integration that does not contain the
+trusted Rust minting host must therefore keep provider authority unavailable.
+No product provider, wallet permission, signing, value, or marketplace path is
+enabled by this ABI source, and the unreleased code remains unqualified.

@@ -83,6 +83,22 @@ by the current decision expiry or a denial with no reusable authority. The
 context must never cross into page JavaScript, and its readable fields are
 bindings rather than independent permission inputs.
 
+The provider-authority consumer ABI preserves that distinction. Its ordinary
+Rust handoff consumes an authorized context exactly once into an opaque native
+handle; no C constructor, import, clone, or serialization operation exists.
+The C projection is output-only and the canonical host is copied as bounded
+exact UTF-8 bytes without a terminator contract. Native code must retain the
+opaque handle and obtain a successful currentness result from the originating
+live engine retained by that handle immediately before publication or use.
+The handle keeps the engine alive until destruction. A different engine
+session/generation pairing remains non-current rather than creating authority.
+Expiry and every engine/session/network/policy/runtime/invalidation mismatch
+fail closed as a zero result. The native host supplies time, rejects rollback,
+and never accepts a page timestamp. Projection fields are never independent
+permission inputs, and the raw handle, its address, and its bindings must not
+be exposed to page JavaScript or logs. Destroying/replacing the handle remains
+part of the platform's navigation lifecycle.
+
 For ICANN, the trusted embedding adapter receives an exact engine-derived
 request and returns an opaque token minted from that request after local DANE
 or WebPKI verification. A token retained from another origin, decision,

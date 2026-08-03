@@ -579,6 +579,7 @@ dependencies = [
  "hns-dane",
  "hns-dane-engine",
  "hns-dns-wire",
+ "hns-namespace-resolution",
  "hns-resolution-policy",
 ]
 
@@ -674,10 +675,8 @@ dependencies = [
 name = "hns-loopback-proxy"
 version = "0.2.0"
 dependencies = [
- "hns-browser-testkit",
- "hns-dane",
  "hns-dane-engine",
- "hns-dns-wire",
+ "hns-namespace-resolution",
  "hns-resolution-policy",
  "subtle",
  "thiserror",

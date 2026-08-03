@@ -14,11 +14,12 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::slice;
 use std::str;
+use std::sync::Arc;
 
 use hns_dane::DaneLimits;
 use hns_dane_engine::{
     AuthorityState, CompletionContext, Engine, EngineConfig, EngineError, LocalDanePrerequisites,
-    ResolutionAttempt, RuntimeSessionId,
+    ProviderAuthorityContext, ResolutionAttempt, RuntimeSessionId,
 };
 use hns_dns_wire::{Name, ParseLimits, Query, RecordType};
 use hns_resolution_policy::{
@@ -30,6 +31,8 @@ use hns_resolution_policy::{
 pub const ABI_VERSION: u32 = 1;
 /// Policy ABI version that exposes recursive-HNS-DoH requester consent.
 pub const POLICY_ABI_VERSION_V2: u32 = 2;
+/// Provider-authority consumer ABI version.
+pub const PROVIDER_AUTHORITY_ABI_VERSION_V1: u32 = 1;
 /// All caller-supplied prerequisite bits required before local DANE matching.
 pub const PREREQUISITES_ALL_VERIFIED: u32 = 0x33;
 /// Maximum bytes in each fixed-size C transport identity.
@@ -63,12 +66,27 @@ pub struct HnsDaneAttempt {
     _private: [u8; 0],
 }
 
+/// Opaque authorized provider-context handle declaration.
+///
+/// C callers cannot construct or import this handle. A trusted Rust authority
+/// host must move an engine-issued [`ProviderAuthorityContext`] through
+/// [`provider_authority_into_ffi`].
+#[repr(C)]
+pub struct HnsDaneProviderAuthority {
+    _private: [u8; 0],
+}
+
 struct EngineHandle {
     engine: Engine,
 }
 
 struct AttemptHandle {
     attempt: ResolutionAttempt,
+}
+
+struct ProviderAuthorityHandle {
+    engine: Arc<Engine>,
+    authority: ProviderAuthorityContext,
 }
 
 /// C ABI status.
@@ -240,6 +258,74 @@ pub struct HnsDaneResultV1 {
     pub reserved: u8,
 }
 
+/// Immutable typed bindings carried by one authorized provider context.
+///
+/// This is an output-only projection. Its fields cannot be imported or used to
+/// reconstruct authority; possession of the corresponding opaque handle and a
+/// successful currentness check remain mandatory.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HnsDaneProviderAuthorityInfoV1 {
+    /// Set to `sizeof(HnsDaneProviderAuthorityInfoV1)`.
+    pub struct_size: u32,
+    /// Set to [`PROVIDER_AUTHORITY_ABI_VERSION_V1`].
+    pub abi_version: u32,
+    /// [`hns_dane_engine::OriginScheme`] discriminant.
+    pub origin_scheme: u8,
+    /// [`hns_dane_engine::Namespace`] discriminant.
+    pub selected_namespace: u8,
+    /// [`hns_dane_engine::AuthenticatedContextStatus`] discriminant.
+    pub authenticated_context: u8,
+    /// [`hns_dane_engine::HnsNetwork`] discriminant.
+    pub hns_network: u8,
+    /// [`hns_dane_engine::TlsTrustPolicy`] discriminant.
+    pub tls_policy: u8,
+    /// Must be zero.
+    pub reserved0: u8,
+    /// Effective URL-origin port.
+    pub origin_port: u16,
+    /// Exact selected TCP service port.
+    pub service_port: u16,
+    /// Must be zero.
+    pub reserved1: [u8; 6],
+    /// Browser-authority process session.
+    pub runtime_session: [u8; 16],
+    /// Browser-authority runtime generation.
+    pub runtime_generation: u64,
+    /// Persistent trust-policy generation.
+    pub policy_generation: u64,
+    /// Exact authority event that stamped the context.
+    pub event_sequence: u64,
+    /// Complete namespace-decision identity.
+    pub decision_fingerprint: [u8; 32],
+    /// First time at which the context may be consumed.
+    pub valid_from: u64,
+    /// Exclusive context expiry.
+    pub valid_until: u64,
+    /// Must be zero.
+    pub reserved: [u8; 8],
+}
+
+/// Move an authorized Rust context into a caller-owned opaque C handle.
+///
+/// This Rust-only handoff is deliberately the sole constructor. It retains
+/// the exact live engine used for future currentness checks and accepts no
+/// diagnostic decision or caller-provided permission fields. The returned
+/// pointer must be destroyed exactly once with
+/// [`hns_dane_engine_provider_v1_authority_destroy`] after concurrent borrows
+/// have stopped, and must never be exposed to page JavaScript.
+/// A retained engine that does not admit the context cannot make the handle
+/// current; the projection never substitutes for this check. The handle keeps
+/// its engine alive until destruction.
+#[must_use = "the returned provider-authority handle is caller-owned"]
+pub fn provider_authority_into_ffi(
+    engine: Arc<Engine>,
+    authority: ProviderAuthorityContext,
+) -> *mut HnsDaneProviderAuthority {
+    Box::into_raw(Box::new(ProviderAuthorityHandle { engine, authority }))
+        .cast::<HnsDaneProviderAuthority>()
+}
+
 /// Return the ABI version without dereferencing caller memory.
 #[unsafe(no_mangle)]
 pub extern "C" fn hns_dane_engine_v1_abi_version() -> u32 {
@@ -250,6 +336,12 @@ pub extern "C" fn hns_dane_engine_v1_abi_version() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn hns_dane_engine_v2_abi_version() -> u32 {
     POLICY_ABI_VERSION_V2
+}
+
+/// Return the provider-authority consumer ABI version without dereferencing caller memory.
+#[unsafe(no_mangle)]
+pub extern "C" fn hns_dane_engine_provider_v1_abi_version() -> u32 {
+    PROVIDER_AUTHORITY_ABI_VERSION_V1
 }
 
 /// Create an engine.
@@ -344,6 +436,133 @@ pub unsafe extern "C" fn hns_dane_engine_v1_attempt_destroy(attempt: *mut HnsDan
         // SAFETY: Ownership is returned by the caller under the function contract.
         unsafe {
             drop(Box::from_raw(attempt.cast::<AttemptHandle>()));
+        }
+        Ok(())
+    })
+}
+
+/// Destroy an opaque provider-authority handle.
+///
+/// # Safety
+///
+/// `authority` must be null or a live pointer returned by
+/// [`provider_authority_into_ffi`], and must be destroyed at most once after
+/// concurrent calls using it have stopped.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hns_dane_engine_provider_v1_authority_destroy(
+    authority: *mut HnsDaneProviderAuthority,
+) -> i32 {
+    ffi_guard(|| {
+        if authority.is_null() {
+            return Ok(());
+        }
+        // SAFETY: Ownership is returned by the caller under the function contract.
+        unsafe {
+            drop(Box::from_raw(authority.cast::<ProviderAuthorityHandle>()));
+        }
+        Ok(())
+    })
+}
+
+/// Read immutable typed bindings from an opaque provider authority.
+///
+/// The projection is diagnostic and cannot recreate or replace the handle.
+///
+/// # Safety
+///
+/// `authority` must be a live handle and `output` valid for one structure write.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hns_dane_engine_provider_v1_authority_get_info(
+    authority: *const HnsDaneProviderAuthority,
+    output: *mut HnsDaneProviderAuthorityInfoV1,
+) -> i32 {
+    ffi_guard(|| {
+        if output.is_null() {
+            return Err(HnsDaneStatus::NullPointer);
+        }
+        // SAFETY: The caller contract requires a live provider-authority handle.
+        let authority = unsafe { provider_authority_ref(authority)? };
+        let info = provider_authority_info(&authority.authority)?;
+        // SAFETY: output is required writable by the caller contract.
+        unsafe {
+            output.write(info);
+        }
+        Ok(())
+    })
+}
+
+/// Copy the exact canonical logical-origin host from an opaque authority.
+///
+/// The host is returned as exact UTF-8 bytes without a trailing NUL. A sizing
+/// call may pass a null `output` with zero `capacity`; `written` then receives
+/// the required length and the function returns `BufferTooSmall`.
+///
+/// # Safety
+///
+/// `authority` must be a live handle. `written` must be writable. `output`
+/// must reference `capacity` writable bytes when capacity is sufficient.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hns_dane_engine_provider_v1_authority_copy_host(
+    authority: *const HnsDaneProviderAuthority,
+    output: *mut u8,
+    capacity: usize,
+    written: *mut usize,
+) -> i32 {
+    ffi_guard(|| {
+        if written.is_null() {
+            return Err(HnsDaneStatus::NullPointer);
+        }
+        // SAFETY: The caller contract requires a live provider-authority handle.
+        let authority = unsafe { provider_authority_ref(authority)? };
+        let host = authority.authority.logical_origin().host().as_bytes();
+        // SAFETY: written is required writable by the caller contract.
+        unsafe {
+            written.write(host.len());
+        }
+        if capacity < host.len() {
+            return Err(HnsDaneStatus::BufferTooSmall);
+        }
+        if output.is_null() {
+            return Err(HnsDaneStatus::NullPointer);
+        }
+        // SAFETY: capacity was checked and output must reference writable storage.
+        unsafe {
+            slice::from_raw_parts_mut(output, capacity)[..host.len()].copy_from_slice(host);
+        }
+        Ok(())
+    })
+}
+
+/// Check an opaque authority against its retained engine and trusted time.
+///
+/// Expiry or any session, network, policy, runtime, or invalidation mismatch is
+/// a normal successful query that writes zero to `current`.
+/// `now_unix` must come from the trusted native lifecycle, never page input;
+/// the platform is responsible for rejecting clock rollback.
+///
+/// # Safety
+///
+/// `authority` must be a live handle and `current` writable. No caller may
+/// destroy the handle concurrently with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hns_dane_engine_provider_v1_authority_is_current(
+    authority: *const HnsDaneProviderAuthority,
+    now_unix: u64,
+    current: *mut u8,
+) -> i32 {
+    ffi_guard(|| {
+        if current.is_null() {
+            return Err(HnsDaneStatus::NullPointer);
+        }
+        // SAFETY: The caller contract requires a live authority handle.
+        let authority = unsafe { provider_authority_ref(authority)? };
+        let is_current = authority
+            .engine
+            .provider_authority_is_current(&authority.authority, now_unix)
+            .map_err(map_engine_error)?;
+        // SAFETY: current is required writable by the caller contract.
+        unsafe {
+            current.write(u8::from(is_current));
         }
         Ok(())
     })
@@ -762,6 +981,42 @@ unsafe fn attempt_ref<'a>(
     Ok(unsafe { &*attempt.cast::<AttemptHandle>() })
 }
 
+unsafe fn provider_authority_ref<'a>(
+    authority: *const HnsDaneProviderAuthority,
+) -> Result<&'a ProviderAuthorityHandle, HnsDaneStatus> {
+    if authority.is_null() {
+        return Err(HnsDaneStatus::NullPointer);
+    }
+    // SAFETY: The caller guarantees this is a live handle from the Rust handoff.
+    Ok(unsafe { &*authority.cast::<ProviderAuthorityHandle>() })
+}
+
+fn provider_authority_info(
+    authority: &ProviderAuthorityContext,
+) -> Result<HnsDaneProviderAuthorityInfoV1, HnsDaneStatus> {
+    Ok(HnsDaneProviderAuthorityInfoV1 {
+        struct_size: size_u32::<HnsDaneProviderAuthorityInfoV1>()?,
+        abi_version: PROVIDER_AUTHORITY_ABI_VERSION_V1,
+        origin_scheme: authority.logical_origin().scheme() as u8,
+        selected_namespace: authority.selected_namespace() as u8,
+        authenticated_context: authority.authenticated_context() as u8,
+        hns_network: authority.hns_network() as u8,
+        tls_policy: authority.tls_policy() as u8,
+        reserved0: 0,
+        origin_port: authority.logical_origin().port(),
+        service_port: authority.service_port(),
+        reserved1: [0; 6],
+        runtime_session: authority.runtime_session(),
+        runtime_generation: authority.runtime_generation(),
+        policy_generation: authority.policy_generation(),
+        event_sequence: authority.event_sequence(),
+        decision_fingerprint: authority.decision_fingerprint(),
+        valid_from: authority.valid_from(),
+        valid_until: authority.valid_until(),
+        reserved: [0; 8],
+    })
+}
+
 fn network_from_u8(value: u8) -> Result<Network, HnsDaneStatus> {
     match value {
         0 => Ok(Network::Mainnet),
@@ -1058,8 +1313,23 @@ fn map_engine_error(error: EngineError) -> HnsDaneStatus {
 )]
 mod tests {
     use super::*;
+    use hns_dane_engine::{
+        AuthenticatedContextStatus, HnsNetwork, IcannOriginAuthentication,
+        IcannOriginAuthenticationRequest, Namespace, NamespaceDecision, OriginScheme,
+        TlsTrustPolicy,
+    };
     use hns_dns_wire::{Flags, Header, Message, Rdata, ResourceRecord, Tlsa};
+    use hns_namespace_resolution::{
+        AbsenceKind, ApplicationProtocol, CanonicalHost, EvidenceProvenance, Freshness,
+        IcannChainState, OriginPlanInput, OriginQuery, ProtocolCapabilities, RootLookup,
+        SelectionPolicy, ServiceBinding, ServiceBindingInput, ServiceTransport, ValidatedAbsence,
+        ValidatedOriginPlan, decide_namespace,
+    };
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::ptr;
+    use std::sync::Arc;
+
+    const PROVIDER_AUTHORITY_NOW: u64 = 1_700_000_000;
 
     fn decode_hex(input: &str) -> Vec<u8> {
         let compact: Vec<u8> = input
@@ -1075,6 +1345,348 @@ mod tests {
                 u8::try_from((high << 4) | low).unwrap()
             })
             .collect()
+    }
+
+    fn provider_authority_ffi_engine(session: [u8; 16]) -> Engine {
+        let engine = Engine::new(EngineConfig {
+            runtime_session: RuntimeSessionId::new(session).unwrap(),
+            network: Network::Regtest,
+            policy: PolicySnapshot::default(),
+        });
+        for state in [
+            AuthorityState::LocalStateOpened,
+            AuthorityState::HeaderSyncing,
+            AuthorityState::HeaderCurrent,
+            AuthorityState::ProofReady,
+            AuthorityState::ResolutionTransportReady,
+            AuthorityState::DnssecVerified,
+            AuthorityState::BrowserBridgeReady,
+            AuthorityState::Active,
+        ] {
+            engine.advance_authority_state(state).unwrap();
+        }
+        engine
+    }
+
+    fn provider_authority_ffi_decision(host: &str) -> NamespaceDecision {
+        let query = OriginQuery::new(
+            CanonicalHost::parse(host).unwrap(),
+            OriginScheme::Https,
+            None,
+            ProtocolCapabilities::all(),
+        );
+        let target = query.host().clone();
+        let port = query.origin_port();
+        let freshness =
+            Freshness::new(PROVIDER_AUTHORITY_NOW - 10, PROVIDER_AUTHORITY_NOW + 100).unwrap();
+        let service = ServiceBinding::new(ServiceBindingInput {
+            priority: None,
+            service_target: target.clone(),
+            mandatory_keys: Vec::new(),
+            advertised_alpn: Vec::new(),
+            selected_protocol: ApplicationProtocol::Http11,
+            effective_port: port,
+            transport: ServiceTransport::Tcp,
+            connection_hints: Vec::new(),
+            ech_config: None,
+            parameters: Vec::new(),
+        })
+        .unwrap();
+        let icann = ValidatedOriginPlan::new(OriginPlanInput {
+            namespace: Namespace::Icann,
+            query: query.clone(),
+            alias_path: Vec::new(),
+            terminal_target: target.clone(),
+            endpoint_alias_path: Vec::new(),
+            endpoint_target: target,
+            endpoints: vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+                port.get(),
+            )],
+            service,
+            tls_policy: TlsTrustPolicy::WebPkiAuthenticatedAbsence,
+            tlsa_records: Vec::new(),
+            provenance: EvidenceProvenance::IcannDoh {
+                chain_state: IcannChainState::Secure,
+            },
+            freshness,
+        })
+        .unwrap();
+        let hns_absence = ValidatedAbsence::new(
+            Namespace::Hns,
+            query.clone(),
+            AbsenceKind::HnsCurrentUrkelNonInclusion,
+            EvidenceProvenance::Hns {
+                network: HnsNetwork::Regtest,
+                tree_root: [21; 32],
+                height: 42,
+            },
+            freshness,
+        )
+        .unwrap();
+        decide_namespace(
+            &query,
+            RootLookup::Absent(hns_absence),
+            RootLookup::Present(icann),
+            SelectionPolicy::default(),
+            PROVIDER_AUTHORITY_NOW,
+        )
+        .unwrap()
+    }
+
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "the deterministic test principal implements the optional authenticator result"
+    )]
+    fn provider_authority_ffi_webpki(
+        request: &IcannOriginAuthenticationRequest,
+    ) -> Option<IcannOriginAuthentication> {
+        Some(request.attest_webpki_verified())
+    }
+
+    fn provider_authority_ffi_context(
+        engine: &Engine,
+        decision: &NamespaceDecision,
+    ) -> ProviderAuthorityContext {
+        let context = engine
+            .bind_icann_origin_context(
+                decision,
+                &provider_authority_ffi_webpki,
+                PROVIDER_AUTHORITY_NOW,
+            )
+            .unwrap();
+        engine
+            .authorize_provider_injection(decision, &context, PROVIDER_AUTHORITY_NOW)
+            .unwrap()
+            .into_context()
+            .unwrap()
+    }
+
+    #[test]
+    fn provider_authority_ffi_projects_and_checks_authorized_handle() {
+        assert_eq!(std::mem::size_of::<HnsDaneProviderAuthorityInfoV1>(), 120);
+        assert_eq!(
+            hns_dane_engine_provider_v1_abi_version(),
+            PROVIDER_AUTHORITY_ABI_VERSION_V1
+        );
+
+        let engine = Arc::new(provider_authority_ffi_engine([41; 16]));
+        let decision = provider_authority_ffi_decision("wallet.example");
+        let authority = provider_authority_ffi_context(&engine, &decision);
+        let authority = provider_authority_into_ffi(Arc::clone(&engine), authority);
+        assert!(!authority.is_null());
+
+        let mut info = HnsDaneProviderAuthorityInfoV1::default();
+        // SAFETY: authority is live and info is writable local storage.
+        assert_eq!(
+            unsafe { hns_dane_engine_provider_v1_authority_get_info(authority, &mut info) },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(info.struct_size, 120);
+        assert_eq!(info.abi_version, PROVIDER_AUTHORITY_ABI_VERSION_V1);
+        assert_eq!(info.origin_scheme, OriginScheme::Https as u8);
+        assert_eq!(info.selected_namespace, Namespace::Icann as u8);
+        assert_eq!(
+            info.authenticated_context,
+            AuthenticatedContextStatus::IcannWebPkiAuthenticatedAbsence as u8
+        );
+        assert_eq!(info.hns_network, HnsNetwork::Regtest as u8);
+        assert_eq!(
+            info.tls_policy,
+            TlsTrustPolicy::WebPkiAuthenticatedAbsence as u8
+        );
+        assert_eq!(info.origin_port, 443);
+        assert_eq!(info.service_port, 443);
+        assert_eq!(info.runtime_session, [41; 16]);
+        assert_eq!(info.runtime_generation, 1);
+        assert_eq!(info.policy_generation, 1);
+        assert_ne!(info.event_sequence, 0);
+        assert_ne!(info.decision_fingerprint, [0; 32]);
+        assert_eq!(info.valid_from, PROVIDER_AUTHORITY_NOW);
+        assert_eq!(info.valid_until, PROVIDER_AUTHORITY_NOW + 100);
+        assert_eq!(info.reserved0, 0);
+        assert_eq!(info.reserved1, [0; 6]);
+        assert_eq!(info.reserved, [0; 8]);
+
+        let mut required = 0usize;
+        // SAFETY: authority is live and required is writable local storage.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_copy_host(
+                    authority,
+                    ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            HnsDaneStatus::BufferTooSmall.code()
+        );
+        assert_eq!(required, b"wallet.example".len());
+        let mut host = vec![0; required];
+        // SAFETY: authority is live, host has the reported capacity, and required is writable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_copy_host(
+                    authority,
+                    host.as_mut_ptr(),
+                    host.len(),
+                    &mut required,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(host.as_slice(), b"wallet.example");
+
+        let mut current = 0;
+        // SAFETY: authority is live and current is writable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_is_current(
+                    authority,
+                    PROVIDER_AUTHORITY_NOW,
+                    &mut current,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(current, 1);
+
+        let unrelated_query = Query::new(
+            0x4040,
+            Name::from_ascii("_443._tcp.other.example").unwrap(),
+            RecordType::Tlsa,
+        )
+        .unwrap();
+        engine
+            .admit_resolution(ResolutionTransport::DirectAuthoritativeTcp, unrelated_query)
+            .unwrap();
+        // SAFETY: authority remains live and current is writable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_is_current(
+                    authority,
+                    PROVIDER_AUTHORITY_NOW,
+                    &mut current,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(current, 1);
+
+        let authority_engine = Arc::new(provider_authority_ffi_engine([42; 16]));
+        let authority_decision = provider_authority_ffi_decision("mismatch.example");
+        let mismatched_authority =
+            provider_authority_ffi_context(&authority_engine, &authority_decision);
+        let mismatched_engine = Arc::new(provider_authority_ffi_engine([43; 16]));
+        let mismatched_engine_lifetime = Arc::downgrade(&mismatched_engine);
+        let mismatched_authority =
+            provider_authority_into_ffi(mismatched_engine, mismatched_authority);
+        assert!(mismatched_engine_lifetime.upgrade().is_some());
+        // SAFETY: mismatched_authority is live and current is writable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_is_current(
+                    mismatched_authority,
+                    PROVIDER_AUTHORITY_NOW,
+                    &mut current,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(current, 0);
+        // SAFETY: mismatched_authority is its still-live caller-owned allocation.
+        assert_eq!(
+            unsafe { hns_dane_engine_provider_v1_authority_destroy(mismatched_authority) },
+            HnsDaneStatus::Ok.code()
+        );
+        assert!(mismatched_engine_lifetime.upgrade().is_none());
+
+        // SAFETY: authority is live and current is writable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_is_current(
+                    authority,
+                    PROVIDER_AUTHORITY_NOW + 100,
+                    &mut current,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(current, 0);
+
+        engine
+            .advance_authority_state(AuthorityState::Degraded)
+            .unwrap();
+        for state in [
+            AuthorityState::HeaderSyncing,
+            AuthorityState::HeaderCurrent,
+            AuthorityState::ProofReady,
+            AuthorityState::ResolutionTransportReady,
+            AuthorityState::BrowserBridgeReady,
+            AuthorityState::Active,
+        ] {
+            engine.advance_authority_state(state).unwrap();
+        }
+        // SAFETY: authority is live and current is writable.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_is_current(
+                    authority,
+                    PROVIDER_AUTHORITY_NOW,
+                    &mut current,
+                )
+            },
+            HnsDaneStatus::Ok.code()
+        );
+        assert_eq!(current, 0);
+
+        // SAFETY: each pointer is its still-live caller-owned allocation.
+        assert_eq!(
+            unsafe { hns_dane_engine_provider_v1_authority_destroy(authority) },
+            HnsDaneStatus::Ok.code()
+        );
+    }
+
+    #[test]
+    fn provider_authority_ffi_rejects_nulls_without_constructing_authority() {
+        let mut info = HnsDaneProviderAuthorityInfoV1::default();
+        let mut written = 0usize;
+        let mut current = 0u8;
+        // SAFETY: null inputs are explicitly admitted for fail-closed validation.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_get_info(ptr::null(), &mut info)
+            },
+            HnsDaneStatus::NullPointer.code()
+        );
+        // SAFETY: null inputs are explicitly admitted for fail-closed validation.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_copy_host(
+                    ptr::null(),
+                    ptr::null_mut(),
+                    0,
+                    &mut written,
+                )
+            },
+            HnsDaneStatus::NullPointer.code()
+        );
+        // SAFETY: null inputs are explicitly admitted for fail-closed validation.
+        assert_eq!(
+            unsafe {
+                hns_dane_engine_provider_v1_authority_is_current(
+                    ptr::null(),
+                    PROVIDER_AUTHORITY_NOW,
+                    &mut current,
+                )
+            },
+            HnsDaneStatus::NullPointer.code()
+        );
+        // SAFETY: destroying a null provider-authority handle is explicitly a no-op.
+        assert_eq!(
+            unsafe { hns_dane_engine_provider_v1_authority_destroy(ptr::null_mut()) },
+            HnsDaneStatus::Ok.code()
+        );
     }
 
     #[test]

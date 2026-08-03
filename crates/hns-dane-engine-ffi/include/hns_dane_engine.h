@@ -10,6 +10,7 @@ extern "C" {
 
 #define HNS_DANE_ENGINE_ABI_VERSION 1u
 #define HNS_DANE_ENGINE_POLICY_ABI_VERSION_V2 2u
+#define HNS_DANE_ENGINE_PROVIDER_AUTHORITY_ABI_VERSION_V1 1u
 #define HNS_DANE_PREREQUISITE_HNS_PROOF (1u << 0)
 #define HNS_DANE_PREREQUISITE_DNSSEC (1u << 1)
 #define HNS_DANE_PREREQUISITE_CHAIN_CURRENT (1u << 4)
@@ -35,6 +36,30 @@ extern "C" {
 #define HNS_DANE_PROVIDER_ODOH_TARGET (1u << 2)
 #define HNS_DANE_PROVIDER_MARKET_GOSSIP (1u << 3)
 
+#define HNS_DANE_NETWORK_MAINNET 0u
+#define HNS_DANE_NETWORK_TESTNET 1u
+#define HNS_DANE_NETWORK_REGTEST 2u
+#define HNS_DANE_NETWORK_SIMNET 3u
+
+#define HNS_DANE_NAMESPACE_HNS 1u
+#define HNS_DANE_NAMESPACE_ICANN 2u
+
+#define HNS_DANE_ORIGIN_SCHEME_HTTP 1u
+#define HNS_DANE_ORIGIN_SCHEME_HTTPS 2u
+#define HNS_DANE_ORIGIN_SCHEME_WS 3u
+#define HNS_DANE_ORIGIN_SCHEME_WSS 4u
+
+#define HNS_DANE_AUTHENTICATED_CONTEXT_UNAUTHENTICATED 0u
+#define HNS_DANE_AUTHENTICATED_CONTEXT_HNS_DANE_VERIFIED 1u
+#define HNS_DANE_AUTHENTICATED_CONTEXT_ICANN_DANE_VERIFIED 2u
+#define HNS_DANE_AUTHENTICATED_CONTEXT_ICANN_WEBPKI_AUTHENTICATED_ABSENCE 3u
+#define HNS_DANE_AUTHENTICATED_CONTEXT_ICANN_WEBPKI_INSECURE_DELEGATION 4u
+
+#define HNS_DANE_TLS_POLICY_CLEARTEXT 1u
+#define HNS_DANE_TLS_POLICY_DANE 2u
+#define HNS_DANE_TLS_POLICY_WEBPKI_AUTHENTICATED_ABSENCE 3u
+#define HNS_DANE_TLS_POLICY_WEBPKI_INSECURE_DELEGATION 4u
+
 #define HNS_DANE_HNSR_REQUESTER (1u << 0)
 #define HNS_DANE_HNSR_ENDPOINT (1u << 1)
 #define HNS_DANE_HNSR_RELAY (1u << 2)
@@ -52,6 +77,11 @@ extern "C" {
 
 typedef struct HnsDaneEngine HnsDaneEngine;
 typedef struct HnsDaneAttempt HnsDaneAttempt;
+/*
+ * Authorized-only opaque context. No C constructor/import exists: a trusted
+ * Rust authority host moves an engine-issued context into this handle.
+ */
+typedef struct HnsDaneProviderAuthority HnsDaneProviderAuthority;
 
 typedef struct HnsDanePolicyV1 {
   uint32_t struct_size;
@@ -111,8 +141,35 @@ typedef struct HnsDaneTransportContextV1 {
   uint8_t target_identity[HNS_DANE_IDENTITY_CAPACITY];
 } HnsDaneTransportContextV1;
 
+/*
+ * Immutable output-only bindings. These fields cannot reconstruct authority;
+ * the opaque handle and a successful currentness check remain mandatory.
+ */
+typedef struct HnsDaneProviderAuthorityInfoV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  uint8_t origin_scheme;
+  uint8_t selected_namespace;
+  uint8_t authenticated_context;
+  uint8_t hns_network;
+  uint8_t tls_policy;
+  uint8_t reserved0;
+  uint16_t origin_port;
+  uint16_t service_port;
+  uint8_t reserved1[6];
+  uint8_t runtime_session[16];
+  uint64_t runtime_generation;
+  uint64_t policy_generation;
+  uint64_t event_sequence;
+  uint8_t decision_fingerprint[32];
+  uint64_t valid_from;
+  uint64_t valid_until;
+  uint8_t reserved[8];
+} HnsDaneProviderAuthorityInfoV1;
+
 uint32_t hns_dane_engine_v1_abi_version(void);
 uint32_t hns_dane_engine_v2_abi_version(void);
+uint32_t hns_dane_engine_provider_v1_abi_version(void);
 
 int32_t hns_dane_engine_v1_create(
     /* Fresh, unpredictable, and not all zero for every process start. */
@@ -124,6 +181,40 @@ int32_t hns_dane_engine_v1_create(
 
 int32_t hns_dane_engine_v1_destroy(HnsDaneEngine *engine);
 int32_t hns_dane_engine_v1_attempt_destroy(HnsDaneAttempt *attempt);
+
+/*
+ * The authority handle remains private to trusted native code and must never
+ * be serialized or exposed to page JavaScript. Destroy it at most once after
+ * concurrent borrows stop. It keeps its originating Rust engine alive until
+ * destruction. A null destroy is a successful no-op.
+ */
+int32_t hns_dane_engine_provider_v1_authority_destroy(
+    HnsDaneProviderAuthority *authority);
+
+int32_t hns_dane_engine_provider_v1_authority_get_info(
+    const HnsDaneProviderAuthority *authority,
+    HnsDaneProviderAuthorityInfoV1 *output);
+
+/*
+ * Copies exact UTF-8 host bytes without a trailing NUL. A sizing call may use
+ * output=NULL and capacity=0; written receives the required byte count and
+ * the function returns HNS_DANE_BUFFER_TOO_SMALL.
+ */
+int32_t hns_dane_engine_provider_v1_authority_copy_host(
+    const HnsDaneProviderAuthority *authority,
+    uint8_t *output,
+    size_t capacity,
+    size_t *written);
+
+/*
+ * Uses trusted current Unix time. Writes one for a current authority and zero
+ * for normal expiry or any retained-engine/session/network/policy/runtime/
+ * invalidation mismatch.
+ */
+int32_t hns_dane_engine_provider_v1_authority_is_current(
+    const HnsDaneProviderAuthority *authority,
+    uint64_t now_unix,
+    uint8_t *current);
 
 int32_t hns_dane_engine_v1_export_policy(
     const HnsDaneEngine *engine,

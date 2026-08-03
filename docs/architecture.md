@@ -222,6 +222,12 @@ replace the exact publication; the engine keeps no unbounded per-origin navigati
 resource, DS-authenticated DNSKEY, signed TLSA, and certificate bytes—without retaining the
 temporary DNSSEC signing key. Engine and proxy tests consume the same fixture.
 `hns-dane-engine-ffi` contains the narrowly audited unsafe pointer boundary and versioned C ABI.
+Its separate provider-authority consumer ABI receives an authorized Rust context only through an
+ordinary Rust move, retains it behind a caller-owned opaque handle, exposes an immutable typed
+projection plus bounded exact-host copy, retains the exact `Arc<Engine>` for currentness checks,
+and destroys the context exactly once. A mismatched Rust-side engine pairing remains non-current,
+and the handle keeps its engine alive until destruction. It has no C mint/import/clone/serialization
+path and does not expose namespace classification or authentication fields as authority.
 Adapters own DNS wire I/O, sockets, clocks, secure storage, threads, UI, platform lifecycle, local
 CA material, exact-host certificate issuance, origin authentication execution, and proxy/TLS byte
 forwarding. The publication core performs none of those operations.
@@ -245,10 +251,10 @@ authenticated authoritative DoH, an HNSR requester, HIP-76/77 provider roles, or
 execution, native loopback listener and tunnel I/O, local CA management, or platform bridges. A
 native adapter must connect the HIP-76/77 requester boundary to its established Brontide runtime.
 Header sync currently selects only among bounded candidates extending the same validated base.
-PKIX usages 0/1 intentionally have no WebPKI path. The existing C ABI still exposes the earlier
+PKIX usages 0/1 intentionally have no WebPKI path. The legacy C resolution ABI still exposes the earlier
 single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI
-v2/mobile integration. The Rust-only namespace-decision/provider-injection
-authority and its loopback-publication consumer are likewise pending opaque
-namespace/context handles and native adapter work in a future C ABI revision;
-raw caller-constructible allow fields are intentionally not exported as a
-substitute. No platform product enables this provider path yet.
+v2/mobile integration. The provider-authority consumer ABI can carry a context
+already minted by trusted Rust, but pure-C namespace decisions, authenticated
+contexts, strict completions, and ICANN authenticator integration remain
+unavailable. Raw caller-constructible allow fields are intentionally not
+exported as a substitute. No platform product enables this provider path yet.
