@@ -519,7 +519,9 @@ pub struct HnsResource {
 impl HnsResource {
     /// Decode all assigned records and reject unknown tags or trailing fragments.
     pub fn decode(raw: &[u8]) -> Result<Self, LightChainError> {
-        CovenantResource::new(raw.to_vec())?;
+        if raw.len() > MAX_RESOURCE_SIZE {
+            return Err(LightChainError::ResourceTooLarge(raw.len()));
+        }
         let mut reader = ResourceReader::new(raw);
         if reader.read_u8()? != 0 {
             return Err(LightChainError::UnsupportedResourceVersion);
@@ -560,6 +562,7 @@ impl HnsResource {
             };
             records.push(record);
         }
+        CovenantResource::new(raw.to_vec())?;
         Ok(Self {
             raw: raw.to_vec(),
             records,
