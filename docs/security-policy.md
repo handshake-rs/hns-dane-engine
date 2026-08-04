@@ -239,14 +239,15 @@ User-configured recursive HNS DoH is an independent requester permission that de
 enters the transport plan only as the terminal candidate, and opting out generation-revokes any
 admitted attempt. The endpoint value and its bootstrap are platform concerns; this engine persists
 only the consent bit and never treats transport TLS or a DNS AD bit as HNS validation authority.
-Opaque forwarding roles (the ODoH proxy and HNSR relay) default on and have independent persistent
-opt-outs. Output roles that learn a plaintext request or originate an external request (the
-HIP-76 DNS relay, ODoH target, and HNSR endpoint/output node) default off and require explicit
-opt-in. HNSR requester and rendezvous roles are also independent and default off. Enabling any
+Requester paths, the ODoH proxy, and HNSR requester/opaque-relay roles default on and have
+independent persistent opt-outs. Output roles that learn a plaintext request or originate an
+external request (the HIP-76 DNS relay, ODoH target, and HNSR endpoint/output node) default off and
+require explicit opt-in. The HNSR rendezvous role is also independent and default off. Enabling any
 requester, relay, or output role never enables another role implicitly. Policy persistence schema 3
 uses settings bit 2 for recursive-HNS-DoH consent while retaining the exact 32-byte encoding.
 Schema-1 and schema-2 blobs decode that new permission as false; schema-1 role migration retains its
-exact legacy role selection, so an upgrade cannot grant participation that was previously disabled.
+exact legacy role selection, and every current-schema blob retains its exact requester, relay, and
+output bits, so an upgrade cannot override a stored opt-out.
 
 Every admitted operation is stamped with the caller-supplied per-start unique runtime session,
 current runtime generation, and monotonic event sequence. The session is a checked nonzero type,

@@ -5,6 +5,11 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - Unreleased
 
+- Enabled the new-policy HNSR requester/client default alongside the existing
+  opaque HNSR relay, HIP-76/HIP-77 requester paths, and opaque ODoH proxy.
+  Persisted requester and relay opt-outs remain exact, direct authority remains
+  first, and recursive DNS, plaintext output, target, endpoint, and rendezvous
+  roles remain explicit opt-ins.
 - Changed provider authority from latest-global-event semantics to private
   engine-issued admission stamps. Exact HNS completions, ICANN authentication,
   provider contexts, publications, and grants now survive unrelated admitted

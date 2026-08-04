@@ -1737,7 +1737,7 @@ mod tests {
             unsafe { hns_dane_engine_v1_get_policy(engine, &mut policy) },
             HnsDaneStatus::Ok.code()
         );
-        assert_eq!(policy.hnsr, HnsrPolicy::relay_default().bits());
+        assert_eq!(policy.hnsr, HnsrPolicy::client_relay_default().bits());
         assert_eq!(policy.provider_flags, PROVIDER_ODOH_PROXY);
         assert_eq!(policy.provider_flags & PROVIDER_ODOH_TARGET, 0);
         policy.dns_relay_requester = DnsRelayRequesterPolicy::Disabled as u8;

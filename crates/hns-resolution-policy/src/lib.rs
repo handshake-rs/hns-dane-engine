@@ -80,9 +80,10 @@ impl TryFrom<u8> for ObliviousDnsPolicy {
 
 /// Independent HNSR participation roles.
 ///
-/// Opaque relay participation defaults on and remains independently opt-out.
-/// Endpoint/output, requester, and rendezvous roles require separate explicit
-/// enablement, so one role can never grant another implicitly.
+/// Requester/client and opaque relay participation default on and remain
+/// independently opt-out. Endpoint/output and rendezvous roles require
+/// separate explicit enablement, so one role can never grant another
+/// implicitly.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HnsrPolicy {
     bits: u8,
@@ -105,6 +106,12 @@ impl HnsrPolicy {
     #[must_use]
     pub const fn relay_default() -> Self {
         Self { bits: Self::RELAY }
+    }
+
+    /// Default to requester/client and opaque relay participation.
+    #[must_use]
+    pub const fn client_relay_default() -> Self {
+        Self::relay_default().with_requester(true)
     }
 
     /// Set requester/client participation independently.
@@ -187,7 +194,7 @@ impl HnsrPolicy {
 
 impl Default for HnsrPolicy {
     fn default() -> Self {
-        Self::relay_default()
+        Self::client_relay_default()
     }
 }
 
@@ -1012,7 +1019,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_direct_first_with_relay_opt_out_and_output_opt_in() {
+    fn defaults_are_direct_first_with_client_relay_opt_out_and_output_opt_in() {
         let snapshot = PolicySnapshot::default();
         let plan = TransportPlan::for_policy(snapshot.config);
 
@@ -1031,7 +1038,7 @@ mod tests {
         assert!(!snapshot.config.providers.odoh_target);
         assert!(snapshot.config.hnsr.relay_enabled());
         assert!(!snapshot.config.hnsr.endpoint_enabled());
-        assert!(!snapshot.config.hnsr.requester_enabled());
+        assert!(snapshot.config.hnsr.requester_enabled());
         assert!(!snapshot.config.hnsr.rendezvous_enabled());
         assert!(!snapshot.config.user_configured_recursive_hns_doh);
     }
@@ -1102,6 +1109,24 @@ mod tests {
         assert_eq!(
             PolicySnapshot::decode(&mutated),
             Err(PolicyError::ChecksumMismatch)
+        );
+
+        let explicit_opt_out = PolicyConfig {
+            dns_relay_requester: DnsRelayRequesterPolicy::Disabled,
+            oblivious_dns: ObliviousDnsPolicy::Disabled,
+            hnsr: HnsrPolicy::disabled(),
+            providers: ProviderPolicy {
+                dns_relay: false,
+                odoh_proxy: false,
+                odoh_target: false,
+                market_gossip: false,
+            },
+            ..PolicyConfig::default()
+        };
+        let stored = PolicySnapshot::new(7, explicit_opt_out).unwrap().encode();
+        assert_eq!(
+            PolicySnapshot::decode(&stored).unwrap().config(),
+            explicit_opt_out
         );
     }
 
@@ -1192,13 +1217,14 @@ mod tests {
 
     #[test]
     fn relay_and_output_node_consent_are_independent() {
-        let relay_only = PolicyConfig::default();
-        assert!(relay_only.hnsr.relay_enabled());
-        assert!(!relay_only.hnsr.endpoint_enabled());
-        assert!(relay_only.providers.odoh_proxy);
-        assert!(!relay_only.providers.odoh_target);
+        let client_relay = PolicyConfig::default();
+        assert!(client_relay.hnsr.requester_enabled());
+        assert!(client_relay.hnsr.relay_enabled());
+        assert!(!client_relay.hnsr.endpoint_enabled());
+        assert!(client_relay.providers.odoh_proxy);
+        assert!(!client_relay.providers.odoh_target);
 
-        let mut output_enabled = relay_only;
+        let mut output_enabled = client_relay;
         output_enabled.hnsr = output_enabled.hnsr.with_endpoint(true);
         output_enabled.providers.odoh_target = true;
         assert!(output_enabled.hnsr.relay_enabled());
