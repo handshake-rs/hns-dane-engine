@@ -14,13 +14,15 @@ use hns_header_consensus::Network as ConsensusNetwork;
 use hns_p2p_wire::NetworkMagic;
 use hns_transport::CancellationToken;
 
+#[cfg(test)]
+use super::AuthorityState;
 use super::{
-    AdapterFailure, Admission, AuthenticatedPeer, AuthorityState, BrowserRuntime,
-    DirectTargetLocator, Engine, EngineError, ExperimentalExchange, ExperimentalNetwork,
-    ExperimentalPeerState, ExperimentalRequest, ExperimentalResponse, NegotiatedRegistry, Network,
-    OdohRequester, P2pTransportError, PeerIdentity, PolicyController, PolicyError, PolicySnapshot,
-    RequesterLimits, ResolutionTransport, RuntimeStamp, VerifiedOdohTarget, WireProfile,
-    resolution_transport_ready,
+    AdapterFailure, Admission, AuthenticatedPeer, BrowserRuntime, DirectTargetLocator, Engine,
+    EngineError, ExperimentalExchange, ExperimentalNetwork, ExperimentalPeerState,
+    ExperimentalRequest, ExperimentalResponse, ExperimentalWireProfile, NegotiatedRegistry,
+    Network, OdohRequester, P2pTransportError, PeerIdentity, PolicyController, PolicyError,
+    PolicySnapshot, RequesterLimits, ResolutionTransport, RuntimeStamp, VerifiedOdohTarget,
+    WireProfile, resolution_transport_ready,
 };
 
 /// Private-transport requester status schema.
