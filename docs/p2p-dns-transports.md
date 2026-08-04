@@ -79,8 +79,9 @@ parameters, requires the canonical Denuo V1 registry
 fingerprint/version/negotiation protocol, and pre-admits `ODOH_PACKET` against
 both advertised ODoH and Denuo-extension services before reporting a proxy.
 Official, Denuo V2, legacy-draft, and unresolved `Auto` peer profiles fail
-closed. Requester status schema 3 reports the retained resolved profile; the
-target-cache wire schema remains version 2. It checks the engine before and
+closed. Requester status schema 4 reports the retained resolved profile and
+monotonic target-cache generation; target-cache wire schema 3 persists that
+generation. It checks the engine before and
 after adapter I/O, so degradation,
 revocation, stop, policy replacement, or another process session cannot return
 stale response bytes. Readiness requires both an authenticated proxy and a
@@ -91,18 +92,21 @@ available.
 
 The target cache has 16 locator slots and retains each locator's greatest
 target-signed sequence even after expiry. Its bounded checksummed canonical
-schema-2 blob contains only public signed target material, configuration
-selection, sequence high-water state, and the greatest trusted caller/adapter
-time. Install, pruning, status, export, restore, and exchange reject a lower
-clock. A bounded adapter completion advances the clock even if later protocol
-parsing fails, and every response must complete no earlier than request start
-and no later than its deadline. Restore uses a new engine admission and
-request-ID space, never restores a proxy or in-flight HPKE context, and
-re-verifies every record against the exact network, locator, signature,
-sequence, configuration, and signed expiry. The checksum detects corruption;
-the platform must place the blob in its authenticated, atomic,
-rollback-resistant store before the cache can be treated as durable
-anti-rollback state.
+schema-3 blob contains only public signed target material, configuration
+selection, sequence high-water state, the greatest trusted caller/adapter
+time, and a nonzero monotonic cache generation. Durable changes advance the
+generation with checked arithmetic. Export returns `{ generation, bytes }`;
+restore requires the caller-held minimum generation and rejects an older valid
+blob. Install, pruning, status, export, restore, and exchange also reject a
+lower clock. A bounded adapter completion advances the clock even if later
+protocol parsing fails, and every response must complete no earlier than
+request start and no later than its deadline. Restore uses a new engine
+admission and request-ID space, never restores a proxy or in-flight HPKE
+context, and re-verifies every record against the exact network, locator,
+signature, sequence, configuration, and signed expiry. The checksum detects
+corruption; the platform must atomically place the blob and generation floor
+in its authenticated rollback-resistant store before the cache can be treated
+as durable anti-rollback state.
 
 This runtime implements only the ODoH requester. Its proxy-provider and
 target-provider availability fields are permanently false; policy defaults do

@@ -172,13 +172,15 @@ Recorded foundation coverage and current source status:
   canonical network/genesis/registry/negotiation proxy admission; exact
   policy-resolved Denuo V1 peer-profile retention; mandatory Denuo-extension
   and ODoH services; rejection of Official, Denuo V2, legacy-draft, and
-  unresolved automatic peer profiles; status schema 3 exposure of the resolved
-  peer profile while target-cache wire schema 2 remains stable;
+  unresolved automatic peer profiles; status schema 4 exposure of the resolved
+  peer profile and monotonic cache generation; target-cache wire schema 3 with
+  a mandatory caller-held restore floor;
   pre/post-adapter invalidation and response start/deadline monotonicity; closed
   readiness/revocation; a 16-locator signed-target cache with sequence and
-  trusted-time high-water retention; bounded canonical checksummed schema-2
-  restart encoding and signature/network/locator/configuration/sequence/lifetime
-  revalidation; and permanently unavailable proxy/target provider roles;
+  trusted-time and generation high-water retention; bounded canonical
+  checksummed schema-3 restart encoding, caller-held generation-floor
+  enforcement, signature/network/locator/configuration/sequence/lifetime
+  revalidation, and permanently unavailable proxy/target provider roles;
 - atomic engine admission of a gateway selection's policy generation, actual transport, response,
   identities, and relay-downgrade state, including non-cloneable selection consumption and
   stale-selection rejection before an engine event is consumed;

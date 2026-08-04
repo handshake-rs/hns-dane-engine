@@ -193,17 +193,20 @@ flattened, preserving peer, registry, packet, deadline, request-correlation,
 DNS-correlation, target-signature, and HPKE failure identity.
 
 The target cache is bounded to 16 locators and retains a greatest signed
-sequence high-water per locator. Schema 2 also persists the greatest trusted
-caller/adapter time; install, prune, status, export, restore, and exchange all
-reject rollback below it, while a bounded adapter completion advances it even
-when later protocol parsing fails. Its restart blob has strict lengths,
-ordering, schema, network, private-address-policy, and checksum checks. Restore
-uses a fresh request-ID space and engine admission and cryptographically
-revalidates each signed record; expired records can retain only their
-high-water slot. The checksum is corruption detection, not authentication. Production adapters
-must store the blob atomically in authenticated rollback-resistant platform
-storage; until that exists and is qualified, restart anti-rollback is not a
-product claim. No proxy or target provider API exists in this runtime.
+sequence high-water per locator. Schema 3 also persists the greatest trusted
+caller/adapter time and a nonzero checked monotonic cache generation. Install,
+prune, time advancement, revocation, and every other durable cache change
+advance the generation without wrapping. Status and export disclose the exact
+generation. Restore requires a nonzero caller-held minimum generation and
+rejects an older valid blob, as well as clock rollback. Its restart blob has
+strict lengths, ordering, schema, network, private-address-policy, and checksum
+checks. Restore uses a fresh request-ID space and engine admission and
+cryptographically revalidates each signed record; expired records can retain
+only their high-water slot. The checksum is corruption detection, not
+authentication. Production adapters must atomically store the exported blob
+and its generation floor in authenticated rollback-resistant platform storage;
+until that exists and is qualified, restart anti-rollback is not a product
+claim. No proxy or target provider API exists in this runtime.
 
 Shared status uses explicit `verified`, `failed`, `unavailable`, `unsupported`, `not attempted`,
 `stale`, and `revoked` evidence values. It never contains qnames, URLs, DNS payloads, certificates,

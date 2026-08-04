@@ -18,8 +18,8 @@ mod private_transport;
 pub use private_transport::{
     MAX_CACHED_ODOH_TARGETS, MAX_ODOH_TARGET_CACHE_BLOB_BYTES,
     MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES, PRIVATE_TRANSPORT_SCHEMA_VERSION,
-    OdohRequesterRuntime, OdohRequesterState, OdohRequesterStatus, PrivateTransportBinding,
-    PrivateTransportError, PrivateTransportRevocationReason,
+    OdohRequesterRuntime, OdohRequesterState, OdohRequesterStatus, OdohTargetCacheExport,
+    PrivateTransportBinding, PrivateTransportError, PrivateTransportRevocationReason,
 };
 
 use std::fmt;

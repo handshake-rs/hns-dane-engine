@@ -24,7 +24,7 @@ use super::{
 };
 
 /// Private-transport requester status schema.
-pub const PRIVATE_TRANSPORT_SCHEMA_VERSION: u16 = 3;
+pub const PRIVATE_TRANSPORT_SCHEMA_VERSION: u16 = 4;
 /// Maximum distinct target locators retained by one requester runtime.
 pub const MAX_CACHED_ODOH_TARGETS: usize = 16;
 /// Maximum canonical signed target record admitted to persistence.
@@ -33,7 +33,7 @@ pub const MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES: usize = 16_384;
 pub const MAX_ODOH_TARGET_CACHE_BLOB_BYTES: usize = 264_224;
 
 const TARGET_CACHE_MAGIC: &[u8; 8] = b"HNSODC1\0";
-const ODOH_TARGET_CACHE_SCHEMA_VERSION: u16 = 2;
+const ODOH_TARGET_CACHE_SCHEMA_VERSION: u16 = 3;
 const MAX_TARGET_LOCATOR_BYTES: usize = 64;
 
 /// Lifecycle of the requester-only ODoH runtime.
@@ -153,12 +153,23 @@ pub struct OdohRequesterStatus {
     pub earliest_target_expiry: u64,
     /// Greatest trusted caller/adapter time admitted by this runtime.
     pub trusted_time_high_water: u64,
+    /// Monotonic durable target-cache generation.
+    pub target_cache_generation: u64,
     /// Local protocol prerequisites are ready; platform adapter availability is separate.
     pub requester_ready: bool,
     /// ODoH proxy provider availability; always false in this runtime.
     pub proxy_provider_available: bool,
     /// ODoH target provider availability; always false in this runtime.
     pub target_provider_available: bool,
+}
+
+/// One exact target-cache snapshot and the caller-held anti-rollback floor it advances.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OdohTargetCacheExport {
+    /// Monotonic generation encoded in `bytes`.
+    pub generation: u64,
+    /// Checksummed canonical target-cache bytes.
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -189,7 +200,7 @@ impl OdohTargetCache {
         network_magic: u32,
         now: u64,
         allow_private: bool,
-    ) -> Result<[u8; 32], PrivateTransportError> {
+    ) -> Result<([u8; 32], bool), PrivateTransportError> {
         if signed_record.is_empty()
             || signed_record.len() > MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES
         {
@@ -220,7 +231,7 @@ impl OdohTargetCache {
                     current.verified.record_id() == verified.record_id()
                         && current.configuration_index == configuration_index
                 }) {
-                    return Ok(record_id);
+                    return Ok((record_id, false));
                 }
                 return Err(PrivateTransportError::TargetSequenceConflict);
             }
@@ -248,10 +259,11 @@ impl OdohTargetCache {
                 },
             );
         }
-        Ok(record_id)
+        Ok((record_id, true))
     }
 
-    fn prune(&mut self, now: u64) {
+    fn prune(&mut self, now: u64) -> bool {
+        let mut changed = false;
         for slot in self.slots.values_mut() {
             if slot
                 .current
@@ -259,8 +271,10 @@ impl OdohTargetCache {
                 .is_some_and(|target| now >= target.verified.expires_at())
             {
                 slot.current = None;
+                changed = true;
             }
         }
+        changed
     }
 
     fn target(&self, record_id: [u8; 32]) -> Result<&VerifiedOdohTarget, PrivateTransportError> {
@@ -293,7 +307,11 @@ impl OdohTargetCache {
         network_magic: u32,
         allow_private: bool,
         trusted_time_high_water: u64,
+        generation: u64,
     ) -> Result<Vec<u8>, PrivateTransportError> {
+        if generation == 0 {
+            return Err(PrivateTransportError::InvalidTargetCacheGeneration);
+        }
         let count = u16::try_from(self.slots.len())
             .map_err(|_| PrivateTransportError::TargetCacheFull)?;
         let mut output = Vec::new();
@@ -302,6 +320,7 @@ impl OdohTargetCache {
         output.extend_from_slice(&network_magic.to_le_bytes());
         output.push(u8::from(allow_private));
         output.extend_from_slice(&trusted_time_high_water.to_le_bytes());
+        output.extend_from_slice(&generation.to_le_bytes());
         output.extend_from_slice(&count.to_le_bytes());
         for (locator_key, slot) in &self.slots {
             let locator = slot.locator.encode();
@@ -338,8 +357,8 @@ impl OdohTargetCache {
         expected_network_magic: u32,
         allow_private: bool,
         now: u64,
-    ) -> Result<(Self, u64), PrivateTransportError> {
-        if input.len() < 29 || input.len() > MAX_ODOH_TARGET_CACHE_BLOB_BYTES {
+    ) -> Result<(Self, u64, u64, bool), PrivateTransportError> {
+        if input.len() < 37 || input.len() > MAX_ODOH_TARGET_CACHE_BLOB_BYTES {
             return Err(PrivateTransportError::InvalidTargetCacheBlob);
         }
         let payload_length = input
@@ -373,11 +392,16 @@ impl OdohTargetCache {
         if now < trusted_time_high_water {
             return Err(PrivateTransportError::TrustedClockRollback);
         }
+        let generation = decoder.u64()?;
+        if generation == 0 {
+            return Err(PrivateTransportError::InvalidTargetCacheGeneration);
+        }
         let count = usize::from(decoder.u16()?);
         if count > MAX_CACHED_ODOH_TARGETS {
             return Err(PrivateTransportError::TargetCacheFull);
         }
         let mut cache = Self::default();
+        let mut pruned = false;
         let mut previous_locator: Option<Vec<u8>> = None;
         for _ in 0..count {
             let locator_length = usize::from(decoder.u16()?);
@@ -424,11 +448,16 @@ impl OdohTargetCache {
                     {
                         return Err(PrivateTransportError::TargetSequenceConflict);
                     }
-                    (now < persisted_expiry).then_some(CachedOdohTarget {
-                        verified,
-                        configuration_index,
-                        signed_record,
-                    })
+                    if now < persisted_expiry {
+                        Some(CachedOdohTarget {
+                            verified,
+                            configuration_index,
+                            signed_record,
+                        })
+                    } else {
+                        pruned = true;
+                        None
+                    }
                 }
                 _ => return Err(PrivateTransportError::InvalidTargetCacheBlob),
             };
@@ -442,7 +471,7 @@ impl OdohTargetCache {
             );
         }
         decoder.finish()?;
-        Ok((cache, trusted_time_high_water))
+        Ok((cache, trusted_time_high_water, generation, pruned))
     }
 }
 
@@ -455,6 +484,7 @@ pub struct OdohRequesterRuntime {
     targets: OdohTargetCache,
     allow_private_targets: bool,
     trusted_time_high_water: u64,
+    target_cache_generation: u64,
     revocation_reason: Option<PrivateTransportRevocationReason>,
 }
 
@@ -514,15 +544,22 @@ impl OdohRequesterRuntime {
     ) -> Result<[u8; 32], PrivateTransportError> {
         self.ensure_current(engine)?;
         self.advance_trusted_time(now)?;
-        self.targets.prune(now);
-        self.targets.install(
+        self.prune_targets(now)?;
+        if self.target_cache_generation == u64::MAX {
+            return Err(PrivateTransportError::TargetCacheGenerationExhausted);
+        }
+        let (record_id, changed) = self.targets.install(
             locator,
             signed_record,
             configuration_index,
             self.binding.network_magic,
             now,
             self.allow_private_targets,
-        )
+        )?;
+        if changed {
+            self.advance_target_cache_generation()?;
+        }
+        Ok(record_id)
     }
 
     /// Encode the canonical checksummed target-cache restart representation.
@@ -530,14 +567,22 @@ impl OdohRequesterRuntime {
     /// Only public signed configuration material and per-locator sequence
     /// high-water marks are persisted. Proxy sessions, request IDs, HPKE query
     /// contexts, and in-flight work are never serialized.
-    pub fn export_target_cache(&mut self, now: u64) -> Result<Vec<u8>, PrivateTransportError> {
+    pub fn export_target_cache(
+        &mut self,
+        now: u64,
+    ) -> Result<OdohTargetCacheExport, PrivateTransportError> {
         self.advance_trusted_time(now)?;
-        self.targets.prune(now);
-        self.targets.encode(
+        self.prune_targets(now)?;
+        let bytes = self.targets.encode(
             self.binding.network_magic,
             self.allow_private_targets,
             self.trusted_time_high_water,
-        )
+            self.target_cache_generation,
+        )?;
+        Ok(OdohTargetCacheExport {
+            generation: self.target_cache_generation,
+            bytes,
+        })
     }
 
     /// Read status, terminally revoking this instance if its engine epoch ended.
@@ -555,7 +600,7 @@ impl OdohRequesterRuntime {
                 }
             }
         }
-        self.targets.prune(now);
+        self.prune_targets(now)?;
         let (
             proxy_identity,
             registry_fingerprint,
@@ -599,6 +644,7 @@ impl OdohRequesterRuntime {
             current_targets,
             earliest_target_expiry: self.targets.earliest_expiry(),
             trusted_time_high_water: self.trusted_time_high_water,
+            target_cache_generation: self.target_cache_generation,
             requester_ready: ready,
             proxy_provider_available: false,
             target_provider_available: false,
@@ -624,7 +670,7 @@ impl OdohRequesterRuntime {
     ) -> Result<super::AdmittedDnsResponse, PrivateTransportError> {
         self.ensure_current(engine)?;
         self.advance_trusted_time(now)?;
-        self.targets.prune(now);
+        self.prune_targets(now)?;
         let target = self.targets.target(target_record_id)?;
         let proxy = self
             .proxy
@@ -657,10 +703,16 @@ impl OdohRequesterRuntime {
     }
 
     /// Terminally revoke and erase all live proxy and target state.
-    pub fn revoke(&mut self) {
+    pub fn revoke(&mut self) -> Result<(), PrivateTransportError> {
+        let generation_result = if self.targets.slots.is_empty() {
+            Ok(())
+        } else {
+            self.advance_target_cache_generation()
+        };
         self.revocation_reason = Some(PrivateTransportRevocationReason::Explicit);
         self.proxy = None;
         self.targets = OdohTargetCache::default();
+        generation_result
     }
 
     fn ensure_current(&mut self, engine: &Engine) -> Result<(), PrivateTransportError> {
@@ -678,7 +730,30 @@ impl OdohRequesterRuntime {
         if now < self.trusted_time_high_water {
             return Err(PrivateTransportError::TrustedClockRollback);
         }
-        self.trusted_time_high_water = now;
+        if now > self.trusted_time_high_water {
+            self.advance_target_cache_generation()?;
+            self.trusted_time_high_water = now;
+        }
+        Ok(())
+    }
+
+    fn prune_targets(&mut self, now: u64) -> Result<(), PrivateTransportError> {
+        if self.targets.slots.values().any(|slot| {
+            slot.current
+                .as_ref()
+                .is_some_and(|target| now >= target.verified.expires_at())
+        }) {
+            self.advance_target_cache_generation()?;
+            let _ = self.targets.prune(now);
+        }
+        Ok(())
+    }
+
+    fn advance_target_cache_generation(&mut self) -> Result<(), PrivateTransportError> {
+        self.target_cache_generation = self
+            .target_cache_generation
+            .checked_add(1)
+            .ok_or(PrivateTransportError::TargetCacheGenerationExhausted)?;
         Ok(())
     }
 
@@ -732,6 +807,7 @@ impl Engine {
             targets: OdohTargetCache::default(),
             allow_private_targets,
             trusted_time_high_water: 0,
+            target_cache_generation: 1,
             revocation_reason: None,
         })
     }
@@ -747,29 +823,43 @@ impl Engine {
         limits: RequesterLimits,
         allow_private_targets: bool,
         target_cache: &[u8],
+        minimum_target_cache_generation: u64,
         now: u64,
     ) -> Result<OdohRequesterRuntime, PrivateTransportError> {
+        if minimum_target_cache_generation == 0 {
+            return Err(PrivateTransportError::InvalidTargetCacheGeneration);
+        }
         let binding = self.mint_private_transport_binding(allow_private_targets)?;
         let requester = OdohRequester::new(first_request_id, limits)
             .map_err(PrivateTransportError::Transport)?;
-        let (targets, persisted_time_high_water) = OdohTargetCache::decode(
-            target_cache,
-            binding.network_magic,
-            allow_private_targets,
-            now,
-        )?;
+        let (targets, persisted_time_high_water, persisted_generation, pruned) =
+            OdohTargetCache::decode(
+                target_cache,
+                binding.network_magic,
+                allow_private_targets,
+                now,
+            )?;
+        if persisted_generation < minimum_target_cache_generation {
+            return Err(PrivateTransportError::TargetCacheGenerationRollback);
+        }
         if now < persisted_time_high_water {
             return Err(PrivateTransportError::TrustedClockRollback);
         }
-        Ok(OdohRequesterRuntime {
+        let mut runtime = OdohRequesterRuntime {
             binding,
             requester,
             proxy: None,
             targets,
             allow_private_targets,
-            trusted_time_high_water: now,
+            trusted_time_high_water: persisted_time_high_water,
+            target_cache_generation: persisted_generation,
             revocation_reason: None,
-        })
+        };
+        runtime.advance_trusted_time(now)?;
+        if pruned {
+            runtime.advance_target_cache_generation()?;
+        }
+        Ok(runtime)
     }
 
     fn mint_private_transport_binding(
@@ -988,6 +1078,12 @@ pub enum PrivateTransportError {
     UnsupportedWireProfile,
     /// Trusted caller or adapter time moved below the persisted high-water.
     TrustedClockRollback,
+    /// Target-cache generation or caller-held floor is zero.
+    InvalidTargetCacheGeneration,
+    /// Persisted target-cache generation is below the caller-held floor.
+    TargetCacheGenerationRollback,
+    /// Target-cache generation cannot advance without wrapping.
+    TargetCacheGenerationExhausted,
     /// No authenticated proxy session is bound.
     ProxyUnavailable,
     /// Requested current target record is absent or expired.
@@ -1038,6 +1134,9 @@ impl fmt::Display for PrivateTransportError {
             Self::PrivateTargetsForbidden => formatter.write_str("private ODoH targets require regtest or simnet"),
             Self::UnsupportedWireProfile => formatter.write_str("ODoH runtime cannot authenticate the selected wire profile"),
             Self::TrustedClockRollback => formatter.write_str("ODoH runtime trusted clock moved backwards"),
+            Self::InvalidTargetCacheGeneration => formatter.write_str("ODoH target-cache generation is invalid"),
+            Self::TargetCacheGenerationRollback => formatter.write_str("ODoH target-cache generation rolled back below the caller floor"),
+            Self::TargetCacheGenerationExhausted => formatter.write_str("ODoH target-cache generation is exhausted"),
             Self::ProxyUnavailable => formatter.write_str("authenticated ODoH proxy is unavailable"),
             Self::TargetUnavailable => formatter.write_str("current signed ODoH target is unavailable"),
             Self::InvalidTargetRecordLength => formatter.write_str("signed ODoH target record length is invalid"),
@@ -1206,8 +1305,9 @@ mod tests {
                 true,
             )
             .unwrap();
-        let encoded = runtime.export_target_cache(1_700_000_000).unwrap();
-        assert!(encoded.len() <= MAX_ODOH_TARGET_CACHE_BLOB_BYTES);
+        let exported = runtime.export_target_cache(1_700_000_000).unwrap();
+        assert!(exported.bytes.len() <= MAX_ODOH_TARGET_CACHE_BLOB_BYTES);
+        assert_eq!(exported.generation, 2);
         assert!(matches!(
             runtime.export_target_cache(1_699_999_999),
             Err(PrivateTransportError::TrustedClockRollback)
@@ -1217,7 +1317,8 @@ mod tests {
                 NonZeroU64::new(12).unwrap(),
                 RequesterLimits::default(),
                 true,
-                &encoded,
+                &exported.bytes,
+                exported.generation,
                 1_699_999_999,
             ),
             Err(PrivateTransportError::TrustedClockRollback)
@@ -1227,7 +1328,8 @@ mod tests {
                 NonZeroU64::new(13).unwrap(),
                 RequesterLimits::default(),
                 true,
-                &encoded,
+                &exported.bytes,
+                exported.generation,
                 1_700_000_000,
             )
             .unwrap();
@@ -1244,7 +1346,7 @@ mod tests {
             Err(PrivateTransportError::TrustedClockRollback)
         ));
 
-        let mut corrupted = encoded;
+        let mut corrupted = exported.bytes;
         if let Some(byte) = corrupted.get_mut(8) {
             *byte ^= 1;
         }
@@ -1254,6 +1356,7 @@ mod tests {
                 RequesterLimits::default(),
                 true,
                 &corrupted,
+                exported.generation,
                 1_700_000_000,
             ),
             Err(PrivateTransportError::TargetCacheChecksumMismatch)
@@ -1271,6 +1374,81 @@ mod tests {
             ),
             Err(PrivateTransportError::PrivateTargetsForbidden)
         ));
+    }
+
+    #[test]
+    fn production_followup_odoh_cache_generation_rejects_older_sequence_snapshot() {
+        let engine = ready_engine(47, Network::Regtest);
+        let mut runtime = engine
+            .start_odoh_requester(
+                NonZeroU64::new(24).unwrap(),
+                RequesterLimits::default(),
+                true,
+            )
+            .unwrap();
+        let locator = DirectTargetLocator::new(
+            SECP256K1_GENERATOR,
+            "127.0.0.1:14039".parse().unwrap(),
+            true,
+        )
+        .unwrap();
+        let locator_key = locator.encode();
+        runtime.targets.slots.insert(
+            locator_key.clone(),
+            TargetSlot {
+                locator,
+                highest_sequence: 1,
+                current: None,
+            },
+        );
+        runtime.advance_target_cache_generation().unwrap();
+        let older = runtime.export_target_cache(1_700_000_200).unwrap();
+
+        runtime
+            .targets
+            .slots
+            .get_mut(&locator_key)
+            .unwrap()
+            .highest_sequence = 2;
+        runtime.advance_target_cache_generation().unwrap();
+        let current = runtime.export_target_cache(1_700_000_200).unwrap();
+        assert!(current.generation > older.generation);
+        assert!(matches!(
+            engine.restore_odoh_requester(
+                NonZeroU64::new(25).unwrap(),
+                RequesterLimits::default(),
+                true,
+                &older.bytes,
+                current.generation,
+                1_700_000_200,
+            ),
+            Err(PrivateTransportError::TargetCacheGenerationRollback)
+        ));
+        assert!(matches!(
+            engine.restore_odoh_requester(
+                NonZeroU64::new(26).unwrap(),
+                RequesterLimits::default(),
+                true,
+                &current.bytes,
+                0,
+                1_700_000_200,
+            ),
+            Err(PrivateTransportError::InvalidTargetCacheGeneration)
+        ));
+        let restored = engine
+            .restore_odoh_requester(
+                NonZeroU64::new(27).unwrap(),
+                RequesterLimits::default(),
+                true,
+                &current.bytes,
+                current.generation,
+                1_700_000_200,
+            )
+            .unwrap();
+        assert_eq!(
+            restored.targets.slots.get(&locator_key).unwrap().highest_sequence,
+            2
+        );
     }
 
     #[test]

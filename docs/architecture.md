@@ -153,11 +153,12 @@ both Denuo-extension and ODoH service advertisements. Official, Denuo V2,
 legacy-draft, unresolved automatic, and caller-self-consistent alternate peer
 states are insufficient.
 Pre/post-adapter checks discard results if that epoch changes. The 16-locator
-cache persists only signed public target records, configuration selections, and
-per-locator sequence high-water marks plus a nondecreasing trusted-time
-high-water in a canonical checksummed schema-2 blob; restore
-re-verifies every signed binding and never restores proxy sessions, HPKE query
-contexts, or in-flight work. Response completion must fall within request start
+cache persists only signed public target records, configuration selections,
+per-locator sequence high-water marks, a nondecreasing trusted-time high-water,
+and a checked monotonic cache generation in a canonical checksummed schema-3
+blob. Restore requires the caller-held minimum generation, re-verifies every
+signed binding, and never restores proxy sessions, HPKE query contexts, or
+in-flight work. Response completion must fall within request start
 and deadline. Native storage must add atomic authenticated rollback protection.
 No ODoH provider role is implemented by this lifecycle.
 `hns-browser-observability` schema v2 validates the shared, name-free mobile/Chromium status
