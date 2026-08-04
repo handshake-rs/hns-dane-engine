@@ -31,7 +31,7 @@ hns-loopback-proxy
 "
 
 hns_rs_git_url="https://github.com/handshake-rs/hns-rs.git"
-hns_rs_revision="5deb9dc253c265e590c06486fb87e91fbb4ac369"
+hns_rs_revision="29e4b473bd2cfee460b56d5092b7bc28da5ec5dc"
 
 assert_private() {
     package=$1
@@ -110,7 +110,7 @@ dry_run_with_local_dependencies() {
         hns-dane-engine)
             dry_run_package "$package" \
                 "hns-browser-observability hns-browser-runtime hns-dane hns-dns-wire hns-dnssec hns-gateway hns-icann-dane hns-light-chain hns-namespace-resolution hns-p2p-transport hns-resolution-policy hns-resolver hns-transport" \
-                ""
+                "hns-header-consensus hns-hnsr-protocol hns-p2p-wire"
             ;;
         hns-dane-engine-ffi|hns-loopback-proxy)
             dry_run_package "$package" \

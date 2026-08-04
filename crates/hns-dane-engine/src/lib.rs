@@ -13,12 +13,31 @@
     reason = "protocol acronyms, shared EngineError, and explicit facade names are intentional"
 )]
 
+mod hnsr_transport;
 mod private_transport;
+
+mod authority_sealed {
+    pub trait Sealed {}
+}
+
+pub use hnsr_transport::{
+    AuthenticatedHnsrPeer, HNSR_TRANSPORT_SCHEMA_VERSION, HnsrOpaqueRelayRuntime,
+    HnsrRequesterRuntime, HnsrRuntimeExport, HnsrTransportAuthorityContext,
+    HnsrTransportBinding, HnsrTransportError, HnsrTransportRevocationReason,
+    HnsrTransportRole, HnsrTransportState, HnsrTransportStatus,
+    MAX_HNSR_RUNTIME_SNAPSHOT_BYTES,
+};
+pub use hns_hnsr_protocol::{
+    HnsrActionId, HnsrPacket, HnsrPeerId, HnsrRequesterConfig, HnsrRequesterEvent, HnsrRoute,
+    HnsrRuntimeStatus, OpaqueRelayConfig, QueuedHnsrRoute, RelayConfig, RelayLimits, RelayTicket,
+    DEFAULT_WINDOW, HNS_CHAT_V1, HNS_NODE_V1, HNS_WEB_V1,
+};
 
 pub use private_transport::{
     MAX_CACHED_ODOH_TARGETS, MAX_ODOH_TARGET_CACHE_BLOB_BYTES,
     MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES, PRIVATE_TRANSPORT_SCHEMA_VERSION,
     OdohRequesterRuntime, OdohRequesterState, OdohRequesterStatus, OdohTargetCacheExport,
+    OdohTargetInstall, PrivateTransportAuthority, PrivateTransportAuthorityContext,
     PrivateTransportBinding, PrivateTransportError, PrivateTransportRevocationReason,
 };
 
@@ -30,8 +49,8 @@ use hns_browser_observability::{
     ProviderReadiness, RateLimitState, RevocationReason, RootFailureKind, SelectionReason,
     StatusError, StatusInput, TransportIdentities, UnsupportedEvidence,
 };
-pub use hns_browser_runtime::{AuthorityState, RuntimeSessionId};
-use hns_browser_runtime::{BrowserRuntime, RuntimeError, RuntimeStamp};
+pub use hns_browser_runtime::{AuthorityState, BrowserRuntime, RuntimeSessionId};
+use hns_browser_runtime::{RuntimeError, RuntimeStamp};
 use hns_dane::{DaneLimits, DaneMatch, verify_dane_chain, verify_dane_ee};
 use hns_dns_wire::{Message, ParseLimits, Query, Rdata, RecordType, Tlsa};
 pub use hns_gateway::{Gateway, GatewayLimits, GatewaySelection};
@@ -43,7 +62,7 @@ pub use hns_p2p_transport::{
     AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DnsRelayRequester,
     DENUO_EXTENSION_SERVICE, DirectTargetLocator, ExperimentalExchange, ExperimentalNetwork,
     ExperimentalPeerState, ExperimentalRequest, ExperimentalResponse, ExperimentalWireProfile,
-    NegotiatedRegistry, ODOH_SERVICE, OdohRequester, P2pTransportError, PeerIdentity,
+    FetchedOdohTargetConfig, NegotiatedRegistry, ODOH_SERVICE, OdohRequester, P2pTransportError, PeerIdentity,
     PeerProtocolError, ProtocolRange, RegistryHello, RequesterLimits, ServiceMask,
     VerifiedOdohTarget,
 };

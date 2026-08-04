@@ -256,9 +256,9 @@ SQLite, operating-system DNS, or a particular network stack. Callers can execute
 state machines under their native runtime.
 
 The `hns-rs` edge is canonical and immutable rather than a workspace-layout
-assumption. Nine direct packages inherit a single exact
+assumption. Ten direct packages inherit a single exact
 `https://github.com/handshake-rs/hns-rs.git` revision from the root manifest;
-Cargo resolves their two additional transitive packages from that same Git
+Cargo resolves their four additional transitive packages from that same Git
 checkout. All other path dependencies must remain inside this repository.
 Consequently, the dependency direction is independently cloneable
 `hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports
@@ -266,11 +266,12 @@ MeshMine nor requires an adjacent source tree.
 
 This foundation does not yet implement P2P socket dialing or peer discovery,
 download/reorganization from a fork predating the current tip, durable restart checkpoints,
-authenticated authoritative DoH, an HNSR requester, HIP-76/77 provider roles, origin TLS socket
+authenticated authoritative DoH, HNSR socket dialing/peer discovery, HIP-76/77 provider roles, origin TLS socket
 execution, native loopback listener and tunnel I/O, local CA management, or platform bridges. A
-native adapter must connect the HIP-76/77 requester boundary, including the
-engine-owned ODoH requester lifecycle, to its established Brontide runtime and
-authenticated rollback-resistant target-cache storage.
+native adapter must connect the implemented HIP-76/77 and HNSR requester/opaque
+relay state machines to its established Brontide runtime and authenticated
+rollback-resistant storage. Platform-owned `BrowserRuntime` integrations use a
+borrowed `PrivateTransportAuthority` view rather than a second engine runtime.
 Header sync currently selects only among bounded candidates extending the same validated base.
 PKIX usages 0/1 intentionally have no WebPKI path. The legacy C resolution ABI still exposes the earlier
 single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI

@@ -25,9 +25,9 @@ use hns_dns_wire::{Message, ParseLimits, Query};
 use hns_gateway::{AttemptOutcome, GatewayIdentities, TransportFailure};
 pub use hns_odoh_protocol::DirectTargetLocator;
 use hns_odoh_protocol::{
-    ClientQuery, MAX_ODOH_PACKET_SIZE, MAX_OUTER_PADDING_SIZE, OdnsPacket, OdohConfig,
-    OdohErrorBody, OdohOpcode, OdohProtocolError, OdohResponseBody, OdohStatus, QueryContext,
-    TargetConfigRecord, seal_query,
+    ClientQuery, GetConfigBody, MAX_ODOH_PACKET_SIZE, MAX_OUTER_PADDING_SIZE, OdnsPacket,
+    OdohConfig, OdohConfigBody, OdohErrorBody, OdohOpcode, OdohProtocolError, OdohResponseBody,
+    OdohStatus, QueryContext, TargetConfigRecord, seal_query,
 };
 pub use hns_p2p_experimental::{
     DENUO_EXTENSION_SERVICE, ExperimentalPeerState, ExperimentalWireProfile, NegotiatedRegistry,
@@ -35,8 +35,8 @@ pub use hns_p2p_experimental::{
     ServiceMask,
 };
 use hns_p2p_experimental::{
-    DENUO_V1_REGISTRY_FINGERPRINT, DENUO_V1_REGISTRY_VERSION, DNS_RELAY_REQUEST_PACKET,
-    DNS_RELAY_RESPONSE_PACKET, ODOH_PACKET, PacketType,
+    DENUO_EXTENSION_PACKET, DENUO_V1_REGISTRY_FINGERPRINT, DENUO_V1_REGISTRY_VERSION,
+    DNS_RELAY_REQUEST_PACKET, DNS_RELAY_RESPONSE_PACKET, HNSR_PACKET, ODOH_PACKET, PacketType,
     REGISTRY_NEGOTIATION_PROTOCOL_ID, REGISTRY_NEGOTIATION_PROTOCOL_VERSION,
 };
 use hns_transport::CancellationToken;
@@ -217,6 +217,79 @@ impl AuthenticatedPeer {
         self.admit(ODOH_PACKET)
     }
 
+    /// Validate this peer as an exact canonical Denuo V1 HNSR relay.
+    ///
+    /// In addition to the canonical network, genesis, wire profile, registry,
+    /// and extension service, the remote peer must advertise an HNSR relay or
+    /// rendezvous service before requester traffic can be routed to it.
+    pub fn admit_canonical_hnsr_relay(
+        &mut self,
+        expected_network: ExperimentalNetwork,
+        expected_genesis_hash: [u8; 32],
+        expected_profile: ExperimentalWireProfile,
+    ) -> Result<(), P2pTransportError> {
+        self.validate_canonical_denuo_peer(
+            expected_network,
+            expected_genesis_hash,
+            expected_profile,
+        )?;
+        self.admit(HNSR_PACKET)
+    }
+
+    /// Validate a canonical Denuo V1 HNSR requester or endpoint connection.
+    ///
+    /// Requesters and endpoints do not advertise a provider service bit. This
+    /// admission therefore requires the canonical registry and Denuo extension
+    /// service but intentionally does not pretend the remote is a relay or
+    /// rendezvous provider. The local HNSR role decides whether its packet is
+    /// accepted after this outer-peer admission succeeds.
+    pub fn admit_canonical_hnsr_participant(
+        &mut self,
+        expected_network: ExperimentalNetwork,
+        expected_genesis_hash: [u8; 32],
+        expected_profile: ExperimentalWireProfile,
+    ) -> Result<(), P2pTransportError> {
+        self.validate_canonical_denuo_peer(
+            expected_network,
+            expected_genesis_hash,
+            expected_profile,
+        )?;
+        self.admit(DENUO_EXTENSION_PACKET)
+    }
+
+    fn validate_canonical_denuo_peer(
+        &self,
+        expected_network: ExperimentalNetwork,
+        expected_genesis_hash: [u8; 32],
+        expected_profile: ExperimentalWireProfile,
+    ) -> Result<(), P2pTransportError> {
+        if self.wire_profile != expected_profile
+            || expected_profile != ExperimentalWireProfile::DenuoV1
+        {
+            return Err(P2pTransportError::UnexpectedWireProfile {
+                expected: expected_profile,
+                actual: self.wire_profile,
+            });
+        }
+        if self.network != expected_network {
+            return Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::WrongNetwork,
+            ));
+        }
+        if self.genesis_hash != expected_genesis_hash {
+            return Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::WrongGenesis,
+            ));
+        }
+        if self.registry_fingerprint != *DENUO_V1_REGISTRY_FINGERPRINT.as_bytes()
+            || self.registry_version != DENUO_V1_REGISTRY_VERSION
+            || !self.registry_protocol_negotiated
+        {
+            return Err(P2pTransportError::InvalidNegotiatedRegistry);
+        }
+        Ok(())
+    }
+
     fn admit(&mut self, packet: PacketType) -> Result<(), P2pTransportError> {
         self.admission.admit_packet(packet)?;
         Ok(())
@@ -332,6 +405,15 @@ pub struct VerifiedOdohTarget {
     record_id: [u8; 32],
     sequence: u64,
     expires_at: u64,
+}
+
+/// Canonical signed configuration response ready for atomic engine admission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FetchedOdohTargetConfig {
+    /// Exact target-signed record returned through the authenticated proxy.
+    pub signed_record: Vec<u8>,
+    /// Trusted adapter time after the complete response was received.
+    pub completed_at: u64,
 }
 
 impl VerifiedOdohTarget {
@@ -543,6 +625,90 @@ impl OdohRequester {
         Ok(Self {
             request_ids: RequestIds::new(first_request_id),
             limits: limits.validate()?,
+        })
+    }
+
+    /// Request, parse, and verify one target configuration through an authenticated proxy.
+    ///
+    /// The proxy must be distinct from the target static key in `locator`.
+    /// Adapters only move the already encoded ODoH packet and return authenticated
+    /// bytes; they do not implement GETCONFIG/CONFIG framing or signature checks.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "proxy, locator, network, selection, lifecycle, and clock are independent trust inputs"
+    )]
+    pub fn request_target_configuration<A: ExperimentalExchange>(
+        &mut self,
+        adapter: &mut A,
+        proxy: &mut AuthenticatedPeer,
+        locator: &DirectTargetLocator,
+        allow_cached: bool,
+        expected_network_magic: u32,
+        allow_private_target: bool,
+        configuration_index: usize,
+        cancellation: &CancellationToken,
+        now: u64,
+        deadline: u64,
+    ) -> Result<FetchedOdohTargetConfig, P2pTransportError> {
+        check_lifecycle(cancellation, now, deadline)?;
+        let target_identity = PeerIdentity::new(locator.target_peer_key)?;
+        if proxy.identity() == target_identity {
+            return Err(P2pTransportError::ProxyTargetCollision);
+        }
+        let request_id = self.request_ids.take()?;
+        let body = GetConfigBody {
+            locator: locator.clone(),
+            allow_cached,
+        }
+        .encode();
+        let packet = OdnsPacket::new(OdohOpcode::GetConfig, request_id, body)?.encode()?;
+        proxy.admit_outbound(ODOH_PACKET, packet.len())?;
+        let response = adapter.exchange(ExperimentalRequest {
+            peer: proxy.identity(),
+            packet: ODOH_PACKET,
+            payload: &packet,
+            deadline,
+            maximum_response_payload: MAX_ODOH_PACKET_SIZE,
+        })?;
+        check_response_boundary(
+            cancellation,
+            proxy.identity(),
+            &response,
+            now,
+            deadline,
+            MAX_ODOH_PACKET_SIZE,
+        )?;
+        if response.packet != ODOH_PACKET {
+            return Err(P2pTransportError::UnexpectedPacket {
+                expected: ODOH_PACKET,
+                actual: response.packet,
+            });
+        }
+        proxy.admit(ODOH_PACKET)?;
+        let completed_at = response.completed_at;
+        let response = OdnsPacket::decode(&response.payload)?;
+        if response.request_id != request_id {
+            return Err(P2pTransportError::RequestIdMismatch);
+        }
+        let signed_record = match response.opcode {
+            OdohOpcode::Config => OdohConfigBody::decode(&response.body)?.record,
+            OdohOpcode::Error => {
+                let error = OdohErrorBody::decode(&response.body)?;
+                return Err(P2pTransportError::OdohStatus(error.status));
+            }
+            actual => return Err(P2pTransportError::UnexpectedOdohOpcode(actual)),
+        };
+        let _ = VerifiedOdohTarget::decode(
+            &signed_record,
+            locator,
+            expected_network_magic,
+            completed_at,
+            allow_private_target,
+            configuration_index,
+        )?;
+        Ok(FetchedOdohTargetConfig {
+            signed_record,
+            completed_at,
         })
     }
 
@@ -1155,6 +1321,102 @@ mod tests {
         raw.push(u8::try_from(signature.as_bytes().len()).unwrap());
         raw.extend_from_slice(signature.as_bytes());
         raw
+    }
+
+    struct ConfigAdapter {
+        proxy: PeerIdentity,
+        locator: DirectTargetLocator,
+        signed_record: Vec<u8>,
+    }
+
+    impl ExperimentalExchange for ConfigAdapter {
+        fn exchange(
+            &mut self,
+            request: ExperimentalRequest<'_>,
+        ) -> Result<ExperimentalResponse, AdapterFailure> {
+            assert_eq!(request.peer, self.proxy);
+            assert_eq!(request.packet, ODOH_PACKET);
+            let request = OdnsPacket::decode(request.payload).unwrap();
+            assert_eq!(request.opcode, OdohOpcode::GetConfig);
+            let get = GetConfigBody::decode(&request.body, true).unwrap();
+            assert_eq!(get.locator, self.locator);
+            let body = OdohConfigBody::new(self.signed_record.clone())
+                .unwrap()
+                .encode()
+                .unwrap();
+            Ok(ExperimentalResponse {
+                authenticated_peer: self.proxy,
+                packet: ODOH_PACKET,
+                payload: OdnsPacket::new(OdohOpcode::Config, request.request_id, body)
+                    .unwrap()
+                    .encode()
+                    .unwrap(),
+                completed_at: NOW + 1,
+            })
+        }
+    }
+
+    #[test]
+    fn requester_owns_getconfig_verification_and_proxy_target_separation() {
+        let (_, proxy_identity) = secp_identity(2);
+        let (target_signing, target_identity) = secp_identity(3);
+        let locator = DirectTargetLocator::new(
+            target_identity.as_bytes(),
+            "127.0.0.1:14039".parse::<SocketAddr>().unwrap(),
+            true,
+        )
+        .unwrap();
+        let (_, public) = X25519HkdfSha256::gen_keypair();
+        let configuration = OdohConfig {
+            public_key: public.to_bytes().as_slice().try_into().unwrap(),
+        };
+        let signed_record = signed_target_record(&target_signing, &locator, &configuration);
+        let mut proxy = authenticated_peer(proxy_identity);
+        let mut adapter = ConfigAdapter {
+            proxy: proxy_identity,
+            locator: locator.clone(),
+            signed_record: signed_record.clone(),
+        };
+        let mut requester =
+            OdohRequester::new(NonZeroU64::new(4).unwrap(), RequesterLimits::default()).unwrap();
+        let fetched = requester
+            .request_target_configuration(
+                &mut adapter,
+                &mut proxy,
+                &locator,
+                true,
+                NETWORK_MAGIC,
+                true,
+                0,
+                &CancellationToken::default(),
+                NOW,
+                DEADLINE,
+            )
+            .unwrap();
+        assert_eq!(fetched.signed_record, signed_record);
+        assert_eq!(fetched.completed_at, NOW + 1);
+
+        let collision_locator = DirectTargetLocator::new(
+            proxy_identity.as_bytes(),
+            "127.0.0.1:14040".parse::<SocketAddr>().unwrap(),
+            true,
+        )
+        .unwrap();
+        assert!(matches!(
+            requester.request_target_configuration(
+                &mut adapter,
+                &mut proxy,
+                &collision_locator,
+                true,
+                NETWORK_MAGIC,
+                true,
+                0,
+                &CancellationToken::default(),
+                NOW,
+                DEADLINE,
+            ),
+            Err(P2pTransportError::ProxyTargetCollision)
+        ));
     }
 
     struct OdohAdapter {

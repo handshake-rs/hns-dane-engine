@@ -5,6 +5,26 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - Unreleased
 
+- Added the canonical engine HNSR requester and ciphertext-only relay adapter
+  over `hns-hnsr-protocol` 0.2.0. Both roles bind exact browser session/runtime
+  and policy generations, network/genesis, concrete Denuo V1 registry/profile,
+  inner service profile, authenticated outer connection IDs, trusted time, and
+  independent role generation. The adapter owns ticket admission, bounded
+  requester flow control, reservation/circuit routing, generation-bound write
+  acknowledgements, disconnect cleanup, role replace/revoke, and checksummed
+  restart envelopes with caller-held generation and trusted-time floors. It
+  owns no socket or atomic store, never restores peers/circuits/queued writes,
+  and exposes endpoint, rendezvous, plaintext, and transport-adapter readiness
+  as false. Requester and opaque relay remain default-on policy roles; endpoint
+  and rendezvous are hard rejected on this runtime surface. This source has not
+  run its focused or full qualification gate.
+- Added `PrivateTransportAuthority::new(&mut BrowserRuntime, Network,
+  PolicySnapshot)` so platform shells can consume ODoH and HNSR without
+  instantiating a second browser authority. Added canonical HIP-77
+  GETCONFIG/CONFIG acquisition: the requester frames and correlates the
+  exchange through a distinct authenticated proxy, verifies the target-signed
+  locator/network/configuration, atomically installs it, and returns the new
+  durable cache generation. Platform adapters only transport bounded bytes.
 - Added the requester-only engine ODoH runtime. A fresh engine admission binds
   each non-cloneable requester to the exact process session, runtime and policy
   generations, invalidation watermark, network, unpredictable request-ID

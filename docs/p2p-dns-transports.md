@@ -37,6 +37,13 @@ non-cloneable. Each requester owns its own monotonic nonzero request-ID space,
 so cloning cannot replay an outstanding ID onto another adapter or hop. The
 first ID is supplied by the platform and should be unpredictable.
 
+Platforms that already own the one canonical `BrowserRuntime` construct a
+short-lived `PrivateTransportAuthority` view with that runtime, the current
+network, and the current persisted `PolicySnapshot`. The view mints and
+validates the same opaque transport bindings as `Engine`; it does not create or
+clone another authority clock. Supplying a stale policy snapshot is a trusted
+adapter violation.
+
 ## HIP-76
 
 The requester emits one strict non-recursive, DNSSEC-enabled query in
@@ -45,16 +52,22 @@ exact request ID, a defined status/body combination, a bounded DNS message,
 and exact local response correlation. The relay's DNS AD bit and answer are
 untrusted.
 
-`Unsupported`, `Busy`, `ResolverUnavailable`, and `Timeout` map to the narrow
-gateway retry classes. Refusal, invalid query, internal error, malformed
-framing, identity failure, cancellation, or DNS mismatch terminate the plan.
-
 ## HIP-77
 
 `VerifiedOdohTarget::decode` verifies the target signature, compressed
 Brontide key, locator, network magic, lifetime, configuration list, and record
 identifier before selecting an immutable HPKE configuration. A current target
 whose identity equals the proxy is rejected.
+
+`OdohRequesterRuntime::fetch_target_configuration` owns the bounded
+GETCONFIG/CONFIG bootstrap exchange. It encodes the locator request, requires
+the response from the exact authenticated proxy, rejects proxy/target identity
+collision, correlates the request ID and opcode, verifies the target-signed
+record against the engine network and exact locator at completion time, then
+atomically applies sequence anti-rollback and configuration selection. The
+returned record ID and cache generation tell the adapter which `{ generation,
+bytes }` export must be committed; adapters never reproduce HIP-77 framing or
+signature logic.
 
 The requester seals DNS locally with RFC 9230/9180, wraps the signed locator
 and record identifier in `CLIENT_QUERY`, and pads the complete ODNS request to
@@ -111,6 +124,34 @@ as durable anti-rollback state.
 This runtime implements only the ODoH requester. Its proxy-provider and
 target-provider availability fields are permanently false; policy defaults do
 not create either server role.
+
+## HNSR requester and opaque relay
+
+`HnsrRequesterRuntime` and `HnsrOpaqueRelayRuntime` wrap the canonical bounded
+`hns-hnsr-protocol` state machines. Start binds the current browser admission,
+policy generation, Handshake network/genesis, concrete Denuo V1 peer registry,
+exact HNSR service profile, and a nonzero caller-held role generation. Every
+outer peer is admitted from an exact adapter connection label plus its
+Brontide-authenticated key and negotiated registry. A reconnect cannot inherit
+the old connection's circuit authority.
+
+The requester validates signed tickets against the authenticated relay key and
+returns exact routes for OPEN, DATA, WINDOW, and CLOSE. The opaque relay owns a
+relay reservation service but no rendezvous service, maps reservations and
+circuits to exact authenticated connection IDs, and returns
+generation-qualified queued routes. The adapter must acknowledge each write;
+failed writes and disconnects revoke the associated work. Ciphertext is never
+interpreted. Endpoint/output, rendezvous, and plaintext availability are hard
+false on this surface even if a caller presents a policy enabling them.
+
+`export` nests the canonical checksummed core snapshot in a checksummed
+engine-binding envelope and returns `{ generation, trusted_time_high_water,
+bytes }`. Restore requires both caller-held floors, a fresh process session,
+the same network/policy/wire/service/address binding, and nondecreasing trusted
+time. It restores settings and counters only: private relay keys are supplied
+fresh, while authenticated peers, reservations, circuits, opaque frames, and
+queued writes are never serialized. The blob and both floors must be committed
+atomically in authenticated rollback-resistant platform storage.
 
 ## Engine admission
 

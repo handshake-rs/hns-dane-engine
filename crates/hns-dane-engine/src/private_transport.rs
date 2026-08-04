@@ -16,10 +16,10 @@ use hns_transport::CancellationToken;
 
 use super::{
     AdapterFailure, Admission, AuthenticatedPeer, AuthorityState, DirectTargetLocator, Engine,
-    EngineError, ExperimentalExchange, ExperimentalNetwork, ExperimentalPeerState,
+    BrowserRuntime, EngineError, ExperimentalExchange, ExperimentalNetwork, ExperimentalPeerState,
     ExperimentalRequest, ExperimentalResponse, NegotiatedRegistry, Network, OdohRequester,
-    P2pTransportError, PeerIdentity, PolicyError, RequesterLimits, ResolutionTransport,
-    RuntimeStamp, VerifiedOdohTarget, WireProfile,
+    P2pTransportError, PeerIdentity, PolicyController, PolicyError, PolicySnapshot, RequesterLimits,
+    ResolutionTransport, RuntimeStamp, VerifiedOdohTarget, WireProfile,
     resolution_transport_ready,
 };
 
@@ -78,6 +78,102 @@ pub struct PrivateTransportBinding {
     network: Network,
     network_magic: u32,
     policy_wire_profile: WireProfile,
+}
+
+/// Borrowed private-transport authority over the platform's one browser runtime.
+///
+/// Chromium and mobile adapters that already own [`BrowserRuntime`] use this
+/// view instead of constructing a second [`Engine`]. The caller must supply
+/// its current persisted policy snapshot every time it creates a view; using a
+/// stale snapshot would violate the trusted platform boundary.
+pub struct PrivateTransportAuthority<'runtime> {
+    pub(crate) runtime: &'runtime mut BrowserRuntime,
+    pub(crate) network: Network,
+    pub(crate) policy: PolicySnapshot,
+}
+
+impl<'runtime> PrivateTransportAuthority<'runtime> {
+    /// Borrow the platform's canonical runtime with its current network and policy.
+    #[must_use]
+    pub const fn new(
+        runtime: &'runtime mut BrowserRuntime,
+        network: Network,
+        policy: PolicySnapshot,
+    ) -> Self {
+        Self {
+            runtime,
+            network,
+            policy,
+        }
+    }
+
+    /// Start a requester-only ODoH runtime without duplicating browser authority.
+    pub fn start_odoh_requester(
+        &mut self,
+        first_request_id: NonZeroU64,
+        limits: RequesterLimits,
+        allow_private_targets: bool,
+    ) -> Result<OdohRequesterRuntime, PrivateTransportError> {
+        let binding = mint_private_transport_binding(
+            self.runtime,
+            self.network,
+            self.policy,
+            allow_private_targets,
+        )?;
+        start_odoh_requester(binding, first_request_id, limits, allow_private_targets)
+    }
+
+    /// Restore ODoH public target metadata under this canonical runtime.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "request identity, limits, persistence guard, address policy, and time are independent trust inputs"
+    )]
+    pub fn restore_odoh_requester(
+        &mut self,
+        first_request_id: NonZeroU64,
+        limits: RequesterLimits,
+        allow_private_targets: bool,
+        target_cache: &[u8],
+        minimum_target_cache_generation: u64,
+        now: u64,
+    ) -> Result<OdohRequesterRuntime, PrivateTransportError> {
+        let binding = mint_private_transport_binding(
+            self.runtime,
+            self.network,
+            self.policy,
+            allow_private_targets,
+        )?;
+        restore_odoh_requester(
+            binding,
+            first_request_id,
+            limits,
+            allow_private_targets,
+            target_cache,
+            minimum_target_cache_generation,
+            now,
+        )
+    }
+}
+
+/// Current-authority validation seam shared by the engine facade and adapters.
+pub trait PrivateTransportAuthorityContext: super::authority_sealed::Sealed {
+    /// Validate one previously minted ODoH binding against current authority.
+    fn validate_private_transport_binding(
+        &self,
+        binding: PrivateTransportBinding,
+    ) -> Result<(), PrivateTransportError>;
+}
+
+impl super::authority_sealed::Sealed for PrivateTransportAuthority<'_> {}
+impl super::authority_sealed::Sealed for Engine {}
+
+impl PrivateTransportAuthorityContext for PrivateTransportAuthority<'_> {
+    fn validate_private_transport_binding(
+        &self,
+        binding: PrivateTransportBinding,
+    ) -> Result<(), PrivateTransportError> {
+        validate_private_transport_binding(self.runtime, self.network, self.policy, binding)
+    }
 }
 
 impl PrivateTransportBinding {
@@ -170,6 +266,17 @@ pub struct OdohTargetCacheExport {
     pub generation: u64,
     /// Checksummed canonical target-cache bytes.
     pub bytes: Vec<u8>,
+}
+
+/// Atomic result of one canonical GETCONFIG/CONFIG verification and install.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OdohTargetInstall {
+    /// Target-signed record identity selected for future queries.
+    pub record_id: [u8; 32],
+    /// Durable cache generation after the atomic install.
+    pub target_cache_generation: u64,
+    /// Trusted adapter time after the complete CONFIG response was received.
+    pub completed_at: u64,
 }
 
 #[derive(Debug)]
@@ -512,14 +619,14 @@ impl OdohRequesterRuntime {
     }
 
     /// Bind one exact established Brontide proxy and negotiated registry.
-    pub fn bind_proxy(
+    pub fn bind_proxy<C: PrivateTransportAuthorityContext + ?Sized>(
         &mut self,
-        engine: &Engine,
+        authority: &C,
         identity: PeerIdentity,
         peer: ExperimentalPeerState,
         registry: NegotiatedRegistry,
     ) -> Result<(), PrivateTransportError> {
-        self.ensure_current(engine)?;
+        self.ensure_current(authority)?;
         let mut proxy = AuthenticatedPeer::bind(identity, peer, registry)
             .map_err(PrivateTransportError::Transport)?;
         proxy
@@ -534,15 +641,15 @@ impl OdohRequesterRuntime {
     }
 
     /// Verify and cache one target-signed configuration record.
-    pub fn install_target(
+    pub fn install_target<C: PrivateTransportAuthorityContext + ?Sized>(
         &mut self,
-        engine: &Engine,
+        authority: &C,
         locator: DirectTargetLocator,
         signed_record: &[u8],
         configuration_index: usize,
         now: u64,
     ) -> Result<[u8; 32], PrivateTransportError> {
-        self.ensure_current(engine)?;
+        self.ensure_current(authority)?;
         self.advance_trusted_time(now)?;
         self.prune_targets(now)?;
         if self.target_cache_generation == u64::MAX {
@@ -560,6 +667,83 @@ impl OdohRequesterRuntime {
             self.advance_target_cache_generation()?;
         }
         Ok(record_id)
+    }
+
+    /// Acquire and atomically install one signed target configuration.
+    ///
+    /// This is the canonical browser/mobile bootstrap seam: the adapter only
+    /// exchanges bytes with the already authenticated proxy. The requester
+    /// owns GETCONFIG/CONFIG framing, request correlation, proxy/target
+    /// separation, target signature/network/locator verification, sequence
+    /// anti-rollback, configuration selection, and durable generation update.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "authority, adapter, locator, cache policy, selection, cancellation, and deadline are independent inputs"
+    )]
+    pub fn fetch_target_configuration<C, A>(
+        &mut self,
+        authority: &C,
+        adapter: &mut A,
+        locator: DirectTargetLocator,
+        allow_cached: bool,
+        configuration_index: usize,
+        cancellation: &CancellationToken,
+        now: u64,
+        deadline: u64,
+    ) -> Result<OdohTargetInstall, PrivateTransportError>
+    where
+        C: PrivateTransportAuthorityContext + ?Sized,
+        A: ExperimentalExchange,
+    {
+        self.ensure_current(authority)?;
+        self.advance_trusted_time(now)?;
+        self.prune_targets(now)?;
+        if self.target_cache_generation == u64::MAX {
+            return Err(PrivateTransportError::TargetCacheGenerationExhausted);
+        }
+        let proxy = self
+            .proxy
+            .as_mut()
+            .ok_or(PrivateTransportError::ProxyUnavailable)?;
+        let fetched = self
+            .requester
+            .request_target_configuration(
+                adapter,
+                proxy,
+                &locator,
+                allow_cached,
+                self.binding.network_magic,
+                self.allow_private_targets,
+                configuration_index,
+                cancellation,
+                now,
+                deadline,
+            )
+            .map_err(PrivateTransportError::Transport)?;
+        self.advance_trusted_time(fetched.completed_at)?;
+        if let Err(error) = authority.validate_private_transport_binding(self.binding) {
+            self.revoke_for_error(&error);
+            return Err(error);
+        }
+        if self.target_cache_generation == u64::MAX {
+            return Err(PrivateTransportError::TargetCacheGenerationExhausted);
+        }
+        let (record_id, changed) = self.targets.install(
+            locator,
+            &fetched.signed_record,
+            configuration_index,
+            self.binding.network_magic,
+            fetched.completed_at,
+            self.allow_private_targets,
+        )?;
+        if changed {
+            self.advance_target_cache_generation()?;
+        }
+        Ok(OdohTargetInstall {
+            record_id,
+            target_cache_generation: self.target_cache_generation,
+            completed_at: fetched.completed_at,
+        })
     }
 
     /// Encode the canonical checksummed target-cache restart representation.
@@ -586,14 +770,14 @@ impl OdohRequesterRuntime {
     }
 
     /// Read status, terminally revoking this instance if its engine epoch ended.
-    pub fn status(
+    pub fn status<C: PrivateTransportAuthorityContext + ?Sized>(
         &mut self,
-        engine: &Engine,
+        authority: &C,
         now: u64,
     ) -> Result<OdohRequesterStatus, PrivateTransportError> {
         self.advance_trusted_time(now)?;
         if self.revocation_reason.is_none() {
-            if let Err(error) = engine.validate_private_transport_binding(self.binding) {
+            if let Err(error) = authority.validate_private_transport_binding(self.binding) {
                 self.revoke_for_error(&error);
                 if matches!(error, PrivateTransportError::Engine(_)) {
                     return Err(error);
@@ -658,17 +842,21 @@ impl OdohRequesterRuntime {
     /// The engine binding is checked both before and after adapter I/O; stale
     /// bytes are never returned even if policy changes during the call.
     #[allow(clippy::too_many_arguments, reason = "adapter, target, query, cancellation, and clock are independent trust inputs")]
-    pub fn exchange<A: ExperimentalExchange>(
+    pub fn exchange<C, A>(
         &mut self,
-        engine: &Engine,
+        authority: &C,
         adapter: &mut A,
         target_record_id: [u8; 32],
         query: &hns_dns_wire::Query,
         cancellation: &CancellationToken,
         now: u64,
         deadline: u64,
-    ) -> Result<super::AdmittedDnsResponse, PrivateTransportError> {
-        self.ensure_current(engine)?;
+    ) -> Result<super::AdmittedDnsResponse, PrivateTransportError>
+    where
+        C: PrivateTransportAuthorityContext + ?Sized,
+        A: ExperimentalExchange,
+    {
+        self.ensure_current(authority)?;
         self.advance_trusted_time(now)?;
         self.prune_targets(now)?;
         let target = self.targets.target(target_record_id)?;
@@ -695,7 +883,7 @@ impl OdohRequesterRuntime {
         {
             self.advance_trusted_time(completed_at)?;
         }
-        if let Err(error) = engine.validate_private_transport_binding(self.binding) {
+        if let Err(error) = authority.validate_private_transport_binding(self.binding) {
             self.revoke_for_error(&error);
             return Err(error);
         }
@@ -715,11 +903,14 @@ impl OdohRequesterRuntime {
         generation_result
     }
 
-    fn ensure_current(&mut self, engine: &Engine) -> Result<(), PrivateTransportError> {
+    fn ensure_current<C: PrivateTransportAuthorityContext + ?Sized>(
+        &mut self,
+        authority: &C,
+    ) -> Result<(), PrivateTransportError> {
         if let Some(reason) = self.revocation_reason {
             return Err(PrivateTransportError::BindingRevoked(reason));
         }
-        if let Err(error) = engine.validate_private_transport_binding(self.binding) {
+        if let Err(error) = authority.validate_private_transport_binding(self.binding) {
             self.revoke_for_error(&error);
             return Err(error);
         }
@@ -798,18 +989,7 @@ impl Engine {
         allow_private_targets: bool,
     ) -> Result<OdohRequesterRuntime, PrivateTransportError> {
         let binding = self.mint_private_transport_binding(allow_private_targets)?;
-        let requester = OdohRequester::new(first_request_id, limits)
-            .map_err(PrivateTransportError::Transport)?;
-        Ok(OdohRequesterRuntime {
-            binding,
-            requester,
-            proxy: None,
-            targets: OdohTargetCache::default(),
-            allow_private_targets,
-            trusted_time_high_water: 0,
-            target_cache_generation: 1,
-            revocation_reason: None,
-        })
+        start_odoh_requester(binding, first_request_id, limits, allow_private_targets)
     }
 
     /// Restore signed ODoH target metadata under a fresh engine admission.
@@ -826,40 +1006,16 @@ impl Engine {
         minimum_target_cache_generation: u64,
         now: u64,
     ) -> Result<OdohRequesterRuntime, PrivateTransportError> {
-        if minimum_target_cache_generation == 0 {
-            return Err(PrivateTransportError::InvalidTargetCacheGeneration);
-        }
         let binding = self.mint_private_transport_binding(allow_private_targets)?;
-        let requester = OdohRequester::new(first_request_id, limits)
-            .map_err(PrivateTransportError::Transport)?;
-        let (targets, persisted_time_high_water, persisted_generation, pruned) =
-            OdohTargetCache::decode(
-                target_cache,
-                binding.network_magic,
-                allow_private_targets,
-                now,
-            )?;
-        if persisted_generation < minimum_target_cache_generation {
-            return Err(PrivateTransportError::TargetCacheGenerationRollback);
-        }
-        if now < persisted_time_high_water {
-            return Err(PrivateTransportError::TrustedClockRollback);
-        }
-        let mut runtime = OdohRequesterRuntime {
+        restore_odoh_requester(
             binding,
-            requester,
-            proxy: None,
-            targets,
+            first_request_id,
+            limits,
             allow_private_targets,
-            trusted_time_high_water: persisted_time_high_water,
-            target_cache_generation: persisted_generation,
-            revocation_reason: None,
-        };
-        runtime.advance_trusted_time(now)?;
-        if pruned {
-            runtime.advance_target_cache_generation()?;
-        }
-        Ok(runtime)
+            target_cache,
+            minimum_target_cache_generation,
+            now,
+        )
     }
 
     fn mint_private_transport_binding(
@@ -870,30 +1026,14 @@ impl Engine {
             .state
             .write()
             .map_err(|_| PrivateTransportError::Engine(EngineError::LockPoisoned))?;
-        if !resolution_transport_ready(state.runtime.authority_state()) {
-            return Err(PrivateTransportError::AuthorityUnavailable);
-        }
-        if allow_private_targets && !matches!(state.network, Network::Regtest | Network::Simnet) {
-            return Err(PrivateTransportError::PrivateTargetsForbidden);
-        }
-        if state.policy.snapshot().config().wire_profile == WireProfile::Official {
-            return Err(PrivateTransportError::UnsupportedWireProfile);
-        }
-        let admission = state
-            .policy
-            .admit(ResolutionTransport::HandshakeP2pOdoh)
-            .map_err(PrivateTransportError::Policy)?;
-        let stamp = state
-            .runtime
-            .admit_event()
-            .map_err(|error| PrivateTransportError::Engine(super::map_runtime_error(error)))?;
-        Ok(PrivateTransportBinding {
-            stamp,
-            admission,
-            network: state.network,
-            network_magic: network_magic(state.network),
-            policy_wire_profile: state.policy.snapshot().config().wire_profile,
-        })
+        let network = state.network;
+        let policy = state.policy.snapshot();
+        mint_private_transport_binding(
+            &mut state.runtime,
+            network,
+            policy,
+            allow_private_targets,
+        )
     }
 
     fn validate_private_transport_binding(
@@ -904,33 +1044,153 @@ impl Engine {
             .state
             .read()
             .map_err(|_| PrivateTransportError::Engine(EngineError::LockPoisoned))?;
-        let runtime = state.runtime.snapshot();
-        if state.network != binding.network || network_magic(state.network) != binding.network_magic {
-            return Err(PrivateTransportError::NetworkChanged);
-        }
-        if runtime.session_bytes() != binding.stamp.session() {
-            return Err(PrivateTransportError::RuntimeSessionChanged);
-        }
-        if runtime.generation() != binding.stamp.generation() {
-            return Err(PrivateTransportError::RuntimeGenerationChanged);
-        }
-        if state.policy.snapshot().generation() != binding.admission.policy_generation {
-            return Err(PrivateTransportError::PolicyGenerationChanged);
-        }
-        if !resolution_transport_ready(runtime.authority_state()) {
-            return Err(PrivateTransportError::AuthorityUnavailable);
-        }
-        if !state.runtime.admits(binding.stamp) {
-            return Err(PrivateTransportError::AdmissionInvalidated);
-        }
-        state
-            .policy
-            .accept_completion(binding.admission)
-            .map_err(PrivateTransportError::Policy)
+        validate_private_transport_binding(
+            &state.runtime,
+            state.network,
+            state.policy.snapshot(),
+            binding,
+        )
     }
 }
 
-const fn network_magic(network: Network) -> u32 {
+impl PrivateTransportAuthorityContext for Engine {
+    fn validate_private_transport_binding(
+        &self,
+        binding: PrivateTransportBinding,
+    ) -> Result<(), PrivateTransportError> {
+        Engine::validate_private_transport_binding(self, binding)
+    }
+}
+
+fn start_odoh_requester(
+    binding: PrivateTransportBinding,
+    first_request_id: NonZeroU64,
+    limits: RequesterLimits,
+    allow_private_targets: bool,
+) -> Result<OdohRequesterRuntime, PrivateTransportError> {
+    let requester =
+        OdohRequester::new(first_request_id, limits).map_err(PrivateTransportError::Transport)?;
+    Ok(OdohRequesterRuntime {
+        binding,
+        requester,
+        proxy: None,
+        targets: OdohTargetCache::default(),
+        allow_private_targets,
+        trusted_time_high_water: 0,
+        target_cache_generation: 1,
+        revocation_reason: None,
+    })
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "request identity, limits, persistence guard, address policy, and time are independent trust inputs"
+)]
+fn restore_odoh_requester(
+    binding: PrivateTransportBinding,
+    first_request_id: NonZeroU64,
+    limits: RequesterLimits,
+    allow_private_targets: bool,
+    target_cache: &[u8],
+    minimum_target_cache_generation: u64,
+    now: u64,
+) -> Result<OdohRequesterRuntime, PrivateTransportError> {
+    if minimum_target_cache_generation == 0 {
+        return Err(PrivateTransportError::InvalidTargetCacheGeneration);
+    }
+    let requester =
+        OdohRequester::new(first_request_id, limits).map_err(PrivateTransportError::Transport)?;
+    let (targets, persisted_time_high_water, persisted_generation, pruned) =
+        OdohTargetCache::decode(
+            target_cache,
+            binding.network_magic,
+            allow_private_targets,
+            now,
+        )?;
+    if persisted_generation < minimum_target_cache_generation {
+        return Err(PrivateTransportError::TargetCacheGenerationRollback);
+    }
+    if now < persisted_time_high_water {
+        return Err(PrivateTransportError::TrustedClockRollback);
+    }
+    let mut runtime = OdohRequesterRuntime {
+        binding,
+        requester,
+        proxy: None,
+        targets,
+        allow_private_targets,
+        trusted_time_high_water: persisted_time_high_water,
+        target_cache_generation: persisted_generation,
+        revocation_reason: None,
+    };
+    runtime.advance_trusted_time(now)?;
+    if pruned {
+        runtime.advance_target_cache_generation()?;
+    }
+    Ok(runtime)
+}
+
+fn mint_private_transport_binding(
+    runtime: &mut BrowserRuntime,
+    network: Network,
+    policy: PolicySnapshot,
+    allow_private_targets: bool,
+) -> Result<PrivateTransportBinding, PrivateTransportError> {
+    if !resolution_transport_ready(runtime.authority_state()) {
+        return Err(PrivateTransportError::AuthorityUnavailable);
+    }
+    if allow_private_targets && !matches!(network, Network::Regtest | Network::Simnet) {
+        return Err(PrivateTransportError::PrivateTargetsForbidden);
+    }
+    if policy.config().wire_profile == WireProfile::Official {
+        return Err(PrivateTransportError::UnsupportedWireProfile);
+    }
+    let admission = PolicyController::new(policy)
+        .admit(ResolutionTransport::HandshakeP2pOdoh)
+        .map_err(PrivateTransportError::Policy)?;
+    let stamp = runtime
+        .admit_event()
+        .map_err(|error| PrivateTransportError::Engine(super::map_runtime_error(error)))?;
+    Ok(PrivateTransportBinding {
+        stamp,
+        admission,
+        network,
+        network_magic: network_magic(network),
+        policy_wire_profile: policy.config().wire_profile,
+    })
+}
+
+fn validate_private_transport_binding(
+    browser_runtime: &BrowserRuntime,
+    network: Network,
+    policy: PolicySnapshot,
+    binding: PrivateTransportBinding,
+) -> Result<(), PrivateTransportError> {
+    let runtime = browser_runtime.snapshot();
+    if network != binding.network || network_magic(network) != binding.network_magic {
+        return Err(PrivateTransportError::NetworkChanged);
+    }
+    if runtime.session_bytes() != binding.stamp.session() {
+        return Err(PrivateTransportError::RuntimeSessionChanged);
+    }
+    if runtime.generation() != binding.stamp.generation() {
+        return Err(PrivateTransportError::RuntimeGenerationChanged);
+    }
+    if policy.generation() != binding.admission.policy_generation {
+        return Err(PrivateTransportError::PolicyGenerationChanged);
+    }
+    if !resolution_transport_ready(runtime.authority_state()) {
+        return Err(PrivateTransportError::AuthorityUnavailable);
+    }
+    if !browser_runtime.admits(binding.stamp) {
+        return Err(PrivateTransportError::AdmissionInvalidated);
+    }
+    PolicyController::new(policy)
+        .accept_completion(binding.admission)
+        .map_err(PrivateTransportError::Policy)
+}
+
+pub(crate) const fn network_magic(network: Network) -> u32 {
     match network {
         Network::Mainnet => NetworkMagic::Mainnet.as_u32(),
         Network::Testnet => NetworkMagic::Testnet.as_u32(),
@@ -939,7 +1199,7 @@ const fn network_magic(network: Network) -> u32 {
     }
 }
 
-const fn experimental_network(network: Network) -> ExperimentalNetwork {
+pub(crate) const fn experimental_network(network: Network) -> ExperimentalNetwork {
     match network {
         Network::Mainnet => ExperimentalNetwork::Mainnet,
         Network::Testnet => ExperimentalNetwork::Testnet,
@@ -948,7 +1208,7 @@ const fn experimental_network(network: Network) -> ExperimentalNetwork {
     }
 }
 
-const fn resolved_odoh_profile(
+pub(crate) const fn resolved_odoh_profile(
     policy_profile: WireProfile,
 ) -> Result<ExperimentalWireProfile, PrivateTransportError> {
     match policy_profile {
@@ -966,7 +1226,7 @@ const fn consensus_network(network: Network) -> ConsensusNetwork {
     }
 }
 
-const fn canonical_genesis_hash(network: Network) -> [u8; 32] {
+pub(crate) const fn canonical_genesis_hash(network: Network) -> [u8; 32] {
     consensus_network(network)
         .parameters()
         .genesis_hash
@@ -1036,7 +1296,7 @@ impl<'input> CacheDecoder<'input> {
     }
 }
 
-fn crc32(input: &[u8]) -> u32 {
+pub(crate) fn crc32(input: &[u8]) -> u32 {
     let mut crc = u32::MAX;
     for byte in input {
         crc ^= u32::from(*byte);

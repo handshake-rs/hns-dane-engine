@@ -8,6 +8,17 @@ query correlation, locally verified evidence, certificate matching, and
 structured provenance. Native adapters own platform I/O and persistence; they
 cannot substitute transport assertions for local validation.
 
+Chromium and mobile integrations that already own the canonical
+`BrowserRuntime` use `PrivateTransportAuthority::new(&mut runtime, network,
+policy)` to start, restore, and validate ODoH and HNSR roles without creating a
+second authority clock. ODoH includes canonical GETCONFIG acquisition and a
+generation-floored signed-target cache. HNSR includes the profile-bound
+requester and ciphertext-only relay state machines, exact outer-connection
+routing and acknowledgement, disconnect cleanup, and checksummed snapshots.
+The platform still owns Brontide I/O and atomic authenticated storage. No
+endpoint, rendezvous, plaintext output, or inferred live-adapter availability
+is exposed by these runtime seams.
+
 Rust facade version 3 also exposes the minimal browser-authority boundary for
 wallet-provider injection. It permits HTTPS only and stamps the exact logical
 origin and URL port, selected service port and namespace, complete

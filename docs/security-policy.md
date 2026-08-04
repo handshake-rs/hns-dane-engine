@@ -275,7 +275,10 @@ only the consent bit and never treats transport TLS or a DNS AD bit as HNS valid
 Requester paths, the ODoH proxy, and HNSR requester/opaque-relay roles default on and have
 independent persistent opt-outs. Output roles that learn a plaintext request or originate an
 external request (the HIP-76 DNS relay, ODoH target, and HNSR endpoint/output node) default off and
-require explicit opt-in. The HNSR rendezvous role is also independent and default off. Enabling any
+require explicit opt-in at the generic policy layer. The HNSR rendezvous role is also independent
+and default off. The engine HNSR requester/opaque-relay adapter hard rejects endpoint and
+rendezvous enablement and permanently reports both provider surfaces and plaintext availability as
+false. Enabling any
 requester, relay, or output role never enables another role implicitly. Policy persistence schema 3
 uses settings bit 2 for recursive-HNS-DoH consent while retaining the exact 32-byte encoding.
 Schema-1 and schema-2 blobs decode that new permission as false; schema-1 role migration retains its

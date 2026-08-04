@@ -63,9 +63,9 @@ lockfile is committed with this continuation.
 
 Recorded foundation coverage and current source status:
 
-- independently cloneable Cargo resolution with nine reviewed direct
-  `hns-rs` packages and the exact eleven-package locked closure at
-  `5deb9dc253c265e590c06486fb87e91fbb4ac369`; rejection of mutable or
+- independently cloneable Cargo resolution with ten reviewed direct
+  `hns-rs` packages and the exact fourteen-package locked closure at
+  `29e4b473bd2cfee460b56d5092b7bc28da5ec5dc`; rejection of mutable or
   noncanonical Git sources, aliases, unreviewed consumers/packages, lock
   drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;
@@ -181,6 +181,15 @@ Recorded foundation coverage and current source status:
   checksummed schema-3 restart encoding, caller-held generation-floor
   enforcement, signature/network/locator/configuration/sequence/lifetime
   revalidation, and permanently unavailable proxy/target provider roles;
+- unqualified 0.2 source for canonical GETCONFIG/CONFIG acquisition and the
+  HNSR requester/opaque-relay adapter: borrowed consumption of the one
+  platform-owned `BrowserRuntime`; exact Denuo V1 outer-peer, connection,
+  network/genesis, policy, role, and service-profile binding; signed-ticket
+  requester flow control; opaque reservation/circuit routing; exact queued
+  write acknowledgement and disconnect cleanup; checked role enablement
+  replacement/revocation; nested checksummed snapshots with caller-held
+  generation and trusted-time floors; no restored live state; and permanently
+  unavailable endpoint, rendezvous, plaintext, and transport-adapter fields;
 - atomic engine admission of a gateway selection's policy generation, actual transport, response,
   identities, and relay-downgrade state, including non-cloneable selection consumption and
   stale-selection rejection before an engine event is consumed;
@@ -253,11 +262,12 @@ Not yet implemented:
   owner/evidence decision contract and Rust provider-authority context are
   implemented, and the source-only loopback core consumes the context, but no
   platform adapter has consumed or qualified the boundary);
-- authenticated authoritative DoH, HNSR transport, HIP-76/77 provider roles,
-  and the native Brontide socket adapter for the implemented HIP-76/77
-  requester boundary and engine-owned ODoH lifecycle;
+- authenticated authoritative DoH, HIP-76/77 provider roles, and the native
+  Brontide socket adapter for the implemented HIP-76/77 requester boundary,
+  engine-owned ODoH lifecycle, and HNSR requester/opaque-relay state machines;
 - filesystem/mobile preferences adapters, atomic authenticated
-  rollback-resistant ODoH target-cache writes, and restart qualification;
+  rollback-resistant ODoH target-cache and HNSR snapshot/floor writes, and
+  restart qualification;
 - live registry negotiation exchange and HSD draft-PR cross-language execution (the requester
   consumes and enforces an already authenticated `NegotiatedRegistry`);
 - native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf

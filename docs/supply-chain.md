@@ -5,12 +5,13 @@ on the surrounding ecosystem workspace layout.
 
 ## Canonical `hns-rs` source
 
-Nine packages are declared once in the root `[workspace.dependencies]` table:
+Ten packages are declared once in the root `[workspace.dependencies]` table:
 
 - `hns-covenants`
 - `hns-dns-relay-protocol`
 - `hns-encoding`
 - `hns-header-consensus`
+- `hns-hnsr-protocol`
 - `hns-odoh-protocol`
 - `hns-p2p-experimental`
 - `hns-p2p-wire`
@@ -19,12 +20,13 @@ Nine packages are declared once in the root `[workspace.dependencies]` table:
 
 Every declaration uses
 `https://github.com/handshake-rs/hns-rs.git` at exact revision
-`5deb9dc253c265e590c06486fb87e91fbb4ac369` and also requires crates.io
+`29e4b473bd2cfee460b56d5092b7bc28da5ec5dc` and also requires crates.io
 version `0.2.0`. Development and qualification therefore retain the reviewed
 Git source, while Cargo preserves the version and removes the Git selector
 when normalizing a package for crates.io. The lockfile resolves those packages
-plus transitive `hns-mining` and `hns-transaction` from that same source and
-revision. MeshMine is not in the dependency graph.
+plus transitive `hns-chat-protocol`, `hns-mining`, `hns-service-authority`, and
+`hns-transaction` from that same source and revision. MeshMine is not in the
+dependency graph.
 
 Engine crates inherit these declarations with `workspace = true`. Other local
 crate dependencies remain repository-local paths.
@@ -38,7 +40,7 @@ crate dependencies remain repository-local paths.
 - a consumer bypasses the root declaration or appears outside the reviewed
   manifest and dependency section;
 - another Git package enters a tracked manifest or the lockfile;
-- the direct nine-package or locked eleven-package set changes; or
+- the direct ten-package or locked fourteen-package set changes; or
 - any path dependency escapes the engine repository.
 
 The verifier has mutation-derived unit tests in

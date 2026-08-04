@@ -156,10 +156,10 @@ publication, but degradation, revocation, stop, policy/runtime invalidation, or 
 Same-origin navigation or namespace-decision replacement must synchronously revoke or replace the
 exact publication; the engine deliberately does not retain an unbounded per-origin navigation map.
 
-The repository is a standalone Cargo checkout. Its nine direct `hns-rs`
+The repository is a standalone Cargo checkout. Its ten direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
-`5deb9dc253c265e590c06486fb87e91fbb4ac369` and declare compatible crates.io
-version `0.2.0`; the lockfile binds those packages and the two-package
+`29e4b473bd2cfee460b56d5092b7bc28da5ec5dc` and declare compatible crates.io
+version `0.2.0`; the lockfile binds those packages and the four-package
 transitive closure to the same revision. No sibling `hns-rs` checkout is
 required. Cargo preserves the version requirements when packaging and removes
 the Git selectors. A tested repository policy rejects unreviewed Git
