@@ -73,9 +73,16 @@ dry_run_with_local_dependencies() {
     package=$1
     case "$package" in
         hns-dns-wire|hns-browser-runtime|hns-icann-dane|\
-            hns-namespace-resolution|hns-resolution-policy|\
-            hns-light-chain|hns-light-p2p)
+            hns-namespace-resolution|hns-resolution-policy)
             dry_run_package "$package" "" ""
+            ;;
+        hns-light-chain)
+            dry_run_package "$package" "" \
+                "hns-covenants hns-encoding hns-header-consensus hns-primitives hns-urkel-proof"
+            ;;
+        hns-light-p2p)
+            dry_run_package "$package" "" \
+                "hns-header-consensus hns-p2p-wire hns-primitives"
             ;;
         hns-dane|hns-dnssec|hns-cache)
             dry_run_package "$package" "hns-dns-wire" ""
