@@ -460,6 +460,10 @@ impl OdohTargetCache {
         Ok(output)
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the canonical target-cache decoder validates one linear bounded wire record"
+    )]
     fn decode(
         input: &[u8],
         expected_network_magic: u32,
@@ -778,12 +782,12 @@ impl OdohRequesterRuntime {
         now: u64,
     ) -> Result<OdohRequesterStatus, PrivateTransportError> {
         self.advance_trusted_time(now)?;
-        if self.revocation_reason.is_none() {
-            if let Err(error) = authority.validate_private_transport_binding(self.binding) {
-                self.revoke_for_error(&error);
-                if matches!(error, PrivateTransportError::Engine(_)) {
-                    return Err(error);
-                }
+        if self.revocation_reason.is_none()
+            && let Err(error) = authority.validate_private_transport_binding(self.binding)
+        {
+            self.revoke_for_error(&error);
+            if matches!(error, PrivateTransportError::Engine(_)) {
+                return Err(error);
             }
         }
         self.prune_targets(now)?;
@@ -1762,6 +1766,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one table-style test exercises every canonical proxy binding rejection"
+    )]
     fn production_followup_engine_proxy_binding_requires_canonical_network_registry_and_service() {
         let engine = ready_engine(44, Network::Regtest);
         let mut runtime = engine

@@ -1610,6 +1610,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one table-style test covers the complete canonical ODoH proxy admission matrix"
+    )]
     fn production_followup_canonical_odoh_proxy_rejects_substituted_identity_and_service() {
         let identity = secp_identity(19).1;
         let canonical_fingerprint = DENUO_V1_REGISTRY_FINGERPRINT;

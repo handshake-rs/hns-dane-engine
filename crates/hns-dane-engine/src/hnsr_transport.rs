@@ -152,6 +152,10 @@ pub struct HnsrRuntimeExport {
 }
 
 /// Complete name-free HNSR status for platform readiness and diagnostics.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "the stable flat status schema exposes independent readiness and availability facts"
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HnsrTransportStatus {
     /// Status schema version.
@@ -252,6 +256,7 @@ impl fmt::Debug for HnsrOpaqueRelayRuntime {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Terminal cause that invalidated an engine-bound HNSR transport role.
 pub enum HnsrTransportRevocationReason {
     /// Trusted platform code explicitly revoked this role.
     Explicit = 1,
@@ -426,7 +431,7 @@ impl HnsrRequesterRuntime {
             .observe_time(now)
             .map_err(HnsrTransportError::Runtime)?;
         let status = self.requester.status();
-        encode_runtime_export(self.binding, status, self.requester.snapshot().encode())
+        encode_runtime_export(self.binding, status, &self.requester.snapshot().encode())
     }
 
     /// Read honest local readiness without claiming adapter availability.
@@ -434,7 +439,7 @@ impl HnsrRequesterRuntime {
         &mut self,
         authority: &C,
     ) -> Result<HnsrTransportStatus, HnsrTransportError> {
-        self.observe_authority(authority)?;
+        self.observe_authority(authority);
         Ok(transport_status(
             self.binding,
             self.requester.status(),
@@ -475,16 +480,12 @@ impl HnsrRequesterRuntime {
         Ok(())
     }
 
-    fn observe_authority<C: HnsrTransportAuthorityContext + ?Sized>(
-        &mut self,
-        authority: &C,
-    ) -> Result<(), HnsrTransportError> {
-        if self.revocation_reason.is_none() {
-            if let Err(error) = authority.validate_hnsr_transport_binding(self.binding) {
-                let _ = self.revoke_for(revocation_reason_for_error(&error));
-            }
+    fn observe_authority<C: HnsrTransportAuthorityContext + ?Sized>(&mut self, authority: &C) {
+        if self.revocation_reason.is_none()
+            && let Err(error) = authority.validate_hnsr_transport_binding(self.binding)
+        {
+            let _ = self.revoke_for(revocation_reason_for_error(&error));
         }
-        Ok(())
     }
 
     fn revoke_for(
@@ -649,7 +650,7 @@ impl HnsrOpaqueRelayRuntime {
             .observe_time(now)
             .map_err(HnsrTransportError::Runtime)?;
         let status = self.relay.status();
-        encode_runtime_export(self.binding, status, self.relay.snapshot().encode())
+        encode_runtime_export(self.binding, status, &self.relay.snapshot().encode())
     }
 
     /// Read honest local readiness without claiming transport or plaintext access.
@@ -657,7 +658,7 @@ impl HnsrOpaqueRelayRuntime {
         &mut self,
         authority: &C,
     ) -> Result<HnsrTransportStatus, HnsrTransportError> {
-        self.observe_authority(authority)?;
+        self.observe_authority(authority);
         let reservations = self.service.relay().map_or(0, RelayService::len);
         Ok(transport_status(
             self.binding,
@@ -699,16 +700,12 @@ impl HnsrOpaqueRelayRuntime {
         Ok(())
     }
 
-    fn observe_authority<C: HnsrTransportAuthorityContext + ?Sized>(
-        &mut self,
-        authority: &C,
-    ) -> Result<(), HnsrTransportError> {
-        if self.revocation_reason.is_none() {
-            if let Err(error) = authority.validate_hnsr_transport_binding(self.binding) {
-                let _ = self.revoke_for(revocation_reason_for_error(&error));
-            }
+    fn observe_authority<C: HnsrTransportAuthorityContext + ?Sized>(&mut self, authority: &C) {
+        if self.revocation_reason.is_none()
+            && let Err(error) = authority.validate_hnsr_transport_binding(self.binding)
+        {
+            let _ = self.revoke_for(revocation_reason_for_error(&error));
         }
-        Ok(())
     }
 
     fn revoke_for(
@@ -781,7 +778,7 @@ impl PrivateTransportAuthority<'_> {
         )?;
         restore_hnsr_requester(
             binding,
-            decoded,
+            &decoded,
             minimum_generation,
             minimum_trusted_time_high_water,
             trusted_now,
@@ -849,7 +846,7 @@ impl PrivateTransportAuthority<'_> {
         )?;
         restore_hnsr_opaque_relay(
             binding,
-            decoded,
+            &decoded,
             minimum_generation,
             minimum_trusted_time_high_water,
             relay_config,
@@ -900,7 +897,7 @@ impl Engine {
         )?;
         restore_hnsr_requester(
             binding,
-            decoded,
+            &decoded,
             minimum_generation,
             minimum_trusted_time_high_water,
             trusted_now,
@@ -960,7 +957,7 @@ impl Engine {
         )?;
         restore_hnsr_opaque_relay(
             binding,
-            decoded,
+            &decoded,
             minimum_generation,
             minimum_trusted_time_high_water,
             relay_config,
@@ -1034,21 +1031,21 @@ fn start_hnsr_requester(
 
 fn restore_hnsr_requester(
     binding: HnsrTransportBinding,
-    decoded: DecodedRuntimeExport,
+    decoded: &DecodedRuntimeExport,
     minimum_generation: u64,
     minimum_trusted_time_high_water: u64,
     trusted_now: u64,
 ) -> Result<HnsrRequesterRuntime, HnsrTransportError> {
     validate_restore_envelope(
         binding,
-        &decoded,
+        decoded,
         minimum_generation,
         minimum_trusted_time_high_water,
         trusted_now,
     )?;
     let snapshot =
         HnsrRequesterSnapshot::decode(&decoded.inner).map_err(HnsrTransportError::Runtime)?;
-    validate_requester_inner_binding(&decoded)?;
+    validate_requester_inner_binding(decoded)?;
     let requester = HnsrRequester::restore(
         snapshot,
         binding.runtime_session(),
@@ -1056,7 +1053,7 @@ fn restore_hnsr_requester(
         trusted_now,
     )
     .map_err(HnsrTransportError::Runtime)?;
-    validate_restored_status(requester.status(), &decoded, trusted_now)?;
+    validate_restored_status(requester.status(), decoded, trusted_now)?;
     Ok(HnsrRequesterRuntime {
         binding,
         requester,
@@ -1096,7 +1093,7 @@ fn start_hnsr_opaque_relay(
 )]
 fn restore_hnsr_opaque_relay(
     binding: HnsrTransportBinding,
-    decoded: DecodedRuntimeExport,
+    decoded: &DecodedRuntimeExport,
     minimum_generation: u64,
     minimum_trusted_time_high_water: u64,
     relay_config: RelayConfig,
@@ -1105,14 +1102,14 @@ fn restore_hnsr_opaque_relay(
 ) -> Result<HnsrOpaqueRelayRuntime, HnsrTransportError> {
     validate_restore_envelope(
         binding,
-        &decoded,
+        decoded,
         minimum_generation,
         minimum_trusted_time_high_water,
         trusted_now,
     )?;
     let snapshot =
         OpaqueRelaySnapshot::decode(&decoded.inner).map_err(HnsrTransportError::Runtime)?;
-    validate_relay_inner_binding(&decoded)?;
+    validate_relay_inner_binding(decoded)?;
     let relay = OpaqueRelayRuntime::restore(
         snapshot,
         binding.runtime_session(),
@@ -1120,7 +1117,7 @@ fn restore_hnsr_opaque_relay(
         trusted_now,
     )
     .map_err(HnsrTransportError::Runtime)?;
-    validate_restored_status(relay.status(), &decoded, trusted_now)?;
+    validate_restored_status(relay.status(), decoded, trusted_now)?;
     let relay_service =
         RelayService::new(relay_config, relay_private_key).map_err(HnsrTransportError::Protocol)?;
     Ok(HnsrOpaqueRelayRuntime {
@@ -1344,7 +1341,7 @@ const fn revocation_reason_for_error(error: &HnsrTransportError) -> HnsrTranspor
 fn encode_runtime_export(
     binding: HnsrTransportBinding,
     status: HnsrRuntimeStatus,
-    inner: Vec<u8>,
+    inner: &[u8],
 ) -> Result<HnsrRuntimeExport, HnsrTransportError> {
     if status.generation == 0 || inner.is_empty() {
         return Err(HnsrTransportError::InvalidSnapshotGeneration);
@@ -1373,7 +1370,7 @@ fn encode_runtime_export(
     bytes.extend_from_slice(&status.generation.to_le_bytes());
     bytes.extend_from_slice(&status.trusted_time_high_water.to_le_bytes());
     bytes.extend_from_slice(&inner_length.to_le_bytes());
-    bytes.extend_from_slice(&inner);
+    bytes.extend_from_slice(inner);
     let checksum = crc32(&bytes);
     bytes.extend_from_slice(&checksum.to_le_bytes());
     Ok(HnsrRuntimeExport {
@@ -1837,7 +1834,7 @@ mod tests {
             bytes_received: 0,
             revoked_work: 0,
         };
-        let exported = encode_runtime_export(binding, status, vec![1]).expect("encodes");
+        let exported = encode_runtime_export(binding, status, &[1]).expect("encodes");
         let decoded =
             decode_runtime_export(&exported.bytes, HnsrTransportRole::Requester).expect("decodes");
         assert!(matches!(

@@ -665,7 +665,7 @@ impl fmt::Debug for ProviderAuthorityContext {
             .field("decision_fingerprint", &"[redacted]")
             .field("valid_from", &self.valid_from())
             .field("valid_until", &self.valid_until())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -998,7 +998,7 @@ impl fmt::Debug for DaneCompletion {
             )
             .field("bridge_valid_from", &self.bridge_valid_from)
             .field("bridge_valid_until", &self.bridge_valid_until)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
