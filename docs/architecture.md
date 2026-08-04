@@ -147,9 +147,11 @@ runtime admission binds its independent request-ID space, authenticated proxy,
 negotiated registry, and signed target cache to the exact runtime session,
 runtime/policy generations, invalidation watermark, and Handshake network.
 Proxy installation independently requires the canonical engine network and
-genesis, Denuo V1 registry identity and negotiation protocol, and an admitted
-ODoH service packet; caller-self-consistent alternate peer state is
-insufficient.
+genesis, the concrete Denuo V1 profile resolved by policy and retained from
+peer admission, the Denuo V1 registry identity and negotiation protocol, and
+both Denuo-extension and ODoH service advertisements. Official, Denuo V2,
+legacy-draft, unresolved automatic, and caller-self-consistent alternate peer
+states are insufficient.
 Pre/post-adapter checks discard results if that epoch changes. The 16-locator
 cache persists only signed public target records, configuration selections, and
 per-locator sequence high-water marks plus a nondecreasing trusted-time

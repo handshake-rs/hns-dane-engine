@@ -23,8 +23,9 @@
 - a requester-only ODoH engine lifecycle bound to one engine admission, authenticated proxy and
   negotiated registry, with pre/post-I/O generation checks, explicit readiness and revocation,
   and a bounded canonical restart representation for signed target records and sequence and
-  trusted-time high-water marks; canonical network/genesis/registry/service admission and
-  response-time monotonicity are required, and it exposes no proxy or target provider
+  trusted-time high-water marks; canonical network/genesis/registry admission, an exact
+  policy-resolved Denuo V1 peer profile, both Denuo-extension and ODoH service advertisements,
+  and response-time monotonicity are required, and it exposes no proxy or target provider
   implementation;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
@@ -157,8 +158,8 @@ exact publication; the engine deliberately does not retain an unbounded per-orig
 
 The repository is a standalone Cargo checkout. Its nine direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
-`dde2da81f29df935f043978a6d517c1d60ceff31` and declare compatible crates.io
-version `0.1.0`; the lockfile binds those packages and the two-package
+`5deb9dc253c265e590c06486fb87e91fbb4ac369` and declare compatible crates.io
+version `0.2.0`; the lockfile binds those packages and the two-package
 transitive closure to the same revision. No sibling `hns-rs` checkout is
 required. Cargo preserves the version requirements when packaging and removes
 the Git selectors. A tested repository policy rejects unreviewed Git

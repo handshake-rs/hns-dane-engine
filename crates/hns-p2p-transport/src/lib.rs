@@ -86,6 +86,7 @@ pub struct AuthenticatedPeer {
     network: ExperimentalNetwork,
     genesis_hash: [u8; 32],
     registry_protocol_negotiated: bool,
+    wire_profile: ExperimentalWireProfile,
 }
 
 impl AuthenticatedPeer {
@@ -95,6 +96,7 @@ impl AuthenticatedPeer {
         mut admission: ExperimentalPeerState,
         negotiated: NegotiatedRegistry,
     ) -> Result<Self, P2pTransportError> {
+        let wire_profile = admission.profile();
         admission.validate_advertisements()?;
         let protocol_ids: BTreeSet<_> = negotiated
             .protocols
@@ -135,6 +137,7 @@ impl AuthenticatedPeer {
             network,
             genesis_hash,
             registry_protocol_negotiated,
+            wire_profile,
         })
     }
 
@@ -168,17 +171,33 @@ impl AuthenticatedPeer {
         self.maximum_live_requests
     }
 
+    /// Exact experimental assignment profile retained from peer admission.
+    #[must_use]
+    pub const fn wire_profile(&self) -> ExperimentalWireProfile {
+        self.wire_profile
+    }
+
     /// Validate this peer as an exact canonical Denuo V1 ODoH proxy.
     ///
-    /// This narrow engine handoff checks the engine-selected network and
-    /// canonical genesis independently of the caller-created peer state,
-    /// rejects a self-consistent alternate registry, and pre-admits the ODoH
-    /// packet so requester readiness cannot be claimed without the service.
+    /// This narrow engine handoff checks the policy-resolved concrete profile,
+    /// engine-selected network, and canonical genesis independently of the
+    /// caller-created peer state, rejects a self-consistent alternate registry,
+    /// and pre-admits the ODoH packet so requester readiness cannot be claimed
+    /// without both Denuo-extension and ODoH services.
     pub fn admit_canonical_odoh_proxy(
         &mut self,
         expected_network: ExperimentalNetwork,
         expected_genesis_hash: [u8; 32],
+        expected_profile: ExperimentalWireProfile,
     ) -> Result<(), P2pTransportError> {
+        if self.wire_profile != expected_profile
+            || expected_profile != ExperimentalWireProfile::DenuoV1
+        {
+            return Err(P2pTransportError::UnexpectedWireProfile {
+                expected: expected_profile,
+                actual: self.wire_profile,
+            });
+        }
         if self.network != expected_network {
             return Err(P2pTransportError::PeerAdmission(
                 PeerProtocolError::WrongNetwork,
@@ -737,6 +756,14 @@ pub enum P2pTransportError {
     /// Negotiated registry fields are internally invalid.
     #[error("experimental peer supplied an invalid negotiated registry")]
     InvalidNegotiatedRegistry,
+    /// Peer assignment profile differs from the resolved engine profile.
+    #[error("experimental peer profile {actual:?} is not admitted by resolved {expected:?}")]
+    UnexpectedWireProfile {
+        /// Policy-authorized resolved profile.
+        expected: ExperimentalWireProfile,
+        /// Exact profile retained from peer admission.
+        actual: ExperimentalWireProfile,
+    },
     /// HIP-76 payload encoding or decoding failed.
     #[error("HIP-76 DNS Relay protocol failed: {0}")]
     DnsRelayProtocol(#[from] DnsRelayProtocolError),
@@ -823,6 +850,7 @@ impl P2pTransportError {
             | Self::InvalidPeerIdentity
             | Self::PeerAdmission(_)
             | Self::InvalidNegotiatedRegistry
+            | Self::UnexpectedWireProfile { .. }
             | Self::OdohProtocol(OdohProtocolError::InvalidSignature)
             | Self::ExpiredOdohTarget
             | Self::ProxyTargetCollision
@@ -926,17 +954,22 @@ mod tests {
 
     fn canonical_odoh_peer(
         identity: PeerIdentity,
+        profile: ExperimentalWireProfile,
         network: Network,
         genesis_hash: [u8; 32],
         fingerprint: RegistryFingerprint,
         advertise_odoh: bool,
-    ) -> AuthenticatedPeer {
-        let mut services = ServiceMask::default().with(DENUO_EXTENSION_SERVICE);
+        advertise_denuo: bool,
+    ) -> Result<AuthenticatedPeer, P2pTransportError> {
+        let mut services = ServiceMask::default();
+        if advertise_denuo {
+            services = services.with(DENUO_EXTENSION_SERVICE);
+        }
         if advertise_odoh {
             services = services.with(ODOH_SERVICE);
         }
         let state = ExperimentalPeerState::new(
-            ExperimentalWireProfile::DenuoV1,
+            profile,
             network,
             genesis_hash,
             fingerprint,
@@ -959,7 +992,6 @@ mod tests {
                 feature_flags: 0,
             },
         )
-        .unwrap()
     }
 
     fn query() -> Query {
@@ -1327,24 +1359,39 @@ mod tests {
         let genesis = [0x31; 32];
         let mut canonical = canonical_odoh_peer(
             identity,
+            ExperimentalWireProfile::DenuoV1,
             Network::Regtest,
             genesis,
             canonical_fingerprint,
             true,
-        );
+            true,
+        )
+        .unwrap();
+        assert_eq!(canonical.wire_profile(), ExperimentalWireProfile::DenuoV1);
         canonical
-            .admit_canonical_odoh_proxy(Network::Regtest, genesis)
+            .admit_canonical_odoh_proxy(
+                Network::Regtest,
+                genesis,
+                ExperimentalWireProfile::DenuoV1,
+            )
             .unwrap();
 
         let mut wrong_network = canonical_odoh_peer(
             identity,
+            ExperimentalWireProfile::DenuoV1,
             Network::Testnet,
             genesis,
             canonical_fingerprint,
             true,
-        );
+            true,
+        )
+        .unwrap();
         assert!(matches!(
-            wrong_network.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            wrong_network.admit_canonical_odoh_proxy(
+                Network::Regtest,
+                genesis,
+                ExperimentalWireProfile::DenuoV1,
+            ),
             Err(P2pTransportError::PeerAdmission(
                 PeerProtocolError::WrongNetwork
             ))
@@ -1352,13 +1399,20 @@ mod tests {
 
         let mut wrong_genesis = canonical_odoh_peer(
             identity,
+            ExperimentalWireProfile::DenuoV1,
             Network::Regtest,
             [0x32; 32],
             canonical_fingerprint,
             true,
-        );
+            true,
+        )
+        .unwrap();
         assert!(matches!(
-            wrong_genesis.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            wrong_genesis.admit_canonical_odoh_proxy(
+                Network::Regtest,
+                genesis,
+                ExperimentalWireProfile::DenuoV1,
+            ),
             Err(P2pTransportError::PeerAdmission(
                 PeerProtocolError::WrongGenesis
             ))
@@ -1366,27 +1420,85 @@ mod tests {
 
         let mut alternate_registry = canonical_odoh_peer(
             identity,
+            ExperimentalWireProfile::DenuoV1,
             Network::Regtest,
             genesis,
             RegistryFingerprint::new([0x33; 32]),
             true,
-        );
+            true,
+        )
+        .unwrap();
         assert!(matches!(
-            alternate_registry.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            alternate_registry.admit_canonical_odoh_proxy(
+                Network::Regtest,
+                genesis,
+                ExperimentalWireProfile::DenuoV1,
+            ),
             Err(P2pTransportError::InvalidNegotiatedRegistry)
         ));
 
         let mut missing_service = canonical_odoh_peer(
             identity,
+            ExperimentalWireProfile::DenuoV1,
             Network::Regtest,
             genesis,
             canonical_fingerprint,
             false,
-        );
+            true,
+        )
+        .unwrap();
         assert!(matches!(
-            missing_service.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            missing_service.admit_canonical_odoh_proxy(
+                Network::Regtest,
+                genesis,
+                ExperimentalWireProfile::DenuoV1,
+            ),
             Err(P2pTransportError::PeerAdmission(
                 PeerProtocolError::PacketWithoutService { .. }
+            ))
+        ));
+
+        for profile in [
+            ExperimentalWireProfile::DenuoV2,
+            ExperimentalWireProfile::LegacyDraftRegtest,
+            ExperimentalWireProfile::Official(1),
+            ExperimentalWireProfile::Auto,
+        ] {
+            let mut substituted_profile = canonical_odoh_peer(
+                identity,
+                profile,
+                Network::Regtest,
+                genesis,
+                canonical_fingerprint,
+                true,
+                true,
+            )
+            .unwrap();
+            assert!(matches!(
+                substituted_profile.admit_canonical_odoh_proxy(
+                    Network::Regtest,
+                    genesis,
+                    ExperimentalWireProfile::DenuoV1,
+                ),
+                Err(P2pTransportError::UnexpectedWireProfile {
+                    expected: ExperimentalWireProfile::DenuoV1,
+                    actual,
+                }) if actual == profile
+            ));
+        }
+
+        assert!(matches!(
+            canonical_odoh_peer(
+                identity,
+                ExperimentalWireProfile::DenuoV1,
+                Network::Regtest,
+                genesis,
+                canonical_fingerprint,
+                true,
+                false,
+            ),
+            Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::AdvertisedServiceWithoutRegistry
             ))
         ));
     }

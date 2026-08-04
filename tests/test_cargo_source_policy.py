@@ -62,7 +62,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
         locked_packages = "\n".join(
             "[[package]]\n"
             f'name = "{package}"\n'
-            'version = "0.1.0"\n'
+            f'version = "{HNS_RS_CRATES_IO_VERSION}"\n'
             f'source = "{HNS_RS_LOCK_SOURCE}"\n'
             for package in sorted(LOCKED_HNS_RS_PACKAGES)
         )
@@ -242,7 +242,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
             marker = (
                 "[[package]]\n"
                 'name = "hns-mining"\n'
-                'version = "0.1.0"\n'
+                f'version = "{HNS_RS_CRATES_IO_VERSION}"\n'
                 f'source = "{HNS_RS_LOCK_SOURCE}"\n'
             )
             lockfile.write_text(
@@ -263,7 +263,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
                 lockfile.read_text(encoding="utf-8")
                 + "\n[[package]]\n"
                 + 'name = "hns-unreviewed"\n'
-                + 'version = "0.1.0"\n'
+                + f'version = "{HNS_RS_CRATES_IO_VERSION}"\n'
                 + f'source = "{HNS_RS_LOCK_SOURCE}"\n',
                 encoding="utf-8",
             )

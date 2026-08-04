@@ -31,7 +31,7 @@ hns-loopback-proxy
 "
 
 hns_rs_git_url="https://github.com/handshake-rs/hns-rs.git"
-hns_rs_revision="dde2da81f29df935f043978a6d517c1d60ceff31"
+hns_rs_revision="5deb9dc253c265e590c06486fb87e91fbb4ac369"
 
 assert_private() {
     package=$1

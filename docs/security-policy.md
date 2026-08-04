@@ -161,8 +161,9 @@ fork recovery.
 The DNS AD bit, Brontide, a relay, an ODoH proxy, and an ODoH target are never validation
 authorities. Transport status is reported separately from evidence status.
 
-HIP-76/77 requesters consume only an established peer whose advertised service, Denuo extension,
-registry fingerprint, network, and genesis identity were admitted. Each requester owns a
+HIP-76/77 requesters consume only an established peer whose exact wire profile,
+advertised service, Denuo extension, registry fingerprint, network, and genesis
+identity were admitted. Each requester owns a
 non-cloneable monotonic nonzero request-ID sequence. The runtime adapter receives an exact packet,
 deadline, authenticated destination, and response allocation cap; its response must attest the
 same Brontide static key. Wrong keys, semantic packets, request IDs, deadlines, lengths, status
@@ -180,10 +181,13 @@ stamp. Unrelated later work does not revoke it, but degradation, revocation,
 stop, policy replacement, or another runtime session does. Both sides of the
 platform adapter call are checked; a response completed after invalidation is
 discarded. Readiness requires one exact authenticated/registry-negotiated proxy
-whose network and genesis match canonical engine parameters, whose registry is
-the canonical Denuo V1 fingerprint/version/negotiation, whose ODoH packet and
-service were pre-admitted, and at least one current signed target. A response
-completion time earlier than request start or later than deadline is rejected.
+whose network and genesis match canonical engine parameters and whose retained
+wire profile equals the policy-resolved concrete Denuo V1 profile. Its registry
+must be the canonical Denuo V1 fingerprint/version/negotiation, both the
+Denuo-extension and ODoH services must be advertised, its ODoH packet must be
+pre-admitted, and at least one current signed target must exist. Official,
+Denuo V2, legacy-draft, and unresolved automatic peer profiles fail closed. A
+response completion time earlier than request start or later than deadline is rejected.
 Canonical transport errors are not
 flattened, preserving peer, registry, packet, deadline, request-correlation,
 DNS-correlation, target-signature, and HPKE failure identity.

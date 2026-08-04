@@ -71,12 +71,17 @@ bytes still traverse the private HNS proof, DNSSEC, TLSA, and DANE gates.
 `Engine::start_odoh_requester` mints a private transport admission stamp and a
 non-cloneable request-ID space. The runtime retains the exact engine session,
 runtime generation, policy generation, invalidation watermark, network magic,
-Brontide proxy identity, registry fingerprint/version, and negotiated request
-bound. Binding independently compares the peer's negotiated network and
-genesis to the engine's canonical network parameters, requires the canonical
-Denuo V1 registry fingerprint/version/negotiation protocol, and pre-admits
-`ODOH_PACKET` against the advertised ODoH and Denuo services before reporting
-a proxy. It checks the engine before and after adapter I/O, so degradation,
+policy wire profile, Brontide proxy identity, exact peer wire profile, registry
+fingerprint/version, and negotiated request bound. Binding resolves policy
+`DenuoV1` or `Auto` to concrete Denuo V1, independently compares that exact
+profile and the peer's negotiated network and genesis to canonical engine
+parameters, requires the canonical Denuo V1 registry
+fingerprint/version/negotiation protocol, and pre-admits `ODOH_PACKET` against
+both advertised ODoH and Denuo-extension services before reporting a proxy.
+Official, Denuo V2, legacy-draft, and unresolved `Auto` peer profiles fail
+closed. Requester status schema 3 reports the retained resolved profile; the
+target-cache wire schema remains version 2. It checks the engine before and
+after adapter I/O, so degradation,
 revocation, stop, policy replacement, or another process session cannot return
 stale response bytes. Readiness requires both an authenticated proxy and a
 current signed target. Status reports those prerequisites and closed

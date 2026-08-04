@@ -65,7 +65,7 @@ Recorded foundation coverage and current source status:
 
 - independently cloneable Cargo resolution with nine reviewed direct
   `hns-rs` packages and the exact eleven-package locked closure at
-  `dde2da81f29df935f043978a6d517c1d60ceff31`; rejection of mutable or
+  `5deb9dc253c265e590c06486fb87e91fbb4ac369`; rejection of mutable or
   noncanonical Git sources, aliases, unreviewed consumers/packages, lock
   drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;
@@ -169,7 +169,11 @@ Recorded foundation coverage and current source status:
   gateway failure classification;
 - unqualified 0.2 source for an engine-admitted, requester-only ODoH runtime:
   exact runtime session/generation/invalidation/policy/network binding;
-  canonical network/genesis/registry/negotiation/service proxy admission;
+  canonical network/genesis/registry/negotiation proxy admission; exact
+  policy-resolved Denuo V1 peer-profile retention; mandatory Denuo-extension
+  and ODoH services; rejection of Official, Denuo V2, legacy-draft, and
+  unresolved automatic peer profiles; status schema 3 exposure of the resolved
+  peer profile while target-cache wire schema 2 remains stable;
   pre/post-adapter invalidation and response start/deadline monotonicity; closed
   readiness/revocation; a 16-locator signed-target cache with sequence and
   trusted-time high-water retention; bounded canonical checksummed schema-2

@@ -23,8 +23,8 @@ use super::{
     resolution_transport_ready,
 };
 
-/// Private-transport status and persistence schema.
-pub const PRIVATE_TRANSPORT_SCHEMA_VERSION: u16 = 2;
+/// Private-transport requester status schema.
+pub const PRIVATE_TRANSPORT_SCHEMA_VERSION: u16 = 3;
 /// Maximum distinct target locators retained by one requester runtime.
 pub const MAX_CACHED_ODOH_TARGETS: usize = 16;
 /// Maximum canonical signed target record admitted to persistence.
@@ -33,6 +33,7 @@ pub const MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES: usize = 16_384;
 pub const MAX_ODOH_TARGET_CACHE_BLOB_BYTES: usize = 264_224;
 
 const TARGET_CACHE_MAGIC: &[u8; 8] = b"HNSODC1\0";
+const ODOH_TARGET_CACHE_SCHEMA_VERSION: u16 = 2;
 const MAX_TARGET_LOCATOR_BYTES: usize = 64;
 
 /// Lifecycle of the requester-only ODoH runtime.
@@ -76,6 +77,7 @@ pub struct PrivateTransportBinding {
     admission: Admission,
     network: Network,
     network_magic: u32,
+    policy_wire_profile: WireProfile,
 }
 
 impl PrivateTransportBinding {
@@ -114,6 +116,12 @@ impl PrivateTransportBinding {
     pub const fn network_magic(self) -> u32 {
         self.network_magic
     }
+
+    /// Persisted policy profile from which a concrete Denuo V1 peer is resolved.
+    #[must_use]
+    pub const fn policy_wire_profile(self) -> WireProfile {
+        self.policy_wire_profile
+    }
 }
 
 /// Complete bounded requester status for native adapters and diagnostics.
@@ -133,6 +141,8 @@ pub struct OdohRequesterStatus {
     pub registry_fingerprint: [u8; 32],
     /// Exact negotiated registry version, or zero before proxy binding.
     pub registry_version: u16,
+    /// Exact resolved peer profile, absent before proxy binding.
+    pub resolved_wire_profile: Option<ExperimentalWireProfile>,
     /// Negotiated remote request concurrency, or zero before proxy binding.
     pub maximum_live_requests: u16,
     /// Number of locator anti-rollback slots retained.
@@ -288,7 +298,7 @@ impl OdohTargetCache {
             .map_err(|_| PrivateTransportError::TargetCacheFull)?;
         let mut output = Vec::new();
         output.extend_from_slice(TARGET_CACHE_MAGIC);
-        output.extend_from_slice(&PRIVATE_TRANSPORT_SCHEMA_VERSION.to_le_bytes());
+        output.extend_from_slice(&ODOH_TARGET_CACHE_SCHEMA_VERSION.to_le_bytes());
         output.extend_from_slice(&network_magic.to_le_bytes());
         output.push(u8::from(allow_private));
         output.extend_from_slice(&trusted_time_high_water.to_le_bytes());
@@ -350,7 +360,7 @@ impl OdohTargetCache {
         if decoder.take(8)? != TARGET_CACHE_MAGIC {
             return Err(PrivateTransportError::InvalidTargetCacheBlob);
         }
-        if decoder.u16()? != PRIVATE_TRANSPORT_SCHEMA_VERSION {
+        if decoder.u16()? != ODOH_TARGET_CACHE_SCHEMA_VERSION {
             return Err(PrivateTransportError::UnsupportedTargetCacheSchema);
         }
         if decoder.u32()? != expected_network_magic {
@@ -486,6 +496,7 @@ impl OdohRequesterRuntime {
             .admit_canonical_odoh_proxy(
                 experimental_network(self.binding.network),
                 canonical_genesis_hash(self.binding.network),
+                resolved_odoh_profile(self.binding.policy_wire_profile)?,
             )
             .map_err(PrivateTransportError::Transport)?;
         self.proxy = Some(proxy);
@@ -545,17 +556,24 @@ impl OdohRequesterRuntime {
             }
         }
         self.targets.prune(now);
-        let (proxy_identity, registry_fingerprint, registry_version, maximum_live_requests) = self
-            .proxy
-            .as_ref()
-            .map_or((None, [0; 32], 0, 0), |proxy| {
+        let (
+            proxy_identity,
+            registry_fingerprint,
+            registry_version,
+            resolved_wire_profile,
+            maximum_live_requests,
+        ) = self.proxy.as_ref().map_or(
+            (None, [0; 32], 0, None, 0),
+            |proxy| {
                 (
                     Some(proxy.identity().as_bytes()),
                     proxy.registry_fingerprint(),
                     proxy.registry_version(),
+                    Some(proxy.wire_profile()),
                     proxy.maximum_live_requests(),
                 )
-            });
+            },
+        );
         let target_slots = u16::try_from(self.targets.slots.len()).unwrap_or(u16::MAX);
         let current_targets = u16::try_from(self.targets.current_count()).unwrap_or(u16::MAX);
         let ready = self.revocation_reason.is_none()
@@ -575,6 +593,7 @@ impl OdohRequesterRuntime {
             proxy_identity,
             registry_fingerprint,
             registry_version,
+            resolved_wire_profile,
             maximum_live_requests,
             target_slots,
             current_targets,
@@ -783,6 +802,7 @@ impl Engine {
             admission,
             network: state.network,
             network_magic: network_magic(state.network),
+            policy_wire_profile: state.policy.snapshot().config().wire_profile,
         })
     }
 
@@ -835,6 +855,15 @@ const fn experimental_network(network: Network) -> ExperimentalNetwork {
         Network::Testnet => ExperimentalNetwork::Testnet,
         Network::Regtest => ExperimentalNetwork::Regtest,
         Network::Simnet => ExperimentalNetwork::Simnet,
+    }
+}
+
+const fn resolved_odoh_profile(
+    policy_profile: WireProfile,
+) -> Result<ExperimentalWireProfile, PrivateTransportError> {
+    match policy_profile {
+        WireProfile::DenuoV1 | WireProfile::Auto => Ok(ExperimentalWireProfile::DenuoV1),
+        WireProfile::Official => Err(PrivateTransportError::UnsupportedWireProfile),
     }
 }
 
@@ -1049,7 +1078,8 @@ mod tests {
     use super::*;
     use crate::{
         DENUO_EXTENSION_SERVICE, EngineConfig, ExperimentalWireProfile, ODOH_SERVICE,
-        PeerProtocolError, PolicySnapshot, RegistryHello, RuntimeSessionId, ServiceMask,
+        PeerProtocolError, PolicyConfig, PolicySnapshot, RegistryHello, RuntimeSessionId,
+        ServiceMask,
     };
 
     const SECP256K1_GENERATOR: [u8; 33] = [
@@ -1059,10 +1089,26 @@ mod tests {
     ];
 
     fn ready_engine(session: u8, network: Network) -> Engine {
+        ready_engine_with_profile(session, network, WireProfile::DenuoV1)
+    }
+
+    fn ready_engine_with_profile(
+        session: u8,
+        network: Network,
+        wire_profile: WireProfile,
+    ) -> Engine {
+        let policy = PolicySnapshot::new(
+            1,
+            PolicyConfig {
+                wire_profile,
+                ..PolicyConfig::default()
+            },
+        )
+        .unwrap();
         let engine = Engine::new(EngineConfig::new(
             RuntimeSessionId::new([session; 16]).unwrap(),
             network,
-            PolicySnapshot::default(),
+            policy,
         ));
         for state in [
             AuthorityState::LocalStateOpened,
@@ -1077,9 +1123,11 @@ mod tests {
     }
 
     fn proxy_inputs(
+        profile: ExperimentalWireProfile,
         network: ExperimentalNetwork,
         genesis_hash: [u8; 32],
         advertise_odoh: bool,
+        advertise_denuo: bool,
         alternate_registry: bool,
     ) -> (ExperimentalPeerState, NegotiatedRegistry) {
         let hello = RegistryHello::denuo_v1(
@@ -1095,12 +1143,15 @@ mod tests {
         if alternate_registry {
             registry.fingerprint = [0x44; 32].into();
         }
-        let mut services = ServiceMask::default().with(DENUO_EXTENSION_SERVICE);
+        let mut services = ServiceMask::default();
+        if advertise_denuo {
+            services = services.with(DENUO_EXTENSION_SERVICE);
+        }
         if advertise_odoh {
             services = services.with(ODOH_SERVICE);
         }
         let peer = ExperimentalPeerState::new(
-            ExperimentalWireProfile::DenuoV1,
+            profile,
             network,
             genesis_hash,
             registry.fingerprint,
@@ -1236,8 +1287,10 @@ mod tests {
         let regtest_genesis = canonical_genesis_hash(Network::Regtest);
 
         let (peer, registry) = proxy_inputs(
+            ExperimentalWireProfile::DenuoV1,
             ExperimentalNetwork::Testnet,
             canonical_genesis_hash(Network::Testnet),
+            true,
             true,
             false,
         );
@@ -1248,8 +1301,14 @@ mod tests {
             ))
         ));
 
-        let (peer, registry) =
-            proxy_inputs(ExperimentalNetwork::Regtest, [0x45; 32], true, false);
+        let (peer, registry) = proxy_inputs(
+            ExperimentalWireProfile::DenuoV1,
+            ExperimentalNetwork::Regtest,
+            [0x45; 32],
+            true,
+            true,
+            false,
+        );
         assert!(matches!(
             runtime.bind_proxy(&engine, identity, peer, registry),
             Err(PrivateTransportError::Transport(
@@ -1257,8 +1316,14 @@ mod tests {
             ))
         ));
 
-        let (peer, registry) =
-            proxy_inputs(ExperimentalNetwork::Regtest, regtest_genesis, true, true);
+        let (peer, registry) = proxy_inputs(
+            ExperimentalWireProfile::DenuoV1,
+            ExperimentalNetwork::Regtest,
+            regtest_genesis,
+            true,
+            true,
+            true,
+        );
         assert!(matches!(
             runtime.bind_proxy(&engine, identity, peer, registry),
             Err(PrivateTransportError::Transport(
@@ -1266,8 +1331,14 @@ mod tests {
             ))
         ));
 
-        let (peer, registry) =
-            proxy_inputs(ExperimentalNetwork::Regtest, regtest_genesis, false, false);
+        let (peer, registry) = proxy_inputs(
+            ExperimentalWireProfile::DenuoV1,
+            ExperimentalNetwork::Regtest,
+            regtest_genesis,
+            false,
+            true,
+            false,
+        );
         assert!(matches!(
             runtime.bind_proxy(&engine, identity, peer, registry),
             Err(PrivateTransportError::Transport(
@@ -1277,13 +1348,115 @@ mod tests {
             ))
         ));
 
-        let (peer, registry) =
-            proxy_inputs(ExperimentalNetwork::Regtest, regtest_genesis, true, false);
+        let (peer, registry) = proxy_inputs(
+            ExperimentalWireProfile::DenuoV1,
+            ExperimentalNetwork::Regtest,
+            regtest_genesis,
+            true,
+            false,
+            false,
+        );
+        assert!(matches!(
+            runtime.bind_proxy(&engine, identity, peer, registry),
+            Err(PrivateTransportError::Transport(
+                P2pTransportError::PeerAdmission(
+                    PeerProtocolError::AdvertisedServiceWithoutRegistry
+                )
+            ))
+        ));
+
+        for profile in [
+            ExperimentalWireProfile::DenuoV2,
+            ExperimentalWireProfile::LegacyDraftRegtest,
+            ExperimentalWireProfile::Official(1),
+            ExperimentalWireProfile::Auto,
+        ] {
+            let (peer, registry) = proxy_inputs(
+                profile,
+                ExperimentalNetwork::Regtest,
+                regtest_genesis,
+                true,
+                true,
+                false,
+            );
+            assert!(matches!(
+                runtime.bind_proxy(&engine, identity, peer, registry),
+                Err(PrivateTransportError::Transport(
+                    P2pTransportError::UnexpectedWireProfile {
+                        expected: ExperimentalWireProfile::DenuoV1,
+                        actual,
+                    }
+                )) if actual == profile
+            ));
+        }
+
+        let (peer, registry) = proxy_inputs(
+            ExperimentalWireProfile::DenuoV1,
+            ExperimentalNetwork::Regtest,
+            regtest_genesis,
+            true,
+            true,
+            false,
+        );
         runtime
             .bind_proxy(&engine, identity, peer, registry)
             .unwrap();
         let status = runtime.status(&engine, 1_700_000_100).unwrap();
+        assert_eq!(status.schema_version, 3);
         assert_eq!(status.proxy_identity, Some(SECP256K1_GENERATOR));
+        assert_eq!(runtime.binding().policy_wire_profile(), WireProfile::DenuoV1);
+        assert_eq!(
+            status.resolved_wire_profile,
+            Some(ExperimentalWireProfile::DenuoV1)
+        );
         assert!(!status.requester_ready);
+    }
+
+    #[test]
+    fn production_followup_odoh_policy_resolves_auto_and_rejects_official() {
+        let official_engine =
+            ready_engine_with_profile(45, Network::Regtest, WireProfile::Official);
+        assert!(matches!(
+            official_engine.start_odoh_requester(
+                NonZeroU64::new(22).unwrap(),
+                RequesterLimits::default(),
+                true,
+            ),
+            Err(PrivateTransportError::UnsupportedWireProfile)
+        ));
+
+        let auto_engine = ready_engine_with_profile(46, Network::Regtest, WireProfile::Auto);
+        let mut runtime = auto_engine
+            .start_odoh_requester(
+                NonZeroU64::new(23).unwrap(),
+                RequesterLimits::default(),
+                true,
+            )
+            .unwrap();
+        let regtest_genesis = canonical_genesis_hash(Network::Regtest);
+        let (peer, registry) = proxy_inputs(
+            ExperimentalWireProfile::DenuoV1,
+            ExperimentalNetwork::Regtest,
+            regtest_genesis,
+            true,
+            true,
+            false,
+        );
+        runtime
+            .bind_proxy(
+                &auto_engine,
+                PeerIdentity::new(SECP256K1_GENERATOR).unwrap(),
+                peer,
+                registry,
+            )
+            .unwrap();
+        assert_eq!(runtime.binding().policy_wire_profile(), WireProfile::Auto);
+        assert_eq!(
+            runtime
+                .status(&auto_engine, 1_700_000_101)
+                .unwrap()
+                .resolved_wire_profile,
+            Some(ExperimentalWireProfile::DenuoV1)
+        );
     }
 }

@@ -14,8 +14,13 @@ file. The public crates use a shared version and follow Semantic Versioning.
   nondecreasing trusted-time high-water; restore re-verifies target signatures,
   network, locator, configuration, sequence, lifetime, and time monotonicity.
   Proxy binding independently requires the engine-selected canonical network
-  genesis, Denuo V1 registry fingerprint/version/negotiation, and an admitted
-  ODoH service packet. Responses predating request start are rejected. Exact
+  genesis, a policy-authorized concrete Denuo V1 wire profile retained from
+  peer admission, the Denuo V1 registry fingerprint/version/negotiation, and
+  both the Denuo-extension and ODoH service advertisements. Official,
+  Denuo V2, legacy-draft, and unresolved automatic peer profiles are rejected.
+  Requester status schema 3 exposes the resolved peer profile while the
+  target-cache wire schema remains version 2. Responses predating request
+  start are rejected. Exact
   peer, registry, deadline, correlation, and HPKE errors remain typed, and an
   engine change during adapter I/O discards the result. No ODoH proxy or target
   provider role is implemented or made available by this runtime. This source
