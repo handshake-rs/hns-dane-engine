@@ -998,7 +998,7 @@ impl ProxySession {
         let mut current_publications = 0_usize;
         let mut duplicate = false;
         for (origin, existing) in &self.publications {
-            if self.publication_is_current(engine, existing, now)? {
+            if Self::publication_is_current(engine, existing, now)? {
                 current_publications += 1;
                 duplicate |= origin == &logical_origin;
             } else {
@@ -1029,6 +1029,10 @@ impl ProxySession {
     ///
     /// The old handle and replacement context are consumed. Replacement cannot
     /// change the logical origin, publication identity, process, or listener.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "the admission is an intentionally consumed linear publication capability"
+    )]
     pub fn replace_authority(
         &mut self,
         engine: &Engine,
@@ -1065,6 +1069,10 @@ impl ProxySession {
     ///
     /// The handle is consumed and the generation advances only after the exact
     /// publication and expected registry generation match.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "the admission is an intentionally consumed linear publication capability"
+    )]
     pub fn revoke_authority(
         &mut self,
         expected_registry_generation: u64,
@@ -1131,7 +1139,7 @@ impl ProxySession {
         if admission.logical_origin.scheme() != OriginScheme::Https
             || admission.logical_origin.host() != record.host.as_str()
             || admission.logical_origin.port() != record.port
-            || !self.publication_is_current(engine, publication, now)?
+            || !Self::publication_is_current(engine, publication, now)?
         {
             return Err(ProxyError::ProviderAuthorityMismatch);
         }
@@ -1228,7 +1236,7 @@ impl ProxySession {
             || publication.process_generation != grant.process_generation
             || publication.listener_generation != grant.listener_generation
             || grant.expires_at > publication.publication_valid_until
-            || !self.publication_is_current(engine, publication, now)?
+            || !Self::publication_is_current(engine, publication, now)?
         {
             return Err(ProxyError::ProviderAuthorityMismatch);
         }
@@ -1366,7 +1374,6 @@ impl ProxySession {
     }
 
     fn publication_is_current(
-        &self,
         engine: &Engine,
         publication: &PublicationRecord,
         now: u64,
@@ -2165,6 +2172,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one lifecycle test covers atomic publication, replacement, revocation, restart, and expiry"
+    )]
     fn provider_publication_is_atomic_bounded_and_restart_scoped() {
         let engine = active_engine([7; 16]);
         let decision = provider_decision("www.alpha");
