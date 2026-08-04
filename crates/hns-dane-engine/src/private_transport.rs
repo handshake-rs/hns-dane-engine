@@ -1888,7 +1888,7 @@ mod tests {
             .bind_proxy(&engine, identity, peer, registry)
             .unwrap();
         let status = runtime.status(&engine, 1_700_000_100).unwrap();
-        assert_eq!(status.schema_version, 3);
+        assert_eq!(status.schema_version, PRIVATE_TRANSPORT_SCHEMA_VERSION);
         assert_eq!(status.proxy_identity, Some(SECP256K1_GENERATOR));
         assert_eq!(
             runtime.binding().policy_wire_profile(),
