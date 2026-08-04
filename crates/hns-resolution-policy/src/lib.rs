@@ -1319,7 +1319,8 @@ mod tests {
 
     #[test]
     fn requester_change_does_not_mutate_provider_consent() {
-        let config = PolicyConfig::default();
+        let mut config = PolicyConfig::default();
+        config.hnsr = config.hnsr.with_requester(false);
         let mut controller = PolicyController::new(PolicySnapshot::new(4, config).unwrap());
         let mut next = config;
         next.hnsr = next.hnsr.with_requester(true);

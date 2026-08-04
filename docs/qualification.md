@@ -169,11 +169,12 @@ Recorded foundation coverage and current source status:
   gateway failure classification;
 - unqualified 0.2 source for an engine-admitted, requester-only ODoH runtime:
   exact runtime session/generation/invalidation/policy/network binding;
-  authenticated proxy and registry status; pre/post-adapter invalidation;
-  closed readiness/revocation; a 16-locator signed-target cache with sequence
-  high-water retention; bounded canonical checksummed restart encoding and
-  signature/network/locator/configuration/sequence/lifetime revalidation; and
-  permanently unavailable proxy/target provider roles;
+  canonical network/genesis/registry/negotiation/service proxy admission;
+  pre/post-adapter invalidation and response start/deadline monotonicity; closed
+  readiness/revocation; a 16-locator signed-target cache with sequence and
+  trusted-time high-water retention; bounded canonical checksummed schema-2
+  restart encoding and signature/network/locator/configuration/sequence/lifetime
+  revalidation; and permanently unavailable proxy/target provider roles;
 - atomic engine admission of a gateway selection's policy generation, actual transport, response,
   identities, and relay-downgrade state, including non-cloneable selection consumption and
   stale-selection rejection before an engine event is consumed;

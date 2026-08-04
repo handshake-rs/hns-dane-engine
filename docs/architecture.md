@@ -146,12 +146,18 @@ same local proof, DNSSEC, TLSA, DANE, correlation, and response bounds still app
 runtime admission binds its independent request-ID space, authenticated proxy,
 negotiated registry, and signed target cache to the exact runtime session,
 runtime/policy generations, invalidation watermark, and Handshake network.
+Proxy installation independently requires the canonical engine network and
+genesis, Denuo V1 registry identity and negotiation protocol, and an admitted
+ODoH service packet; caller-self-consistent alternate peer state is
+insufficient.
 Pre/post-adapter checks discard results if that epoch changes. The 16-locator
 cache persists only signed public target records, configuration selections, and
-per-locator sequence high-water marks in a canonical checksummed blob; restore
+per-locator sequence high-water marks plus a nondecreasing trusted-time
+high-water in a canonical checksummed schema-2 blob; restore
 re-verifies every signed binding and never restores proxy sessions, HPKE query
-contexts, or in-flight work. Native storage must add atomic authenticated
-rollback protection. No ODoH provider role is implemented by this lifecycle.
+contexts, or in-flight work. Response completion must fall within request start
+and deadline. Native storage must add atomic authenticated rollback protection.
+No ODoH provider role is implemented by this lifecycle.
 `hns-browser-observability` schema v2 validates the shared, name-free mobile/Chromium status
 contract: the complete private-field runtime snapshot including authority state, policy and actual
 transport, chain anchor, HNSR/provider state and policy-derived readiness, rate-limit saturation,

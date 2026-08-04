@@ -566,6 +566,7 @@ dependencies = [
  "hns-dane",
  "hns-dns-wire",
  "hns-gateway",
+ "hns-header-consensus",
  "hns-namespace-resolution",
  "hns-p2p-transport",
  "hns-p2p-wire",

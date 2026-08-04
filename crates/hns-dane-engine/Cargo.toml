@@ -18,6 +18,7 @@ hns-browser-runtime.workspace = true
 hns-dane.workspace = true
 hns-dns-wire.workspace = true
 hns-gateway.workspace = true
+hns-header-consensus.workspace = true
 hns-namespace-resolution.workspace = true
 hns-p2p-transport.workspace = true
 hns-p2p-wire.workspace = true

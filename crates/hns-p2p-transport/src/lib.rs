@@ -29,10 +29,15 @@ use hns_odoh_protocol::{
     OdohErrorBody, OdohOpcode, OdohProtocolError, OdohResponseBody, OdohStatus, QueryContext,
     TargetConfigRecord, seal_query,
 };
-pub use hns_p2p_experimental::{ExperimentalPeerState, NegotiatedRegistry};
+pub use hns_p2p_experimental::{
+    DENUO_EXTENSION_SERVICE, ExperimentalPeerState, ExperimentalWireProfile, NegotiatedRegistry,
+    Network as ExperimentalNetwork, ODOH_SERVICE, PeerProtocolError, ProtocolRange, RegistryHello,
+    ServiceMask,
+};
 use hns_p2p_experimental::{
-    DNS_RELAY_REQUEST_PACKET, DNS_RELAY_RESPONSE_PACKET, ODOH_PACKET, PacketType,
-    PeerProtocolError,
+    DENUO_V1_REGISTRY_FINGERPRINT, DENUO_V1_REGISTRY_VERSION, DNS_RELAY_REQUEST_PACKET,
+    DNS_RELAY_RESPONSE_PACKET, ODOH_PACKET, PacketType,
+    REGISTRY_NEGOTIATION_PROTOCOL_ID, REGISTRY_NEGOTIATION_PROTOCOL_VERSION,
 };
 use hns_transport::CancellationToken;
 use k256::PublicKey;
@@ -78,6 +83,9 @@ pub struct AuthenticatedPeer {
     maximum_live_requests: u16,
     registry_fingerprint: [u8; 32],
     registry_version: u16,
+    network: ExperimentalNetwork,
+    genesis_hash: [u8; 32],
+    registry_protocol_negotiated: bool,
 }
 
 impl AuthenticatedPeer {
@@ -107,6 +115,12 @@ impl AuthenticatedPeer {
         let maximum_live_requests = negotiated.maximum_live_requests;
         let registry_fingerprint = *negotiated.fingerprint.as_bytes();
         let registry_version = negotiated.registry_version;
+        let network = negotiated.network;
+        let genesis_hash = negotiated.genesis_hash;
+        let registry_protocol_negotiated = negotiated.supports(
+            REGISTRY_NEGOTIATION_PROTOCOL_ID,
+            REGISTRY_NEGOTIATION_PROTOCOL_VERSION,
+        );
         admission.mark_established();
         let maximum_send_size = usize::try_from(negotiated.maximum_send_size)
             .map_err(|_| P2pTransportError::InvalidNegotiatedRegistry)?;
@@ -118,6 +132,9 @@ impl AuthenticatedPeer {
             maximum_live_requests,
             registry_fingerprint,
             registry_version,
+            network,
+            genesis_hash,
+            registry_protocol_negotiated,
         })
     }
 
@@ -149,6 +166,36 @@ impl AuthenticatedPeer {
     #[must_use]
     pub const fn maximum_live_requests(&self) -> u16 {
         self.maximum_live_requests
+    }
+
+    /// Validate this peer as an exact canonical Denuo V1 ODoH proxy.
+    ///
+    /// This narrow engine handoff checks the engine-selected network and
+    /// canonical genesis independently of the caller-created peer state,
+    /// rejects a self-consistent alternate registry, and pre-admits the ODoH
+    /// packet so requester readiness cannot be claimed without the service.
+    pub fn admit_canonical_odoh_proxy(
+        &mut self,
+        expected_network: ExperimentalNetwork,
+        expected_genesis_hash: [u8; 32],
+    ) -> Result<(), P2pTransportError> {
+        if self.network != expected_network {
+            return Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::WrongNetwork,
+            ));
+        }
+        if self.genesis_hash != expected_genesis_hash {
+            return Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::WrongGenesis,
+            ));
+        }
+        if self.registry_fingerprint != *DENUO_V1_REGISTRY_FINGERPRINT.as_bytes()
+            || self.registry_version != DENUO_V1_REGISTRY_VERSION
+            || !self.registry_protocol_negotiated
+        {
+            return Err(P2pTransportError::InvalidNegotiatedRegistry);
+        }
+        self.admit(ODOH_PACKET)
     }
 
     fn admit(&mut self, packet: PacketType) -> Result<(), P2pTransportError> {
@@ -346,6 +393,7 @@ pub struct AdmittedDnsResponse {
     wire: Vec<u8>,
     message: Message,
     identities: GatewayIdentities,
+    completed_at: u64,
 }
 
 impl AdmittedDnsResponse {
@@ -365,6 +413,12 @@ impl AdmittedDnsResponse {
     #[must_use]
     pub const fn identities(&self) -> &GatewayIdentities {
         &self.identities
+    }
+
+    /// Trusted adapter clock after the complete response was received.
+    #[must_use]
+    pub const fn completed_at(&self) -> u64 {
+        self.completed_at
     }
 
     /// Consume into the gateway's successful adapter result.
@@ -422,6 +476,7 @@ impl DnsRelayRequester {
             cancellation,
             relay.identity(),
             &response,
+            now,
             deadline,
             MAX_DNS_RELAY_RESPONSE_PAYLOAD_SIZE,
         )?;
@@ -432,6 +487,7 @@ impl DnsRelayRequester {
             });
         }
         relay.admit(DNS_RELAY_RESPONSE_PACKET)?;
+        let completed_at = response.completed_at;
         let response = DnsRelay::decode(&response.payload)?;
         if response.request_id != request_id {
             return Err(P2pTransportError::RequestIdMismatch);
@@ -447,6 +503,7 @@ impl DnsRelayRequester {
                 peer: Some(relay.identity().gateway_label()),
                 ..GatewayIdentities::default()
             },
+            completed_at,
         )
     }
 }
@@ -514,6 +571,7 @@ impl OdohRequester {
             cancellation,
             proxy.identity(),
             &response,
+            now,
             deadline,
             MAX_ODOH_PACKET_SIZE,
         )?;
@@ -525,6 +583,7 @@ impl OdohRequester {
             });
         }
         proxy.admit(ODOH_PACKET)?;
+        let completed_at = response.completed_at;
         let response = OdnsPacket::decode(&response.payload)?;
         if response.request_id != request_id {
             return Err(P2pTransportError::RequestIdMismatch);
@@ -539,6 +598,7 @@ impl OdohRequester {
                 target: Some(target_identity.gateway_label()),
                 ..GatewayIdentities::default()
             },
+            completed_at,
         )
     }
 }
@@ -617,11 +677,15 @@ fn check_response_boundary(
     cancellation: &CancellationToken,
     expected_peer: PeerIdentity,
     response: &ExperimentalResponse,
+    started_at: u64,
     deadline: u64,
     maximum: usize,
 ) -> Result<(), P2pTransportError> {
     if cancellation.is_cancelled() {
         return Err(P2pTransportError::Cancelled);
+    }
+    if response.completed_at < started_at {
+        return Err(P2pTransportError::ResponseClockRollback);
     }
     if response.completed_at > deadline {
         return Err(P2pTransportError::DeadlineExpired);
@@ -640,6 +704,7 @@ fn admit_dns(
     wire: Vec<u8>,
     maximum: usize,
     identities: GatewayIdentities,
+    completed_at: u64,
 ) -> Result<AdmittedDnsResponse, P2pTransportError> {
     if wire.is_empty() || wire.len() > maximum {
         return Err(P2pTransportError::ResponseLimit);
@@ -652,6 +717,7 @@ fn admit_dns(
         wire,
         message,
         identities,
+        completed_at,
     })
 }
 
@@ -730,6 +796,9 @@ pub enum P2pTransportError {
     /// Caller or adapter crossed the exact request deadline.
     #[error("experimental P2P request deadline expired")]
     DeadlineExpired,
+    /// Adapter completion time predates the request start.
+    #[error("experimental P2P response clock moved backwards")]
+    ResponseClockRollback,
 }
 
 impl P2pTransportError {
@@ -853,6 +922,44 @@ mod tests {
 
     fn authenticated_peer(identity: PeerIdentity) -> AuthenticatedPeer {
         authenticated_peer_with_max(identity, u32::try_from(MAX_ODOH_PACKET_SIZE).unwrap())
+    }
+
+    fn canonical_odoh_peer(
+        identity: PeerIdentity,
+        network: Network,
+        genesis_hash: [u8; 32],
+        fingerprint: RegistryFingerprint,
+        advertise_odoh: bool,
+    ) -> AuthenticatedPeer {
+        let mut services = ServiceMask::default().with(DENUO_EXTENSION_SERVICE);
+        if advertise_odoh {
+            services = services.with(ODOH_SERVICE);
+        }
+        let state = ExperimentalPeerState::new(
+            ExperimentalWireProfile::DenuoV1,
+            network,
+            genesis_hash,
+            fingerprint,
+            services,
+        );
+        AuthenticatedPeer::bind(
+            identity,
+            state,
+            NegotiatedRegistry {
+                fingerprint,
+                registry_version: DENUO_V1_REGISTRY_VERSION,
+                protocols: vec![(
+                    REGISTRY_NEGOTIATION_PROTOCOL_ID,
+                    REGISTRY_NEGOTIATION_PROTOCOL_VERSION,
+                )],
+                maximum_send_size: u32::try_from(MAX_ODOH_PACKET_SIZE).unwrap(),
+                maximum_live_requests: 8,
+                network,
+                genesis_hash,
+                feature_flags: 0,
+            },
+        )
+        .unwrap()
     }
 
     fn query() -> Query {
@@ -1146,6 +1253,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(admitted.message().header.id, 0x1234);
+        assert_eq!(admitted.completed_at(), NOW + 1);
         assert_ne!(admitted.identities().proxy, admitted.identities().target);
 
         adapter.mutate_response = true;
@@ -1167,7 +1275,7 @@ mod tests {
     }
 
     #[test]
-    fn wrong_peer_deadline_collision_and_statuses_fail_closed() {
+    fn production_followup_wrong_peer_deadline_clock_collision_and_statuses_fail_closed() {
         let (mut proxy, target, private_key, proxy_identity) = odoh_fixture();
         let mut requester =
             OdohRequester::new(NonZeroU64::new(1).unwrap(), RequesterLimits::default()).unwrap();
@@ -1179,6 +1287,20 @@ mod tests {
             mutate_response: false,
             completed_at: NOW + 1,
         };
+        adapter.completed_at = NOW - 1;
+        assert!(matches!(
+            requester.exchange(
+                &mut adapter,
+                &mut proxy,
+                &target,
+                &query(),
+                &CancellationToken::default(),
+                NOW,
+                DEADLINE,
+            ),
+            Err(P2pTransportError::ResponseClockRollback)
+        ));
+        adapter.completed_at = NOW + 1;
         assert!(matches!(
             requester.exchange(
                 &mut adapter,
@@ -1196,6 +1318,77 @@ mod tests {
         assert_eq!(failure.gateway_failure(), TransportFailure::Timeout);
         let failure = P2pTransportError::DnsRelayStatus(DnsRelayStatus::InvalidQuery);
         assert_eq!(failure.gateway_failure(), TransportFailure::Malformed);
+    }
+
+    #[test]
+    fn production_followup_canonical_odoh_proxy_rejects_substituted_identity_and_service() {
+        let identity = secp_identity(19).1;
+        let canonical_fingerprint = DENUO_V1_REGISTRY_FINGERPRINT;
+        let genesis = [0x31; 32];
+        let mut canonical = canonical_odoh_peer(
+            identity,
+            Network::Regtest,
+            genesis,
+            canonical_fingerprint,
+            true,
+        );
+        canonical
+            .admit_canonical_odoh_proxy(Network::Regtest, genesis)
+            .unwrap();
+
+        let mut wrong_network = canonical_odoh_peer(
+            identity,
+            Network::Testnet,
+            genesis,
+            canonical_fingerprint,
+            true,
+        );
+        assert!(matches!(
+            wrong_network.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::WrongNetwork
+            ))
+        ));
+
+        let mut wrong_genesis = canonical_odoh_peer(
+            identity,
+            Network::Regtest,
+            [0x32; 32],
+            canonical_fingerprint,
+            true,
+        );
+        assert!(matches!(
+            wrong_genesis.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::WrongGenesis
+            ))
+        ));
+
+        let mut alternate_registry = canonical_odoh_peer(
+            identity,
+            Network::Regtest,
+            genesis,
+            RegistryFingerprint::new([0x33; 32]),
+            true,
+        );
+        assert!(matches!(
+            alternate_registry.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            Err(P2pTransportError::InvalidNegotiatedRegistry)
+        ));
+
+        let mut missing_service = canonical_odoh_peer(
+            identity,
+            Network::Regtest,
+            genesis,
+            canonical_fingerprint,
+            false,
+        );
+        assert!(matches!(
+            missing_service.admit_canonical_odoh_proxy(Network::Regtest, genesis),
+            Err(P2pTransportError::PeerAdmission(
+                PeerProtocolError::PacketWithoutService { .. }
+            ))
+        ));
     }
 
     #[test]

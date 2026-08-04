@@ -41,14 +41,16 @@ pub use hns_namespace_resolution::{
 };
 pub use hns_p2p_transport::{
     AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DnsRelayRequester,
-    DirectTargetLocator, ExperimentalExchange, ExperimentalPeerState, ExperimentalRequest,
-    ExperimentalResponse, NegotiatedRegistry, OdohRequester, P2pTransportError, PeerIdentity,
-    RequesterLimits, VerifiedOdohTarget,
+    DENUO_EXTENSION_SERVICE, DirectTargetLocator, ExperimentalExchange, ExperimentalNetwork,
+    ExperimentalPeerState, ExperimentalRequest, ExperimentalResponse, ExperimentalWireProfile,
+    NegotiatedRegistry, ODOH_SERVICE, OdohRequester, P2pTransportError, PeerIdentity,
+    PeerProtocolError, ProtocolRange, RegistryHello, RequesterLimits, ServiceMask,
+    VerifiedOdohTarget,
 };
 use hns_resolution_policy::{
     Admission, ChainAnchor, EvidenceState, Network, PolicyConfig, PolicyController, PolicyError,
     PolicySnapshot, PolicyTransition, ResolutionProvenance, ResolutionTransport, TransportPlan,
-    ValidationEvidence,
+    ValidationEvidence, WireProfile,
 };
 use hns_resolver::ValidatedTlsa;
 

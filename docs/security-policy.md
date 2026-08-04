@@ -180,16 +180,23 @@ stamp. Unrelated later work does not revoke it, but degradation, revocation,
 stop, policy replacement, or another runtime session does. Both sides of the
 platform adapter call are checked; a response completed after invalidation is
 discarded. Readiness requires one exact authenticated/registry-negotiated proxy
-and at least one current signed target. Canonical transport errors are not
+whose network and genesis match canonical engine parameters, whose registry is
+the canonical Denuo V1 fingerprint/version/negotiation, whose ODoH packet and
+service were pre-admitted, and at least one current signed target. A response
+completion time earlier than request start or later than deadline is rejected.
+Canonical transport errors are not
 flattened, preserving peer, registry, packet, deadline, request-correlation,
 DNS-correlation, target-signature, and HPKE failure identity.
 
 The target cache is bounded to 16 locators and retains a greatest signed
-sequence high-water per locator. Its restart blob has strict lengths, ordering,
-schema, network, private-address-policy, and checksum checks. Restore uses a
-fresh request-ID space and engine admission and cryptographically revalidates
-each signed record; expired records can retain only their high-water slot. The
-checksum is corruption detection, not authentication. Production adapters
+sequence high-water per locator. Schema 2 also persists the greatest trusted
+caller/adapter time; install, prune, status, export, restore, and exchange all
+reject rollback below it, while a bounded adapter completion advances it even
+when later protocol parsing fails. Its restart blob has strict lengths,
+ordering, schema, network, private-address-policy, and checksum checks. Restore
+uses a fresh request-ID space and engine admission and cryptographically
+revalidates each signed record; expired records can retain only their
+high-water slot. The checksum is corruption detection, not authentication. Production adapters
 must store the blob atomically in authenticated rollback-resistant platform
 storage; until that exists and is qualified, restart anti-rollback is not a
 product claim. No proxy or target provider API exists in this runtime.

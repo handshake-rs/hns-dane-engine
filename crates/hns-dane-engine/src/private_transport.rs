@@ -10,18 +10,21 @@ use std::error::Error;
 use std::fmt;
 use std::num::NonZeroU64;
 
+use hns_header_consensus::Network as ConsensusNetwork;
 use hns_p2p_wire::NetworkMagic;
 use hns_transport::CancellationToken;
 
 use super::{
-    Admission, AuthenticatedPeer, AuthorityState, DirectTargetLocator, Engine, EngineError,
-    ExperimentalExchange, ExperimentalPeerState, NegotiatedRegistry, Network, OdohRequester,
+    AdapterFailure, Admission, AuthenticatedPeer, AuthorityState, DirectTargetLocator, Engine,
+    EngineError, ExperimentalExchange, ExperimentalNetwork, ExperimentalPeerState,
+    ExperimentalRequest, ExperimentalResponse, NegotiatedRegistry, Network, OdohRequester,
     P2pTransportError, PeerIdentity, PolicyError, RequesterLimits, ResolutionTransport,
-    RuntimeStamp, VerifiedOdohTarget, resolution_transport_ready,
+    RuntimeStamp, VerifiedOdohTarget, WireProfile,
+    resolution_transport_ready,
 };
 
 /// Private-transport status and persistence schema.
-pub const PRIVATE_TRANSPORT_SCHEMA_VERSION: u16 = 1;
+pub const PRIVATE_TRANSPORT_SCHEMA_VERSION: u16 = 2;
 /// Maximum distinct target locators retained by one requester runtime.
 pub const MAX_CACHED_ODOH_TARGETS: usize = 16;
 /// Maximum canonical signed target record admitted to persistence.
@@ -138,6 +141,8 @@ pub struct OdohRequesterStatus {
     pub current_targets: u16,
     /// Earliest current target expiry, or zero when none exist.
     pub earliest_target_expiry: u64,
+    /// Greatest trusted caller/adapter time admitted by this runtime.
+    pub trusted_time_high_water: u64,
     /// Local protocol prerequisites are ready; platform adapter availability is separate.
     pub requester_ready: bool,
     /// ODoH proxy provider availability; always false in this runtime.
@@ -273,7 +278,12 @@ impl OdohTargetCache {
             .unwrap_or(0)
     }
 
-    fn encode(&self, network_magic: u32, allow_private: bool) -> Result<Vec<u8>, PrivateTransportError> {
+    fn encode(
+        &self,
+        network_magic: u32,
+        allow_private: bool,
+        trusted_time_high_water: u64,
+    ) -> Result<Vec<u8>, PrivateTransportError> {
         let count = u16::try_from(self.slots.len())
             .map_err(|_| PrivateTransportError::TargetCacheFull)?;
         let mut output = Vec::new();
@@ -281,6 +291,7 @@ impl OdohTargetCache {
         output.extend_from_slice(&PRIVATE_TRANSPORT_SCHEMA_VERSION.to_le_bytes());
         output.extend_from_slice(&network_magic.to_le_bytes());
         output.push(u8::from(allow_private));
+        output.extend_from_slice(&trusted_time_high_water.to_le_bytes());
         output.extend_from_slice(&count.to_le_bytes());
         for (locator_key, slot) in &self.slots {
             let locator = slot.locator.encode();
@@ -317,8 +328,8 @@ impl OdohTargetCache {
         expected_network_magic: u32,
         allow_private: bool,
         now: u64,
-    ) -> Result<Self, PrivateTransportError> {
-        if input.len() < 21 || input.len() > MAX_ODOH_TARGET_CACHE_BLOB_BYTES {
+    ) -> Result<(Self, u64), PrivateTransportError> {
+        if input.len() < 29 || input.len() > MAX_ODOH_TARGET_CACHE_BLOB_BYTES {
             return Err(PrivateTransportError::InvalidTargetCacheBlob);
         }
         let payload_length = input
@@ -347,6 +358,10 @@ impl OdohTargetCache {
         }
         if decoder.u8()? != u8::from(allow_private) {
             return Err(PrivateTransportError::TargetCacheAddressPolicyMismatch);
+        }
+        let trusted_time_high_water = decoder.u64()?;
+        if now < trusted_time_high_water {
+            return Err(PrivateTransportError::TrustedClockRollback);
         }
         let count = usize::from(decoder.u16()?);
         if count > MAX_CACHED_ODOH_TARGETS {
@@ -417,7 +432,7 @@ impl OdohTargetCache {
             );
         }
         decoder.finish()?;
-        Ok(cache)
+        Ok((cache, trusted_time_high_water))
     }
 }
 
@@ -429,7 +444,24 @@ pub struct OdohRequesterRuntime {
     proxy: Option<AuthenticatedPeer>,
     targets: OdohTargetCache,
     allow_private_targets: bool,
+    trusted_time_high_water: u64,
     revocation_reason: Option<PrivateTransportRevocationReason>,
+}
+
+struct CompletionTrackingExchange<'adapter, A> {
+    adapter: &'adapter mut A,
+    completed_at: Option<u64>,
+}
+
+impl<A: ExperimentalExchange> ExperimentalExchange for CompletionTrackingExchange<'_, A> {
+    fn exchange(
+        &mut self,
+        request: ExperimentalRequest<'_>,
+    ) -> Result<ExperimentalResponse, AdapterFailure> {
+        let response = self.adapter.exchange(request)?;
+        self.completed_at = Some(response.completed_at);
+        Ok(response)
+    }
 }
 
 impl OdohRequesterRuntime {
@@ -448,7 +480,13 @@ impl OdohRequesterRuntime {
         registry: NegotiatedRegistry,
     ) -> Result<(), PrivateTransportError> {
         self.ensure_current(engine)?;
-        let proxy = AuthenticatedPeer::bind(identity, peer, registry)
+        let mut proxy = AuthenticatedPeer::bind(identity, peer, registry)
+            .map_err(PrivateTransportError::Transport)?;
+        proxy
+            .admit_canonical_odoh_proxy(
+                experimental_network(self.binding.network),
+                canonical_genesis_hash(self.binding.network),
+            )
             .map_err(PrivateTransportError::Transport)?;
         self.proxy = Some(proxy);
         Ok(())
@@ -464,6 +502,7 @@ impl OdohRequesterRuntime {
         now: u64,
     ) -> Result<[u8; 32], PrivateTransportError> {
         self.ensure_current(engine)?;
+        self.advance_trusted_time(now)?;
         self.targets.prune(now);
         self.targets.install(
             locator,
@@ -481,9 +520,13 @@ impl OdohRequesterRuntime {
     /// high-water marks are persisted. Proxy sessions, request IDs, HPKE query
     /// contexts, and in-flight work are never serialized.
     pub fn export_target_cache(&mut self, now: u64) -> Result<Vec<u8>, PrivateTransportError> {
+        self.advance_trusted_time(now)?;
         self.targets.prune(now);
-        self.targets
-            .encode(self.binding.network_magic, self.allow_private_targets)
+        self.targets.encode(
+            self.binding.network_magic,
+            self.allow_private_targets,
+            self.trusted_time_high_water,
+        )
     }
 
     /// Read status, terminally revoking this instance if its engine epoch ended.
@@ -492,6 +535,7 @@ impl OdohRequesterRuntime {
         engine: &Engine,
         now: u64,
     ) -> Result<OdohRequesterStatus, PrivateTransportError> {
+        self.advance_trusted_time(now)?;
         if self.revocation_reason.is_none() {
             if let Err(error) = engine.validate_private_transport_binding(self.binding) {
                 self.revoke_for_error(&error);
@@ -535,6 +579,7 @@ impl OdohRequesterRuntime {
             target_slots,
             current_targets,
             earliest_target_expiry: self.targets.earliest_expiry(),
+            trusted_time_high_water: self.trusted_time_high_water,
             requester_ready: ready,
             proxy_provider_available: false,
             target_provider_available: false,
@@ -559,15 +604,32 @@ impl OdohRequesterRuntime {
         deadline: u64,
     ) -> Result<super::AdmittedDnsResponse, PrivateTransportError> {
         self.ensure_current(engine)?;
+        self.advance_trusted_time(now)?;
         self.targets.prune(now);
         let target = self.targets.target(target_record_id)?;
         let proxy = self
             .proxy
             .as_mut()
             .ok_or(PrivateTransportError::ProxyUnavailable)?;
-        let result = self
-            .requester
-            .exchange(adapter, proxy, target, query, cancellation, now, deadline);
+        let mut tracking = CompletionTrackingExchange {
+            adapter,
+            completed_at: None,
+        };
+        let result = self.requester.exchange(
+            &mut tracking,
+            proxy,
+            target,
+            query,
+            cancellation,
+            now,
+            deadline,
+        );
+        if let Some(completed_at) = tracking
+            .completed_at
+            .filter(|completed_at| *completed_at >= now && *completed_at <= deadline)
+        {
+            self.advance_trusted_time(completed_at)?;
+        }
         if let Err(error) = engine.validate_private_transport_binding(self.binding) {
             self.revoke_for_error(&error);
             return Err(error);
@@ -590,6 +652,14 @@ impl OdohRequesterRuntime {
             self.revoke_for_error(&error);
             return Err(error);
         }
+        Ok(())
+    }
+
+    fn advance_trusted_time(&mut self, now: u64) -> Result<(), PrivateTransportError> {
+        if now < self.trusted_time_high_water {
+            return Err(PrivateTransportError::TrustedClockRollback);
+        }
+        self.trusted_time_high_water = now;
         Ok(())
     }
 
@@ -642,6 +712,7 @@ impl Engine {
             proxy: None,
             targets: OdohTargetCache::default(),
             allow_private_targets,
+            trusted_time_high_water: 0,
             revocation_reason: None,
         })
     }
@@ -662,18 +733,22 @@ impl Engine {
         let binding = self.mint_private_transport_binding(allow_private_targets)?;
         let requester = OdohRequester::new(first_request_id, limits)
             .map_err(PrivateTransportError::Transport)?;
-        let targets = OdohTargetCache::decode(
+        let (targets, persisted_time_high_water) = OdohTargetCache::decode(
             target_cache,
             binding.network_magic,
             allow_private_targets,
             now,
         )?;
+        if now < persisted_time_high_water {
+            return Err(PrivateTransportError::TrustedClockRollback);
+        }
         Ok(OdohRequesterRuntime {
             binding,
             requester,
             proxy: None,
             targets,
             allow_private_targets,
+            trusted_time_high_water: now,
             revocation_reason: None,
         })
     }
@@ -691,6 +766,9 @@ impl Engine {
         }
         if allow_private_targets && !matches!(state.network, Network::Regtest | Network::Simnet) {
             return Err(PrivateTransportError::PrivateTargetsForbidden);
+        }
+        if state.policy.snapshot().config().wire_profile == WireProfile::Official {
+            return Err(PrivateTransportError::UnsupportedWireProfile);
         }
         let admission = state
             .policy
@@ -749,6 +827,31 @@ const fn network_magic(network: Network) -> u32 {
         Network::Regtest => NetworkMagic::Regtest.as_u32(),
         Network::Simnet => NetworkMagic::Simnet.as_u32(),
     }
+}
+
+const fn experimental_network(network: Network) -> ExperimentalNetwork {
+    match network {
+        Network::Mainnet => ExperimentalNetwork::Mainnet,
+        Network::Testnet => ExperimentalNetwork::Testnet,
+        Network::Regtest => ExperimentalNetwork::Regtest,
+        Network::Simnet => ExperimentalNetwork::Simnet,
+    }
+}
+
+const fn consensus_network(network: Network) -> ConsensusNetwork {
+    match network {
+        Network::Mainnet => ConsensusNetwork::Mainnet,
+        Network::Testnet => ConsensusNetwork::Testnet,
+        Network::Regtest => ConsensusNetwork::Regtest,
+        Network::Simnet => ConsensusNetwork::Simnet,
+    }
+}
+
+const fn canonical_genesis_hash(network: Network) -> [u8; 32] {
+    consensus_network(network)
+        .parameters()
+        .genesis_hash
+        .into_bytes()
 }
 
 struct CacheDecoder<'input> {
@@ -852,6 +955,10 @@ pub enum PrivateTransportError {
     NetworkChanged,
     /// Private target addresses are restricted to regtest and simnet.
     PrivateTargetsForbidden,
+    /// Current policy selects a registry profile this runtime cannot authenticate.
+    UnsupportedWireProfile,
+    /// Trusted caller or adapter time moved below the persisted high-water.
+    TrustedClockRollback,
     /// No authenticated proxy session is bound.
     ProxyUnavailable,
     /// Requested current target record is absent or expired.
@@ -900,6 +1007,8 @@ impl fmt::Display for PrivateTransportError {
             Self::AuthorityUnavailable => formatter.write_str("private transport authority is unavailable"),
             Self::NetworkChanged => formatter.write_str("private transport network changed"),
             Self::PrivateTargetsForbidden => formatter.write_str("private ODoH targets require regtest or simnet"),
+            Self::UnsupportedWireProfile => formatter.write_str("ODoH runtime cannot authenticate the selected wire profile"),
+            Self::TrustedClockRollback => formatter.write_str("ODoH runtime trusted clock moved backwards"),
             Self::ProxyUnavailable => formatter.write_str("authenticated ODoH proxy is unavailable"),
             Self::TargetUnavailable => formatter.write_str("current signed ODoH target is unavailable"),
             Self::InvalidTargetRecordLength => formatter.write_str("signed ODoH target record length is invalid"),
@@ -938,7 +1047,16 @@ impl Error for PrivateTransportError {
 )]
 mod tests {
     use super::*;
-    use crate::{EngineConfig, PolicySnapshot, RuntimeSessionId};
+    use crate::{
+        DENUO_EXTENSION_SERVICE, EngineConfig, ExperimentalWireProfile, ODOH_SERVICE,
+        PeerProtocolError, PolicySnapshot, RegistryHello, RuntimeSessionId, ServiceMask,
+    };
+
+    const SECP256K1_GENERATOR: [u8; 33] = [
+        0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce,
+        0x87, 0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81,
+        0x5b, 0x16, 0xf8, 0x17, 0x98,
+    ];
 
     fn ready_engine(session: u8, network: Network) -> Engine {
         let engine = Engine::new(EngineConfig::new(
@@ -956,6 +1074,39 @@ mod tests {
             engine.advance_authority_state(state).unwrap();
         }
         engine
+    }
+
+    fn proxy_inputs(
+        network: ExperimentalNetwork,
+        genesis_hash: [u8; 32],
+        advertise_odoh: bool,
+        alternate_registry: bool,
+    ) -> (ExperimentalPeerState, NegotiatedRegistry) {
+        let hello = RegistryHello::denuo_v1(
+            network,
+            genesis_hash,
+            Vec::new(),
+            100_000,
+            8,
+            0,
+        )
+        .unwrap();
+        let mut registry = NegotiatedRegistry::negotiate(&hello, &hello).unwrap();
+        if alternate_registry {
+            registry.fingerprint = [0x44; 32].into();
+        }
+        let mut services = ServiceMask::default().with(DENUO_EXTENSION_SERVICE);
+        if advertise_odoh {
+            services = services.with(ODOH_SERVICE);
+        }
+        let peer = ExperimentalPeerState::new(
+            ExperimentalWireProfile::DenuoV1,
+            network,
+            genesis_hash,
+            registry.fingerprint,
+            services,
+        );
+        (peer, registry)
     }
 
     #[test]
@@ -1006,9 +1157,23 @@ mod tests {
             .unwrap();
         let encoded = runtime.export_target_cache(1_700_000_000).unwrap();
         assert!(encoded.len() <= MAX_ODOH_TARGET_CACHE_BLOB_BYTES);
+        assert!(matches!(
+            runtime.export_target_cache(1_699_999_999),
+            Err(PrivateTransportError::TrustedClockRollback)
+        ));
+        assert!(matches!(
+            engine.restore_odoh_requester(
+                NonZeroU64::new(12).unwrap(),
+                RequesterLimits::default(),
+                true,
+                &encoded,
+                1_699_999_999,
+            ),
+            Err(PrivateTransportError::TrustedClockRollback)
+        ));
         let mut restored = engine
             .restore_odoh_requester(
-                NonZeroU64::new(12).unwrap(),
+                NonZeroU64::new(13).unwrap(),
                 RequesterLimits::default(),
                 true,
                 &encoded,
@@ -1023,6 +1188,10 @@ mod tests {
             restored.status(&engine, 1_700_000_000).unwrap().current_targets,
             0
         );
+        assert!(matches!(
+            restored.status(&engine, 1_699_999_999),
+            Err(PrivateTransportError::TrustedClockRollback)
+        ));
 
         let mut corrupted = encoded;
         if let Some(byte) = corrupted.get_mut(8) {
@@ -1030,7 +1199,7 @@ mod tests {
         }
         assert!(matches!(
             engine.restore_odoh_requester(
-                NonZeroU64::new(13).unwrap(),
+                NonZeroU64::new(14).unwrap(),
                 RequesterLimits::default(),
                 true,
                 &corrupted,
@@ -1051,5 +1220,70 @@ mod tests {
             ),
             Err(PrivateTransportError::PrivateTargetsForbidden)
         ));
+    }
+
+    #[test]
+    fn production_followup_engine_proxy_binding_requires_canonical_network_registry_and_service() {
+        let engine = ready_engine(44, Network::Regtest);
+        let mut runtime = engine
+            .start_odoh_requester(
+                NonZeroU64::new(21).unwrap(),
+                RequesterLimits::default(),
+                true,
+            )
+            .unwrap();
+        let identity = PeerIdentity::new(SECP256K1_GENERATOR).unwrap();
+        let regtest_genesis = canonical_genesis_hash(Network::Regtest);
+
+        let (peer, registry) = proxy_inputs(
+            ExperimentalNetwork::Testnet,
+            canonical_genesis_hash(Network::Testnet),
+            true,
+            false,
+        );
+        assert!(matches!(
+            runtime.bind_proxy(&engine, identity, peer, registry),
+            Err(PrivateTransportError::Transport(
+                P2pTransportError::PeerAdmission(PeerProtocolError::WrongNetwork)
+            ))
+        ));
+
+        let (peer, registry) =
+            proxy_inputs(ExperimentalNetwork::Regtest, [0x45; 32], true, false);
+        assert!(matches!(
+            runtime.bind_proxy(&engine, identity, peer, registry),
+            Err(PrivateTransportError::Transport(
+                P2pTransportError::PeerAdmission(PeerProtocolError::WrongGenesis)
+            ))
+        ));
+
+        let (peer, registry) =
+            proxy_inputs(ExperimentalNetwork::Regtest, regtest_genesis, true, true);
+        assert!(matches!(
+            runtime.bind_proxy(&engine, identity, peer, registry),
+            Err(PrivateTransportError::Transport(
+                P2pTransportError::InvalidNegotiatedRegistry
+            ))
+        ));
+
+        let (peer, registry) =
+            proxy_inputs(ExperimentalNetwork::Regtest, regtest_genesis, false, false);
+        assert!(matches!(
+            runtime.bind_proxy(&engine, identity, peer, registry),
+            Err(PrivateTransportError::Transport(
+                P2pTransportError::PeerAdmission(
+                    PeerProtocolError::PacketWithoutService { .. }
+                )
+            ))
+        ));
+
+        let (peer, registry) =
+            proxy_inputs(ExperimentalNetwork::Regtest, regtest_genesis, true, false);
+        runtime
+            .bind_proxy(&engine, identity, peer, registry)
+            .unwrap();
+        let status = runtime.status(&engine, 1_700_000_100).unwrap();
+        assert_eq!(status.proxy_identity, Some(SECP256K1_GENERATOR));
+        assert!(!status.requester_ready);
     }
 }

@@ -22,8 +22,10 @@
   correlation;
 - a requester-only ODoH engine lifecycle bound to one engine admission, authenticated proxy and
   negotiated registry, with pre/post-I/O generation checks, explicit readiness and revocation,
-  and a bounded canonical restart representation for signed target records and sequence
-  high-water marks; it exposes no proxy or target provider implementation;
+  and a bounded canonical restart representation for signed target records and sequence and
+  trusted-time high-water marks; canonical network/genesis/registry/service admission and
+  response-time monotonicity are required, and it exposes no proxy or target provider
+  implementation;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;

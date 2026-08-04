@@ -72,7 +72,11 @@ bytes still traverse the private HNS proof, DNSSEC, TLSA, and DANE gates.
 non-cloneable request-ID space. The runtime retains the exact engine session,
 runtime generation, policy generation, invalidation watermark, network magic,
 Brontide proxy identity, registry fingerprint/version, and negotiated request
-bound. It checks the engine before and after adapter I/O, so degradation,
+bound. Binding independently compares the peer's negotiated network and
+genesis to the engine's canonical network parameters, requires the canonical
+Denuo V1 registry fingerprint/version/negotiation protocol, and pre-admits
+`ODOH_PACKET` against the advertised ODoH and Denuo services before reporting
+a proxy. It checks the engine before and after adapter I/O, so degradation,
 revocation, stop, policy replacement, or another process session cannot return
 stale response bytes. Readiness requires both an authenticated proxy and a
 current signed target. Status reports those prerequisites and closed
@@ -82,13 +86,18 @@ available.
 
 The target cache has 16 locator slots and retains each locator's greatest
 target-signed sequence even after expiry. Its bounded checksummed canonical
-blob contains only public signed target material, configuration selection, and
-sequence high-water state. Restore uses a new engine admission and request-ID
-space, never restores a proxy or in-flight HPKE context, and re-verifies every
-record against the exact network, locator, signature, sequence, configuration,
-and signed expiry. The checksum detects corruption; the platform must place
-the blob in its authenticated, atomic, rollback-resistant store before the
-cache can be treated as durable anti-rollback state.
+schema-2 blob contains only public signed target material, configuration
+selection, sequence high-water state, and the greatest trusted caller/adapter
+time. Install, pruning, status, export, restore, and exchange reject a lower
+clock. A bounded adapter completion advances the clock even if later protocol
+parsing fails, and every response must complete no earlier than request start
+and no later than its deadline. Restore uses a new engine admission and
+request-ID space, never restores a proxy or in-flight HPKE context, and
+re-verifies every record against the exact network, locator, signature,
+sequence, configuration, and signed expiry. The checksum detects corruption;
+the platform must place the blob in its authenticated, atomic,
+rollback-resistant store before the cache can be treated as durable
+anti-rollback state.
 
 This runtime implements only the ODoH requester. Its proxy-provider and
 target-provider availability fields are permanently false; policy defaults do

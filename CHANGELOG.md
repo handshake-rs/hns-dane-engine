@@ -10,8 +10,12 @@ file. The public crates use a shared version and follow Semantic Versioning.
   generations, invalidation watermark, network, unpredictable request-ID
   space, authenticated proxy, and negotiated registry. Its 16-locator signed
   target cache preserves per-locator sequence high-water marks in a bounded,
-  checksummed, canonical restart representation; restore re-verifies target
-  signatures, network, locator, configuration, sequence, and lifetime. Exact
+  checksummed, canonical schema-2 restart representation together with a
+  nondecreasing trusted-time high-water; restore re-verifies target signatures,
+  network, locator, configuration, sequence, lifetime, and time monotonicity.
+  Proxy binding independently requires the engine-selected canonical network
+  genesis, Denuo V1 registry fingerprint/version/negotiation, and an admitted
+  ODoH service packet. Responses predating request start are rejected. Exact
   peer, registry, deadline, correlation, and HPKE errors remain typed, and an
   engine change during adapter I/O discards the result. No ODoH proxy or target
   provider role is implemented or made available by this runtime. This source
