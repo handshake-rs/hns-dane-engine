@@ -52,6 +52,10 @@ cargo test --offline -p hns-dane-engine-ffi provider_authority_ffi -- --test-thr
   2 passed; 0 failed; 5 filtered out
 ```
 
+The requester-only ODoH lifecycle, status, revocation, and signed-target cache
+continuation was added after that command. Its focused tests and the full gate
+have not run; no pass evidence is recorded for it yet.
+
 The first locked invocation stopped before compilation because the workspace
 lockfile still carried a stale `hns-loopback-proxy` dependency list. The same
 focused command regenerated that local-package stanza offline; the corrected
@@ -163,6 +167,13 @@ Recorded foundation coverage and current source status:
   distinct proxy/target enforcement; fixed-bucket outer padding; local HPKE seal/open; qname
   non-disclosure to the proxy; exact DNS parsing/correlation; mutated ciphertext rejection; and
   gateway failure classification;
+- unqualified 0.2 source for an engine-admitted, requester-only ODoH runtime:
+  exact runtime session/generation/invalidation/policy/network binding;
+  authenticated proxy and registry status; pre/post-adapter invalidation;
+  closed readiness/revocation; a 16-locator signed-target cache with sequence
+  high-water retention; bounded canonical checksummed restart encoding and
+  signature/network/locator/configuration/sequence/lifetime revalidation; and
+  permanently unavailable proxy/target provider roles;
 - atomic engine admission of a gateway selection's policy generation, actual transport, response,
   identities, and relay-downgrade state, including non-cloneable selection consumption and
   stale-selection rejection before an engine event is consumed;
@@ -235,9 +246,11 @@ Not yet implemented:
   owner/evidence decision contract and Rust provider-authority context are
   implemented, and the source-only loopback core consumes the context, but no
   platform adapter has consumed or qualified the boundary);
-- authenticated authoritative DoH, HNSR transport, HIP-76/77 provider roles, and the native
-  Brontide socket adapter for the implemented HIP-76/77 requester boundary;
-- filesystem/mobile preferences adapters and atomic durable writes;
+- authenticated authoritative DoH, HNSR transport, HIP-76/77 provider roles,
+  and the native Brontide socket adapter for the implemented HIP-76/77
+  requester boundary and engine-owned ODoH lifecycle;
+- filesystem/mobile preferences adapters, atomic authenticated
+  rollback-resistant ODoH target-cache writes, and restart qualification;
 - live registry negotiation exchange and HSD draft-PR cross-language execution (the requester
   consumes and enforces an already authenticated `NegotiatedRegistry`);
 - native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf
@@ -259,7 +272,7 @@ context, inspect its immutable bindings, copy its bounded host, check engine
 currentness, and destroy it, but cannot mint authority from C. Its two focused
 Rust ABI regressions passed in this continuation; the C header smoke, full
 workspace, lint, benchmark, and release gates were not rerun. The new
-Rust context/publication source, native platform consumption, and the
+Rust context/publication and ODoH requester-lifecycle source, native platform consumption, and the
 unreleased 0.2 line still require the applicable qualification gate. Platform
 provider availability remains disabled. This repository therefore does not
 claim that the complete browser engine or ecosystem is qualified.

@@ -20,6 +20,10 @@
   experimental-peer admission, independent request IDs, signed target records, distinct
   proxy/target identities, local HPKE opening, finite bounds, cancellation, and exact DNS
   correlation;
+- a requester-only ODoH engine lifecycle bound to one engine admission, authenticated proxy and
+  negotiated registry, with pre/post-I/O generation checks, explicit readiness and revocation,
+  and a bounded canonical restart representation for signed target records and sequence
+  high-water marks; it exposes no proxy or target provider implementation;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;
@@ -82,9 +86,11 @@ HNS resolution has no operating-system resolver, implicit recursive resolver,
 implicit DoH, or WebPKI fallback. Every DNS response remains subject to local
 HNS proof, DNSSEC, TLSA, and DANE validation; a remote AD bit is never
 authority. Direct UDP/TCP own their socket I/O here. HIP-76/77 own the complete
-authenticated request/response boundary but consume a platform-supplied
-established Brontide exchange; authenticated authoritative DoH and HNSR remain
-unavailable rather than silently falling back.
+authenticated request/response boundary. The ODoH engine runtime now owns its
+requester lifecycle and signed-target restart representation, but it still
+consumes a platform-supplied established Brontide exchange. Authenticated
+authoritative DoH and HNSR remain unavailable rather than silently falling
+back.
 
 An HNS name proof may itself contain the verified origin data and require no
 DNS network transport. Such a successful result uses the append-only
@@ -178,4 +184,5 @@ listener/TLS I/O, pure-C authority minting, and product integration remain
 unavailable and disabled. The source-only provider-authority consumer ABI can
 retain and inspect a context moved from trusted Rust, but cannot create one
 from C. The unreleased 0.2 source has not passed a new release qualification
-gate.
+gate. The new ODoH requester lifecycle is likewise unqualified source: no
+native/mobile/Chromium Brontide adapter or live network matrix has consumed it.

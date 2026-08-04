@@ -5,6 +5,17 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - Unreleased
 
+- Added the requester-only engine ODoH runtime. A fresh engine admission binds
+  each non-cloneable requester to the exact process session, runtime and policy
+  generations, invalidation watermark, network, unpredictable request-ID
+  space, authenticated proxy, and negotiated registry. Its 16-locator signed
+  target cache preserves per-locator sequence high-water marks in a bounded,
+  checksummed, canonical restart representation; restore re-verifies target
+  signatures, network, locator, configuration, sequence, and lifetime. Exact
+  peer, registry, deadline, correlation, and HPKE errors remain typed, and an
+  engine change during adapter I/O discards the result. No ODoH proxy or target
+  provider role is implemented or made available by this runtime. This source
+  has not yet run its focused or full qualification gate.
 - Enabled the new-policy HNSR requester/client default alongside the existing
   opaque HNSR relay, HIP-76/HIP-77 requester paths, and opaque ODoH proxy.
   Persisted requester and relay opt-outs remain exact, direct authority remains

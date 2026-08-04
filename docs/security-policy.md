@@ -175,6 +175,25 @@ opening occur locally, the client envelope is zero-padded to a bounded bucket, a
 receives plaintext DNS. A decrypted response is still untrusted DNS and must pass exact local
 correlation, HNS proof, DNSSEC, TLSA, and DANE validation.
 
+The engine's requester-only ODoH runtime is admitted under one private runtime
+stamp. Unrelated later work does not revoke it, but degradation, revocation,
+stop, policy replacement, or another runtime session does. Both sides of the
+platform adapter call are checked; a response completed after invalidation is
+discarded. Readiness requires one exact authenticated/registry-negotiated proxy
+and at least one current signed target. Canonical transport errors are not
+flattened, preserving peer, registry, packet, deadline, request-correlation,
+DNS-correlation, target-signature, and HPKE failure identity.
+
+The target cache is bounded to 16 locators and retains a greatest signed
+sequence high-water per locator. Its restart blob has strict lengths, ordering,
+schema, network, private-address-policy, and checksum checks. Restore uses a
+fresh request-ID space and engine admission and cryptographically revalidates
+each signed record; expired records can retain only their high-water slot. The
+checksum is corruption detection, not authentication. Production adapters
+must store the blob atomically in authenticated rollback-resistant platform
+storage; until that exists and is qualified, restart anti-rollback is not a
+product claim. No proxy or target provider API exists in this runtime.
+
 Shared status uses explicit `verified`, `failed`, `unavailable`, `unsupported`, `not attempted`,
 `stale`, and `revoked` evidence values. It never contains qnames, URLs, DNS payloads, certificates,
 or secrets. Schema v2 consumes one private-field runtime snapshot and checks authority state

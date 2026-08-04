@@ -23,14 +23,16 @@ use hns_dns_relay_protocol::{
 };
 use hns_dns_wire::{Message, ParseLimits, Query};
 use hns_gateway::{AttemptOutcome, GatewayIdentities, TransportFailure};
+pub use hns_odoh_protocol::DirectTargetLocator;
 use hns_odoh_protocol::{
-    ClientQuery, DirectTargetLocator, MAX_ODOH_PACKET_SIZE, MAX_OUTER_PADDING_SIZE, OdnsPacket,
-    OdohConfig, OdohErrorBody, OdohOpcode, OdohProtocolError, OdohResponseBody, OdohStatus,
-    QueryContext, TargetConfigRecord, seal_query,
+    ClientQuery, MAX_ODOH_PACKET_SIZE, MAX_OUTER_PADDING_SIZE, OdnsPacket, OdohConfig,
+    OdohErrorBody, OdohOpcode, OdohProtocolError, OdohResponseBody, OdohStatus, QueryContext,
+    TargetConfigRecord, seal_query,
 };
+pub use hns_p2p_experimental::{ExperimentalPeerState, NegotiatedRegistry};
 use hns_p2p_experimental::{
-    DNS_RELAY_REQUEST_PACKET, DNS_RELAY_RESPONSE_PACKET, ExperimentalPeerState, NegotiatedRegistry,
-    ODOH_PACKET, PacketType, PeerProtocolError,
+    DNS_RELAY_REQUEST_PACKET, DNS_RELAY_RESPONSE_PACKET, ODOH_PACKET, PacketType,
+    PeerProtocolError,
 };
 use hns_transport::CancellationToken;
 use k256::PublicKey;
@@ -73,6 +75,9 @@ pub struct AuthenticatedPeer {
     identity: PeerIdentity,
     admission: ExperimentalPeerState,
     maximum_send_size: usize,
+    maximum_live_requests: u16,
+    registry_fingerprint: [u8; 32],
+    registry_version: u16,
 }
 
 impl AuthenticatedPeer {
@@ -99,6 +104,9 @@ impl AuthenticatedPeer {
         {
             return Err(P2pTransportError::InvalidNegotiatedRegistry);
         }
+        let maximum_live_requests = negotiated.maximum_live_requests;
+        let registry_fingerprint = *negotiated.fingerprint.as_bytes();
+        let registry_version = negotiated.registry_version;
         admission.mark_established();
         let maximum_send_size = usize::try_from(negotiated.maximum_send_size)
             .map_err(|_| P2pTransportError::InvalidNegotiatedRegistry)?;
@@ -107,6 +115,9 @@ impl AuthenticatedPeer {
             identity,
             admission,
             maximum_send_size,
+            maximum_live_requests,
+            registry_fingerprint,
+            registry_version,
         })
     }
 
@@ -114,6 +125,30 @@ impl AuthenticatedPeer {
     #[must_use]
     pub const fn identity(&self) -> PeerIdentity {
         self.identity
+    }
+
+    /// Exact Denuo registry fingerprint authenticated for this session.
+    #[must_use]
+    pub const fn registry_fingerprint(&self) -> [u8; 32] {
+        self.registry_fingerprint
+    }
+
+    /// Exact Denuo registry version negotiated for this session.
+    #[must_use]
+    pub const fn registry_version(&self) -> u16 {
+        self.registry_version
+    }
+
+    /// Remote receive bound negotiated for this session.
+    #[must_use]
+    pub const fn maximum_send_size(&self) -> usize {
+        self.maximum_send_size
+    }
+
+    /// Maximum concurrent requests negotiated for this session.
+    #[must_use]
+    pub const fn maximum_live_requests(&self) -> u16 {
+        self.maximum_live_requests
     }
 
     fn admit(&mut self, packet: PacketType) -> Result<(), P2pTransportError> {
@@ -229,6 +264,7 @@ pub struct VerifiedOdohTarget {
     locator: DirectTargetLocator,
     configuration: OdohConfig,
     record_id: [u8; 32],
+    sequence: u64,
     expires_at: u64,
 }
 
@@ -262,6 +298,7 @@ impl VerifiedOdohTarget {
             locator: record.locator,
             configuration,
             record_id: record.record_id,
+            sequence: record.sequence,
             expires_at: record.expires_at,
         })
     }
@@ -276,6 +313,12 @@ impl VerifiedOdohTarget {
     #[must_use]
     pub const fn record_id(&self) -> [u8; 32] {
         self.record_id
+    }
+
+    /// Monotonic target-signed configuration sequence.
+    #[must_use]
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
     }
 
     /// Target configuration expiration time.

@@ -66,6 +66,34 @@ bounds, and correlated to the original DNS question.
 The proxy and target authenticate transport hops, not HNS data. Successful
 bytes still traverse the private HNS proof, DNSSEC, TLSA, and DANE gates.
 
+## Requester lifecycle and persistence
+
+`Engine::start_odoh_requester` mints a private transport admission stamp and a
+non-cloneable request-ID space. The runtime retains the exact engine session,
+runtime generation, policy generation, invalidation watermark, network magic,
+Brontide proxy identity, registry fingerprint/version, and negotiated request
+bound. It checks the engine before and after adapter I/O, so degradation,
+revocation, stop, policy replacement, or another process session cannot return
+stale response bytes. Readiness requires both an authenticated proxy and a
+current signed target. Status reports those prerequisites and closed
+revocation reasons without qnames, DNS bytes, or HPKE state. This local
+protocol-ready bit does not claim that a platform adapter or live path is
+available.
+
+The target cache has 16 locator slots and retains each locator's greatest
+target-signed sequence even after expiry. Its bounded checksummed canonical
+blob contains only public signed target material, configuration selection, and
+sequence high-water state. Restore uses a new engine admission and request-ID
+space, never restores a proxy or in-flight HPKE context, and re-verifies every
+record against the exact network, locator, signature, sequence, configuration,
+and signed expiry. The checksum detects corruption; the platform must place
+the blob in its authenticated, atomic, rollback-resistant store before the
+cache can be treated as durable anti-rollback state.
+
+This runtime implements only the ODoH requester. Its proxy-provider and
+target-provider availability fields are permanently false; policy defaults do
+not create either server role.
+
 ## Engine admission
 
 A successful requester result becomes `AttemptOutcome::Response`; a failure
@@ -81,11 +109,13 @@ cannot substitute a separate intermediary context.
 
 ## Remaining platform work
 
-Native/mobile/Chromium hosts still need to connect this contract to their
-established Brontide socket runtime, propagate lifecycle cancellation, source
-unpredictable first request IDs, perform live registry-hello exchange, and run
-platform network qualification. Provider roles are independent and are not
-implemented by this requester crate. The opaque ODoH proxy is default-on with a
-persistent opt-out; the plaintext HIP-76 DNS relay and ODoH target are output
-roles that remain default-off until explicitly enabled. One role never conveys
-consent for another.
+Native/mobile/Chromium hosts still need to connect `ExperimentalExchange` to
+their established Brontide socket runtime, propagate lifecycle cancellation,
+source unpredictable first request IDs, perform live registry-hello exchange,
+atomically protect the cache blob, and run platform network qualification.
+Provider roles are independent and are not implemented by this requester
+runtime. The policy-level opaque ODoH proxy is default-on with a persistent
+opt-out, but remains unavailable until a separate provider implementation is
+present and qualified. The plaintext HIP-76 DNS relay and ODoH target are
+output roles that remain default-off until explicitly enabled. One role never
+conveys consent for another.

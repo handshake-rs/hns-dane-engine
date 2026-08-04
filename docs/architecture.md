@@ -142,6 +142,16 @@ violations terminate the plan. ODoH-to-relay downgrade status is derived from at
 Configured recursive HNS DoH can appear only after every earlier policy-permitted candidate and
 only under its explicit consent bit. It supplies DNS wire bytes, not validation authority, so the
 same local proof, DNSSEC, TLSA, DANE, correlation, and response bounds still apply.
+`hns-dane-engine` additionally owns a requester-only ODoH lifecycle. A fresh
+runtime admission binds its independent request-ID space, authenticated proxy,
+negotiated registry, and signed target cache to the exact runtime session,
+runtime/policy generations, invalidation watermark, and Handshake network.
+Pre/post-adapter checks discard results if that epoch changes. The 16-locator
+cache persists only signed public target records, configuration selections, and
+per-locator sequence high-water marks in a canonical checksummed blob; restore
+re-verifies every signed binding and never restores proxy sessions, HPKE query
+contexts, or in-flight work. Native storage must add atomic authenticated
+rollback protection. No ODoH provider role is implemented by this lifecycle.
 `hns-browser-observability` schema v2 validates the shared, name-free mobile/Chromium status
 contract: the complete private-field runtime snapshot including authority state, policy and actual
 transport, chain anchor, HNSR/provider state and policy-derived readiness, rate-limit saturation,
@@ -249,7 +259,9 @@ This foundation does not yet implement P2P socket dialing or peer discovery,
 download/reorganization from a fork predating the current tip, durable restart checkpoints,
 authenticated authoritative DoH, an HNSR requester, HIP-76/77 provider roles, origin TLS socket
 execution, native loopback listener and tunnel I/O, local CA management, or platform bridges. A
-native adapter must connect the HIP-76/77 requester boundary to its established Brontide runtime.
+native adapter must connect the HIP-76/77 requester boundary, including the
+engine-owned ODoH requester lifecycle, to its established Brontide runtime and
+authenticated rollback-resistant target-cache storage.
 Header sync currently selects only among bounded candidates extending the same validated base.
 PKIX usages 0/1 intentionally have no WebPKI path. The legacy C resolution ABI still exposes the earlier
 single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI

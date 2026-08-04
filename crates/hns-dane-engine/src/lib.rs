@@ -13,6 +13,15 @@
     reason = "protocol acronyms, shared EngineError, and explicit facade names are intentional"
 )]
 
+mod private_transport;
+
+pub use private_transport::{
+    MAX_CACHED_ODOH_TARGETS, MAX_ODOH_TARGET_CACHE_BLOB_BYTES,
+    MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES, PRIVATE_TRANSPORT_SCHEMA_VERSION,
+    OdohRequesterRuntime, OdohRequesterState, OdohRequesterStatus, PrivateTransportBinding,
+    PrivateTransportError, PrivateTransportRevocationReason,
+};
+
 use std::fmt;
 use std::sync::RwLock;
 
@@ -32,8 +41,9 @@ pub use hns_namespace_resolution::{
 };
 pub use hns_p2p_transport::{
     AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DnsRelayRequester,
-    ExperimentalExchange, ExperimentalRequest, ExperimentalResponse, OdohRequester,
-    P2pTransportError, PeerIdentity, RequesterLimits, VerifiedOdohTarget,
+    DirectTargetLocator, ExperimentalExchange, ExperimentalPeerState, ExperimentalRequest,
+    ExperimentalResponse, NegotiatedRegistry, OdohRequester, P2pTransportError, PeerIdentity,
+    RequesterLimits, VerifiedOdohTarget,
 };
 use hns_resolution_policy::{
     Admission, ChainAnchor, EvidenceState, Network, PolicyConfig, PolicyController, PolicyError,
