@@ -29,15 +29,15 @@ use hns_odoh_protocol::{
     OdohConfig, OdohConfigBody, OdohErrorBody, OdohOpcode, OdohProtocolError, OdohResponseBody,
     OdohStatus, QueryContext, TargetConfigRecord, seal_query,
 };
-pub use hns_p2p_experimental::{
-    DENUO_EXTENSION_SERVICE, ExperimentalPeerState, ExperimentalWireProfile, NegotiatedRegistry,
-    Network as ExperimentalNetwork, ODOH_SERVICE, PeerProtocolError, ProtocolRange, RegistryHello,
-    ServiceMask,
-};
 use hns_p2p_experimental::{
     DENUO_EXTENSION_PACKET, DENUO_V1_REGISTRY_FINGERPRINT, DENUO_V1_REGISTRY_VERSION,
     DNS_RELAY_REQUEST_PACKET, DNS_RELAY_RESPONSE_PACKET, HNSR_PACKET, ODOH_PACKET, PacketType,
     REGISTRY_NEGOTIATION_PROTOCOL_ID, REGISTRY_NEGOTIATION_PROTOCOL_VERSION,
+};
+pub use hns_p2p_experimental::{
+    DENUO_EXTENSION_SERVICE, ExperimentalPeerState, ExperimentalWireProfile, NegotiatedRegistry,
+    Network as ExperimentalNetwork, ODOH_SERVICE, PeerProtocolError, ProtocolRange, RegistryHello,
+    ServiceMask,
 };
 use hns_transport::CancellationToken;
 use k256::PublicKey;
@@ -1134,13 +1134,8 @@ mod tests {
         if advertise_odoh {
             services = services.with(ODOH_SERVICE);
         }
-        let state = ExperimentalPeerState::new(
-            profile,
-            network,
-            genesis_hash,
-            fingerprint,
-            services,
-        );
+        let state =
+            ExperimentalPeerState::new(profile, network, genesis_hash, fingerprint, services);
         AuthenticatedPeer::bind(
             identity,
             state,
@@ -1631,11 +1626,7 @@ mod tests {
         .unwrap();
         assert_eq!(canonical.wire_profile(), ExperimentalWireProfile::DenuoV1);
         canonical
-            .admit_canonical_odoh_proxy(
-                Network::Regtest,
-                genesis,
-                ExperimentalWireProfile::DenuoV1,
-            )
+            .admit_canonical_odoh_proxy(Network::Regtest, genesis, ExperimentalWireProfile::DenuoV1)
             .unwrap();
 
         let mut wrong_network = canonical_odoh_peer(

@@ -11,10 +11,10 @@ use std::error::Error;
 use std::fmt;
 
 use hns_hnsr_protocol::{
-    HnsrActionId, HnsrPacket, HnsrPeerId, HnsrProtocolError, HnsrRequester,
-    HnsrRequesterConfig, HnsrRequesterEvent, HnsrRequesterSnapshot, HnsrRoute,
-    HnsrRuntimeError, HnsrRuntimeStatus, HnsrService, OpaqueRelayConfig, OpaqueRelayRuntime,
-    OpaqueRelaySnapshot, QueuedHnsrRoute, RelayConfig, RelayService, RelayTicket,
+    HnsrActionId, HnsrPacket, HnsrPeerId, HnsrProtocolError, HnsrRequester, HnsrRequesterConfig,
+    HnsrRequesterEvent, HnsrRequesterSnapshot, HnsrRoute, HnsrRuntimeError, HnsrRuntimeStatus,
+    HnsrService, OpaqueRelayConfig, OpaqueRelayRuntime, OpaqueRelaySnapshot, QueuedHnsrRoute,
+    RelayConfig, RelayService, RelayTicket,
 };
 
 use super::private_transport::{
@@ -278,7 +278,14 @@ impl HnsrRequesterRuntime {
         registry: NegotiatedRegistry,
     ) -> Result<AuthenticatedHnsrPeer, HnsrTransportError> {
         self.ensure_current(authority)?;
-        authenticate_hnsr_peer(self.binding, connection_label, identity, peer, registry, true)
+        authenticate_hnsr_peer(
+            self.binding,
+            connection_label,
+            identity,
+            peer,
+            registry,
+            true,
+        )
     }
 
     /// Begin one signed-ticket-bound open routed to the authenticated relay.
@@ -419,11 +426,7 @@ impl HnsrRequesterRuntime {
             .observe_time(now)
             .map_err(HnsrTransportError::Runtime)?;
         let status = self.requester.status();
-        encode_runtime_export(
-            self.binding,
-            status,
-            self.requester.snapshot().encode(),
-        )
+        encode_runtime_export(self.binding, status, self.requester.snapshot().encode())
     }
 
     /// Read honest local readiness without claiming adapter availability.
@@ -521,7 +524,14 @@ impl HnsrOpaqueRelayRuntime {
         registry: NegotiatedRegistry,
     ) -> Result<AuthenticatedHnsrPeer, HnsrTransportError> {
         self.ensure_current(authority)?;
-        authenticate_hnsr_peer(self.binding, connection_label, identity, peer, registry, false)
+        authenticate_hnsr_peer(
+            self.binding,
+            connection_label,
+            identity,
+            peer,
+            registry,
+            false,
+        )
     }
 
     /// Handle one reservation-plane packet; rendezvous opcodes fail closed.
@@ -1013,13 +1023,8 @@ fn start_hnsr_requester(
         return Err(HnsrTransportError::ConfigurationBindingMismatch);
     }
     config.network_magic = binding.network_magic;
-    let requester = HnsrRequester::new(
-        binding.runtime_session(),
-        generation,
-        config,
-        trusted_now,
-    )
-    .map_err(HnsrTransportError::Runtime)?;
+    let requester = HnsrRequester::new(binding.runtime_session(), generation, config, trusted_now)
+        .map_err(HnsrTransportError::Runtime)?;
     Ok(HnsrRequesterRuntime {
         binding,
         requester,
@@ -1041,8 +1046,8 @@ fn restore_hnsr_requester(
         minimum_trusted_time_high_water,
         trusted_now,
     )?;
-    let snapshot = HnsrRequesterSnapshot::decode(&decoded.inner)
-        .map_err(HnsrTransportError::Runtime)?;
+    let snapshot =
+        HnsrRequesterSnapshot::decode(&decoded.inner).map_err(HnsrTransportError::Runtime)?;
     validate_requester_inner_binding(&decoded)?;
     let requester = HnsrRequester::restore(
         snapshot,
@@ -1135,7 +1140,13 @@ fn mint_hnsr_transport_binding(
     service_profile: u16,
     allow_private_address: bool,
 ) -> Result<HnsrTransportBinding, HnsrTransportError> {
-    validate_hnsr_policy(network, policy, role, service_profile, allow_private_address)?;
+    validate_hnsr_policy(
+        network,
+        policy,
+        role,
+        service_profile,
+        allow_private_address,
+    )?;
     if !resolution_transport_ready(runtime.authority_state()) {
         return Err(HnsrTransportError::AuthorityUnavailable);
     }
@@ -1264,8 +1275,8 @@ fn authenticate_hnsr_peer(
     }
     let peer_id = HnsrPeerId::new(connection_label.as_bytes().to_vec())
         .map_err(HnsrTransportError::Runtime)?;
-    let mut authenticated =
-        super::AuthenticatedPeer::bind(identity, peer, registry).map_err(HnsrTransportError::Peer)?;
+    let mut authenticated = super::AuthenticatedPeer::bind(identity, peer, registry)
+        .map_err(HnsrTransportError::Peer)?;
     let admission = if require_relay_service {
         authenticated.admit_canonical_hnsr_relay(
             experimental_network(binding.network),
@@ -1318,9 +1329,7 @@ fn transport_status(
     }
 }
 
-const fn revocation_reason_for_error(
-    error: &HnsrTransportError,
-) -> HnsrTransportRevocationReason {
+const fn revocation_reason_for_error(error: &HnsrTransportError) -> HnsrTransportRevocationReason {
     match error {
         HnsrTransportError::PolicyGenerationChanged
         | HnsrTransportError::UnsupportedWireProfile
@@ -1340,8 +1349,8 @@ fn encode_runtime_export(
     if status.generation == 0 || inner.is_empty() {
         return Err(HnsrTransportError::InvalidSnapshotGeneration);
     }
-    let inner_length = u32::try_from(inner.len())
-        .map_err(|_| HnsrTransportError::SnapshotTooLarge)?;
+    let inner_length =
+        u32::try_from(inner.len()).map_err(|_| HnsrTransportError::SnapshotTooLarge)?;
     let total = HNSR_SNAPSHOT_HEADER_BYTES
         .checked_add(inner.len())
         .and_then(|length| length.checked_add(HNSR_SNAPSHOT_CHECKSUM_BYTES))
@@ -1447,8 +1456,8 @@ fn decode_runtime_export(
     let policy_generation = decoder.u64()?;
     let generation = decoder.u64()?;
     let trusted_time_high_water = decoder.u64()?;
-    let inner_length = usize::try_from(decoder.u32()?)
-        .map_err(|_| HnsrTransportError::InvalidSnapshot)?;
+    let inner_length =
+        usize::try_from(decoder.u32()?).map_err(|_| HnsrTransportError::InvalidSnapshot)?;
     if inner_length == 0 || decoder.remaining() != inner_length {
         return Err(HnsrTransportError::InvalidSnapshot);
     }
@@ -1548,9 +1557,7 @@ fn validate_requester_inner_binding(
     Ok(())
 }
 
-fn validate_relay_inner_binding(
-    decoded: &DecodedRuntimeExport,
-) -> Result<(), HnsrTransportError> {
+fn validate_relay_inner_binding(decoded: &DecodedRuntimeExport) -> Result<(), HnsrTransportError> {
     if decoded.inner.get(..8) != Some(b"HNSRRL1\0".as_slice())
         || decoded.inner.get(8).copied() != Some(1)
         || decoded.inner.get(9..12) != Some([0_u8, 0, 0].as_slice())
@@ -1735,14 +1742,10 @@ impl fmt::Display for HnsrTransportError {
             Self::RuntimeGenerationChanged => {
                 formatter.write_str("HNSR runtime generation changed")
             }
-            Self::PolicyGenerationChanged => {
-                formatter.write_str("HNSR policy generation changed")
-            }
+            Self::PolicyGenerationChanged => formatter.write_str("HNSR policy generation changed"),
             Self::AdmissionInvalidated => formatter.write_str("HNSR admission was invalidated"),
             Self::NetworkChanged => formatter.write_str("HNSR network changed"),
-            Self::UnsupportedWireProfile => {
-                formatter.write_str("unsupported HNSR wire profile")
-            }
+            Self::UnsupportedWireProfile => formatter.write_str("unsupported HNSR wire profile"),
             Self::RoleDisabled(role) => write!(formatter, "HNSR role {role:?} is disabled"),
             Self::ForbiddenProviderRoles => {
                 formatter.write_str("HNSR endpoint and rendezvous roles are hard disabled")
@@ -1770,9 +1773,7 @@ impl fmt::Display for HnsrTransportError {
                 formatter.write_str("invalid HNSR snapshot generation")
             }
             Self::SnapshotRollback => formatter.write_str("HNSR snapshot rollback detected"),
-            Self::SnapshotBindingMismatch => {
-                formatter.write_str("HNSR snapshot binding mismatch")
-            }
+            Self::SnapshotBindingMismatch => formatter.write_str("HNSR snapshot binding mismatch"),
             Self::TrustedClockRollback => formatter.write_str("HNSR trusted clock rollback"),
             Self::GenerationExhausted => formatter.write_str("HNSR generation exhausted"),
         }
@@ -1837,8 +1838,8 @@ mod tests {
             revoked_work: 0,
         };
         let exported = encode_runtime_export(binding, status, vec![1]).expect("encodes");
-        let decoded = decode_runtime_export(&exported.bytes, HnsrTransportRole::Requester)
-            .expect("decodes");
+        let decoded =
+            decode_runtime_export(&exported.bytes, HnsrTransportRole::Requester).expect("decodes");
         assert!(matches!(
             validate_restore_envelope(binding, &decoded, 8, 11, 11),
             Err(HnsrTransportError::SnapshotRollback)

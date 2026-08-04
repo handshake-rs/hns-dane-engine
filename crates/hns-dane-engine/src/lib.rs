@@ -20,24 +20,23 @@ mod authority_sealed {
     pub trait Sealed {}
 }
 
+pub use hns_hnsr_protocol::{
+    DEFAULT_WINDOW, HNS_CHAT_V1, HNS_NODE_V1, HNS_WEB_V1, HnsrActionId, HnsrPacket, HnsrPeerId,
+    HnsrRequesterConfig, HnsrRequesterEvent, HnsrRoute, HnsrRuntimeStatus, OpaqueRelayConfig,
+    QueuedHnsrRoute, RelayConfig, RelayLimits, RelayTicket,
+};
 pub use hnsr_transport::{
     AuthenticatedHnsrPeer, HNSR_TRANSPORT_SCHEMA_VERSION, HnsrOpaqueRelayRuntime,
-    HnsrRequesterRuntime, HnsrRuntimeExport, HnsrTransportAuthorityContext,
-    HnsrTransportBinding, HnsrTransportError, HnsrTransportRevocationReason,
-    HnsrTransportRole, HnsrTransportState, HnsrTransportStatus,
-    MAX_HNSR_RUNTIME_SNAPSHOT_BYTES,
-};
-pub use hns_hnsr_protocol::{
-    HnsrActionId, HnsrPacket, HnsrPeerId, HnsrRequesterConfig, HnsrRequesterEvent, HnsrRoute,
-    HnsrRuntimeStatus, OpaqueRelayConfig, QueuedHnsrRoute, RelayConfig, RelayLimits, RelayTicket,
-    DEFAULT_WINDOW, HNS_CHAT_V1, HNS_NODE_V1, HNS_WEB_V1,
+    HnsrRequesterRuntime, HnsrRuntimeExport, HnsrTransportAuthorityContext, HnsrTransportBinding,
+    HnsrTransportError, HnsrTransportRevocationReason, HnsrTransportRole, HnsrTransportState,
+    HnsrTransportStatus, MAX_HNSR_RUNTIME_SNAPSHOT_BYTES,
 };
 
 pub use private_transport::{
     MAX_CACHED_ODOH_TARGETS, MAX_ODOH_TARGET_CACHE_BLOB_BYTES,
-    MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES, PRIVATE_TRANSPORT_SCHEMA_VERSION,
-    OdohRequesterRuntime, OdohRequesterState, OdohRequesterStatus, OdohTargetCacheExport,
-    OdohTargetInstall, PrivateTransportAuthority, PrivateTransportAuthorityContext,
+    MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES, OdohRequesterRuntime, OdohRequesterState,
+    OdohRequesterStatus, OdohTargetCacheExport, OdohTargetInstall,
+    PRIVATE_TRANSPORT_SCHEMA_VERSION, PrivateTransportAuthority, PrivateTransportAuthorityContext,
     PrivateTransportBinding, PrivateTransportError, PrivateTransportRevocationReason,
 };
 
@@ -59,11 +58,11 @@ pub use hns_namespace_resolution::{
     HnsNetwork, Namespace, NamespaceDecision, OriginScheme, TlsTrustPolicy,
 };
 pub use hns_p2p_transport::{
-    AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DnsRelayRequester,
-    DENUO_EXTENSION_SERVICE, DirectTargetLocator, ExperimentalExchange, ExperimentalNetwork,
+    AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DENUO_EXTENSION_SERVICE,
+    DirectTargetLocator, DnsRelayRequester, ExperimentalExchange, ExperimentalNetwork,
     ExperimentalPeerState, ExperimentalRequest, ExperimentalResponse, ExperimentalWireProfile,
-    FetchedOdohTargetConfig, NegotiatedRegistry, ODOH_SERVICE, OdohRequester, P2pTransportError, PeerIdentity,
-    PeerProtocolError, ProtocolRange, RegistryHello, RequesterLimits, ServiceMask,
+    FetchedOdohTargetConfig, NegotiatedRegistry, ODOH_SERVICE, OdohRequester, P2pTransportError,
+    PeerIdentity, PeerProtocolError, ProtocolRange, RegistryHello, RequesterLimits, ServiceMask,
     VerifiedOdohTarget,
 };
 use hns_resolution_policy::{
@@ -1431,7 +1430,9 @@ impl Engine {
         now: u64,
     ) -> Result<bool, EngineError> {
         let state = self.state.read().map_err(|_| EngineError::LockPoisoned)?;
-        Ok(provider_authority_is_current_in_state(&state, authority, now))
+        Ok(provider_authority_is_current_in_state(
+            &state, authority, now,
+        ))
     }
 
     /// Export the exact persistent policy representation.
@@ -2096,7 +2097,11 @@ fn provider_authority_is_current_in_state(
     let runtime = state.runtime.snapshot();
     let context = &authority.origin_context;
     let authentication_matches = matches!(
-        (authority.selected_namespace, authority.tls_policy, context.status),
+        (
+            authority.selected_namespace,
+            authority.tls_policy,
+            context.status
+        ),
         (
             Namespace::Hns,
             TlsTrustPolicy::Dane,
@@ -3189,7 +3194,9 @@ mod tests {
             .unwrap();
         assert!(!denied.is_authorized());
         assert_eq!(
-            denied.denial().and_then(ProviderInjectionDecision::denial_reason),
+            denied
+                .denial()
+                .and_then(ProviderInjectionDecision::denial_reason),
             Some(ProviderInjectionDenialReason::OriginMismatch)
         );
 
@@ -3205,7 +3212,9 @@ mod tests {
             .revalidate_provider_authority(&decision, authority, AUTHORITY_NOW)
             .unwrap();
         assert_eq!(
-            denied.denial().and_then(ProviderInjectionDecision::denial_reason),
+            denied
+                .denial()
+                .and_then(ProviderInjectionDecision::denial_reason),
             Some(ProviderInjectionDenialReason::AuthorityDegraded)
         );
 
@@ -3643,7 +3652,11 @@ mod tests {
                 .unwrap()
                 .permitted()
         );
-        assert!(engine.authorize_browser_bridge(&first_completion, now).is_ok());
+        assert!(
+            engine
+                .authorize_browser_bridge(&first_completion, now)
+                .is_ok()
+        );
 
         engine
             .advance_authority_state(AuthorityState::Degraded)

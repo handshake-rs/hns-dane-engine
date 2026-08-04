@@ -1654,9 +1654,7 @@ mod tests {
         let mut current = 0u8;
         // SAFETY: null inputs are explicitly admitted for fail-closed validation.
         assert_eq!(
-            unsafe {
-                hns_dane_engine_provider_v1_authority_get_info(ptr::null(), &mut info)
-            },
+            unsafe { hns_dane_engine_provider_v1_authority_get_info(ptr::null(), &mut info) },
             HnsDaneStatus::NullPointer.code()
         );
         // SAFETY: null inputs are explicitly admitted for fail-closed validation.

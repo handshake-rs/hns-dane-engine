@@ -15,11 +15,11 @@ use hns_p2p_wire::NetworkMagic;
 use hns_transport::CancellationToken;
 
 use super::{
-    AdapterFailure, Admission, AuthenticatedPeer, AuthorityState, DirectTargetLocator, Engine,
-    BrowserRuntime, EngineError, ExperimentalExchange, ExperimentalNetwork, ExperimentalPeerState,
-    ExperimentalRequest, ExperimentalResponse, NegotiatedRegistry, Network, OdohRequester,
-    P2pTransportError, PeerIdentity, PolicyController, PolicyError, PolicySnapshot, RequesterLimits,
-    ResolutionTransport, RuntimeStamp, VerifiedOdohTarget, WireProfile,
+    AdapterFailure, Admission, AuthenticatedPeer, AuthorityState, BrowserRuntime,
+    DirectTargetLocator, Engine, EngineError, ExperimentalExchange, ExperimentalNetwork,
+    ExperimentalPeerState, ExperimentalRequest, ExperimentalResponse, NegotiatedRegistry, Network,
+    OdohRequester, P2pTransportError, PeerIdentity, PolicyController, PolicyError, PolicySnapshot,
+    RequesterLimits, ResolutionTransport, RuntimeStamp, VerifiedOdohTarget, WireProfile,
     resolution_transport_ready,
 };
 
@@ -308,8 +308,7 @@ impl OdohTargetCache {
         now: u64,
         allow_private: bool,
     ) -> Result<([u8; 32], bool), PrivateTransportError> {
-        if signed_record.is_empty()
-            || signed_record.len() > MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES
+        if signed_record.is_empty() || signed_record.len() > MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES
         {
             return Err(PrivateTransportError::InvalidTargetRecordLength);
         }
@@ -419,8 +418,8 @@ impl OdohTargetCache {
         if generation == 0 {
             return Err(PrivateTransportError::InvalidTargetCacheGeneration);
         }
-        let count = u16::try_from(self.slots.len())
-            .map_err(|_| PrivateTransportError::TargetCacheFull)?;
+        let count =
+            u16::try_from(self.slots.len()).map_err(|_| PrivateTransportError::TargetCacheFull)?;
         let mut output = Vec::new();
         output.extend_from_slice(TARGET_CACHE_MAGIC);
         output.extend_from_slice(&ODOH_TARGET_CACHE_SCHEMA_VERSION.to_le_bytes());
@@ -535,7 +534,8 @@ impl OdohTargetCache {
                     let configuration_index = decoder.u16()?;
                     let persisted_expiry = decoder.u64()?;
                     let record_length = usize::from(decoder.u16()?);
-                    if record_length == 0 || record_length > MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES {
+                    if record_length == 0 || record_length > MAX_PERSISTED_ODOH_TARGET_RECORD_BYTES
+                    {
                         return Err(PrivateTransportError::InvalidTargetRecordLength);
                     }
                     let signed_record = decoder.take(record_length)?.to_vec();
@@ -791,9 +791,10 @@ impl OdohRequesterRuntime {
             registry_version,
             resolved_wire_profile,
             maximum_live_requests,
-        ) = self.proxy.as_ref().map_or(
-            (None, [0; 32], 0, None, 0),
-            |proxy| {
+        ) = self
+            .proxy
+            .as_ref()
+            .map_or((None, [0; 32], 0, None, 0), |proxy| {
                 (
                     Some(proxy.identity().as_bytes()),
                     proxy.registry_fingerprint(),
@@ -801,13 +802,11 @@ impl OdohRequesterRuntime {
                     Some(proxy.wire_profile()),
                     proxy.maximum_live_requests(),
                 )
-            },
-        );
+            });
         let target_slots = u16::try_from(self.targets.slots.len()).unwrap_or(u16::MAX);
         let current_targets = u16::try_from(self.targets.current_count()).unwrap_or(u16::MAX);
-        let ready = self.revocation_reason.is_none()
-            && self.proxy.is_some()
-            && current_targets != 0;
+        let ready =
+            self.revocation_reason.is_none() && self.proxy.is_some() && current_targets != 0;
         Ok(OdohRequesterStatus {
             schema_version: PRIVATE_TRANSPORT_SCHEMA_VERSION,
             binding: self.binding,
@@ -841,7 +840,10 @@ impl OdohRequesterRuntime {
     /// failures remain available through [`PrivateTransportError::Transport`].
     /// The engine binding is checked both before and after adapter I/O; stale
     /// bytes are never returned even if policy changes during the call.
-    #[allow(clippy::too_many_arguments, reason = "adapter, target, query, cancellation, and clock are independent trust inputs")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "adapter, target, query, cancellation, and clock are independent trust inputs"
+    )]
     pub fn exchange<C, A>(
         &mut self,
         authority: &C,
@@ -1028,12 +1030,7 @@ impl Engine {
             .map_err(|_| PrivateTransportError::Engine(EngineError::LockPoisoned))?;
         let network = state.network;
         let policy = state.policy.snapshot();
-        mint_private_transport_binding(
-            &mut state.runtime,
-            network,
-            policy,
-            allow_private_targets,
-        )
+        mint_private_transport_binding(&mut state.runtime, network, policy, allow_private_targets)
     }
 
     fn validate_private_transport_binding(
@@ -1382,37 +1379,87 @@ impl fmt::Display for PrivateTransportError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Engine(error) => write!(formatter, "private transport engine failed: {error}"),
-            Self::Transport(error) => write!(formatter, "private transport request failed: {error}"),
+            Self::Transport(error) => {
+                write!(formatter, "private transport request failed: {error}")
+            }
             Self::Policy(error) => write!(formatter, "private transport policy failed: {error}"),
-            Self::BindingRevoked(reason) => write!(formatter, "private transport runtime was revoked: {reason:?}"),
-            Self::RuntimeSessionChanged => formatter.write_str("private transport runtime session changed"),
-            Self::RuntimeGenerationChanged => formatter.write_str("private transport runtime generation changed"),
-            Self::PolicyGenerationChanged => formatter.write_str("private transport policy generation changed"),
-            Self::AdmissionInvalidated => formatter.write_str("private transport admission was invalidated"),
-            Self::AuthorityUnavailable => formatter.write_str("private transport authority is unavailable"),
+            Self::BindingRevoked(reason) => write!(
+                formatter,
+                "private transport runtime was revoked: {reason:?}"
+            ),
+            Self::RuntimeSessionChanged => {
+                formatter.write_str("private transport runtime session changed")
+            }
+            Self::RuntimeGenerationChanged => {
+                formatter.write_str("private transport runtime generation changed")
+            }
+            Self::PolicyGenerationChanged => {
+                formatter.write_str("private transport policy generation changed")
+            }
+            Self::AdmissionInvalidated => {
+                formatter.write_str("private transport admission was invalidated")
+            }
+            Self::AuthorityUnavailable => {
+                formatter.write_str("private transport authority is unavailable")
+            }
             Self::NetworkChanged => formatter.write_str("private transport network changed"),
-            Self::PrivateTargetsForbidden => formatter.write_str("private ODoH targets require regtest or simnet"),
-            Self::UnsupportedWireProfile => formatter.write_str("ODoH runtime cannot authenticate the selected wire profile"),
-            Self::TrustedClockRollback => formatter.write_str("ODoH runtime trusted clock moved backwards"),
-            Self::InvalidTargetCacheGeneration => formatter.write_str("ODoH target-cache generation is invalid"),
-            Self::TargetCacheGenerationRollback => formatter.write_str("ODoH target-cache generation rolled back below the caller floor"),
-            Self::TargetCacheGenerationExhausted => formatter.write_str("ODoH target-cache generation is exhausted"),
-            Self::ProxyUnavailable => formatter.write_str("authenticated ODoH proxy is unavailable"),
-            Self::TargetUnavailable => formatter.write_str("current signed ODoH target is unavailable"),
-            Self::InvalidTargetRecordLength => formatter.write_str("signed ODoH target record length is invalid"),
-            Self::InvalidConfigurationIndex => formatter.write_str("ODoH configuration index is invalid"),
+            Self::PrivateTargetsForbidden => {
+                formatter.write_str("private ODoH targets require regtest or simnet")
+            }
+            Self::UnsupportedWireProfile => {
+                formatter.write_str("ODoH runtime cannot authenticate the selected wire profile")
+            }
+            Self::TrustedClockRollback => {
+                formatter.write_str("ODoH runtime trusted clock moved backwards")
+            }
+            Self::InvalidTargetCacheGeneration => {
+                formatter.write_str("ODoH target-cache generation is invalid")
+            }
+            Self::TargetCacheGenerationRollback => formatter
+                .write_str("ODoH target-cache generation rolled back below the caller floor"),
+            Self::TargetCacheGenerationExhausted => {
+                formatter.write_str("ODoH target-cache generation is exhausted")
+            }
+            Self::ProxyUnavailable => {
+                formatter.write_str("authenticated ODoH proxy is unavailable")
+            }
+            Self::TargetUnavailable => {
+                formatter.write_str("current signed ODoH target is unavailable")
+            }
+            Self::InvalidTargetRecordLength => {
+                formatter.write_str("signed ODoH target record length is invalid")
+            }
+            Self::InvalidConfigurationIndex => {
+                formatter.write_str("ODoH configuration index is invalid")
+            }
             Self::InvalidTargetLocator => formatter.write_str("ODoH target locator is invalid"),
             Self::TargetCacheFull => formatter.write_str("ODoH target cache is full"),
             Self::TargetSequenceRollback => formatter.write_str("ODoH target sequence rollback"),
-            Self::TargetSequenceConflict => formatter.write_str("ODoH target sequence conflicts with cached state"),
+            Self::TargetSequenceConflict => {
+                formatter.write_str("ODoH target sequence conflicts with cached state")
+            }
             Self::InvalidTargetSequence => formatter.write_str("ODoH target sequence is invalid"),
-            Self::InvalidTargetCacheBlob => formatter.write_str("ODoH target-cache blob is invalid"),
-            Self::TargetCacheBlobTooLarge => formatter.write_str("ODoH target-cache blob exceeds its bound"),
-            Self::TargetCacheChecksumMismatch => formatter.write_str("ODoH target-cache checksum mismatch"),
-            Self::UnsupportedTargetCacheSchema => formatter.write_str("ODoH target-cache schema is unsupported"),
-            Self::TargetCacheNetworkMismatch => formatter.write_str("ODoH target-cache network mismatch"),
-            Self::TargetCacheAddressPolicyMismatch => formatter.write_str("ODoH target-cache address policy mismatch"),
-            Self::NonCanonicalTargetCache => formatter.write_str("ODoH target-cache entries are noncanonical"),
+            Self::InvalidTargetCacheBlob => {
+                formatter.write_str("ODoH target-cache blob is invalid")
+            }
+            Self::TargetCacheBlobTooLarge => {
+                formatter.write_str("ODoH target-cache blob exceeds its bound")
+            }
+            Self::TargetCacheChecksumMismatch => {
+                formatter.write_str("ODoH target-cache checksum mismatch")
+            }
+            Self::UnsupportedTargetCacheSchema => {
+                formatter.write_str("ODoH target-cache schema is unsupported")
+            }
+            Self::TargetCacheNetworkMismatch => {
+                formatter.write_str("ODoH target-cache network mismatch")
+            }
+            Self::TargetCacheAddressPolicyMismatch => {
+                formatter.write_str("ODoH target-cache address policy mismatch")
+            }
+            Self::NonCanonicalTargetCache => {
+                formatter.write_str("ODoH target-cache entries are noncanonical")
+            }
         }
     }
 }
@@ -1442,9 +1489,9 @@ mod tests {
     };
 
     const SECP256K1_GENERATOR: [u8; 33] = [
-        0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce,
-        0x87, 0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81,
-        0x5b, 0x16, 0xf8, 0x17, 0x98,
+        0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
+        0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16,
+        0xf8, 0x17, 0x98,
     ];
 
     fn ready_engine(session: u8, network: Network) -> Engine {
@@ -1489,15 +1536,8 @@ mod tests {
         advertise_denuo: bool,
         alternate_registry: bool,
     ) -> (ExperimentalPeerState, NegotiatedRegistry) {
-        let hello = RegistryHello::denuo_v1(
-            network,
-            genesis_hash,
-            Vec::new(),
-            100_000,
-            8,
-            0,
-        )
-        .unwrap();
+        let hello =
+            RegistryHello::denuo_v1(network, genesis_hash, Vec::new(), 100_000, 8, 0).unwrap();
         let mut registry = NegotiatedRegistry::negotiate(&hello, &hello).unwrap();
         if alternate_registry {
             registry.fingerprint = [0x44; 32].into();
@@ -1598,7 +1638,10 @@ mod tests {
             runtime.binding().admission_event()
         );
         assert_eq!(
-            restored.status(&engine, 1_700_000_000).unwrap().current_targets,
+            restored
+                .status(&engine, 1_700_000_000)
+                .unwrap()
+                .current_targets,
             0
         );
         assert!(matches!(
@@ -1706,7 +1749,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            restored.targets.slots.get(&locator_key).unwrap().highest_sequence,
+            restored
+                .targets
+                .slots
+                .get(&locator_key)
+                .unwrap()
+                .highest_sequence,
             2
         );
     }
@@ -1780,9 +1828,7 @@ mod tests {
         assert!(matches!(
             runtime.bind_proxy(&engine, identity, peer, registry),
             Err(PrivateTransportError::Transport(
-                P2pTransportError::PeerAdmission(
-                    PeerProtocolError::PacketWithoutService { .. }
-                )
+                P2pTransportError::PeerAdmission(PeerProtocolError::PacketWithoutService { .. })
             ))
         ));
 
@@ -1842,7 +1888,10 @@ mod tests {
         let status = runtime.status(&engine, 1_700_000_100).unwrap();
         assert_eq!(status.schema_version, 3);
         assert_eq!(status.proxy_identity, Some(SECP256K1_GENERATOR));
-        assert_eq!(runtime.binding().policy_wire_profile(), WireProfile::DenuoV1);
+        assert_eq!(
+            runtime.binding().policy_wire_profile(),
+            WireProfile::DenuoV1
+        );
         assert_eq!(
             status.resolved_wire_profile,
             Some(ExperimentalWireProfile::DenuoV1)

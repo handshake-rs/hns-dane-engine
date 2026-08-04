@@ -370,8 +370,7 @@ impl Default for ProxyLimits {
             maximum_pending: DEFAULT_MAXIMUM_PENDING,
             maximum_pending_lifetime_seconds: DEFAULT_MAXIMUM_PENDING_LIFETIME_SECONDS,
             maximum_publications: DEFAULT_MAXIMUM_PUBLICATIONS,
-            maximum_publication_lifetime_seconds:
-                DEFAULT_MAXIMUM_PUBLICATION_LIFETIME_SECONDS,
+            maximum_publication_lifetime_seconds: DEFAULT_MAXIMUM_PUBLICATION_LIFETIME_SECONDS,
             maximum_grant_lifetime_seconds: DEFAULT_MAXIMUM_GRANT_LIFETIME_SECONDS,
         }
     }
@@ -392,8 +391,7 @@ impl ProxyLimits {
             || self.maximum_publication_lifetime_seconds == 0
             || self.maximum_publication_lifetime_seconds > 3_600
             || self.maximum_grant_lifetime_seconds == 0
-            || self.maximum_grant_lifetime_seconds
-                > self.maximum_publication_lifetime_seconds
+            || self.maximum_grant_lifetime_seconds > self.maximum_publication_lifetime_seconds
             || self.maximum_grant_lifetime_seconds > MAXIMUM_GRANT_LIFETIME_SECONDS
         {
             return Err(ProxyError::InvalidLimits);
@@ -1283,11 +1281,7 @@ impl ProxySession {
             return Err(ProxyError::ProviderAuthorityMismatch);
         }
         let publication_deadline = now
-            .checked_add(
-                self.config
-                    .limits
-                    .maximum_publication_lifetime_seconds,
-            )
+            .checked_add(self.config.limits.maximum_publication_lifetime_seconds)
             .ok_or(ProxyError::TimeOverflow)?;
         let publication_valid_until = authority.valid_until().min(publication_deadline);
         if publication_valid_until <= now {
@@ -1378,23 +1372,25 @@ impl ProxySession {
         now: u64,
     ) -> Result<bool, ProxyError> {
         let authority = &publication.authority;
-        Ok(publication.selected_namespace == authority.selected_namespace()
-            && publication.authenticated_context == authority.authenticated_context()
-            && publication.hns_network == authority.hns_network()
-            && publication.service_port == authority.service_port()
-            && publication.tls_policy == authority.tls_policy()
-            && publication.runtime_session == authority.runtime_session()
-            && publication.runtime_generation == authority.runtime_generation()
-            && publication.policy_generation == authority.policy_generation()
-            && publication.event_sequence == authority.event_sequence()
-            && publication.decision_fingerprint == authority.decision_fingerprint()
-            && publication.authority_valid_from == authority.valid_from()
-            && publication.authority_valid_until == authority.valid_until()
-            && now >= publication.authority_valid_from
-            && now < publication.authority_valid_until
-            && now >= publication.published_at
-            && now < publication.publication_valid_until
-            && engine.provider_authority_is_current(authority, now)?)
+        Ok(
+            publication.selected_namespace == authority.selected_namespace()
+                && publication.authenticated_context == authority.authenticated_context()
+                && publication.hns_network == authority.hns_network()
+                && publication.service_port == authority.service_port()
+                && publication.tls_policy == authority.tls_policy()
+                && publication.runtime_session == authority.runtime_session()
+                && publication.runtime_generation == authority.runtime_generation()
+                && publication.policy_generation == authority.policy_generation()
+                && publication.event_sequence == authority.event_sequence()
+                && publication.decision_fingerprint == authority.decision_fingerprint()
+                && publication.authority_valid_from == authority.valid_from()
+                && publication.authority_valid_until == authority.valid_until()
+                && now >= publication.authority_valid_from
+                && now < publication.authority_valid_until
+                && now >= publication.published_at
+                && now < publication.publication_valid_until
+                && engine.provider_authority_is_current(authority, now)?,
+        )
     }
 
     fn ensure_registry_generation(&self, expected: u64) -> Result<(), ProxyError> {
@@ -2033,12 +2029,7 @@ mod tests {
         ));
         let request = connect_request(&proxy.authorization_header_value());
         assert!(matches!(
-            proxy.admit_connect(
-                &engine,
-                "192.0.2.1:50000".parse().unwrap(),
-                &request,
-                1,
-            ),
+            proxy.admit_connect(&engine, "192.0.2.1:50000".parse().unwrap(), &request, 1,),
             Err(ProxyError::NonLoopbackClient)
         ));
     }
@@ -2123,12 +2114,7 @@ mod tests {
             10 + DEFAULT_MAXIMUM_PENDING_LIFETIME_SECONDS
         );
         assert!(matches!(
-            first.admit_connect(
-                &engine,
-                "127.0.0.1:50001".parse().unwrap(),
-                &request,
-                10,
-            ),
+            first.admit_connect(&engine, "127.0.0.1:50001".parse().unwrap(), &request, 10,),
             Err(ProxyError::PendingLimit)
         ));
         assert!(matches!(
@@ -2173,12 +2159,7 @@ mod tests {
         engine.update_policy(before.generation(), next).unwrap();
         let request = connect_request(&proxy.authorization_header_value());
         assert!(matches!(
-            proxy.admit_connect(
-                &engine,
-                "127.0.0.1:50000".parse().unwrap(),
-                &request,
-                1,
-            ),
+            proxy.admit_connect(&engine, "127.0.0.1:50000".parse().unwrap(), &request, 1,),
             Err(ProxyError::StaleRuntime)
         ));
     }
@@ -2304,12 +2285,7 @@ mod tests {
         );
         let revalidation_generation = proxy.registry_generation();
         proxy
-            .revalidate_tunnel_grant(
-                &engine,
-                &grant,
-                revalidation_generation,
-                AUTHORITY_NOW,
-            )
+            .revalidate_tunnel_grant(&engine, &grant, revalidation_generation, AUTHORITY_NOW)
             .unwrap();
 
         let replacement_authority = provider_authority(&engine, &decision);
@@ -2328,12 +2304,7 @@ mod tests {
         assert!(grant.registry_generation() < proxy.registry_generation());
         let stale_grant_generation = proxy.registry_generation();
         assert!(matches!(
-            proxy.revalidate_tunnel_grant(
-                &engine,
-                &grant,
-                stale_grant_generation,
-                AUTHORITY_NOW,
-            ),
+            proxy.revalidate_tunnel_grant(&engine, &grant, stale_grant_generation, AUTHORITY_NOW,),
             Err(ProxyError::PublicationMismatch)
         ));
         let revocation_generation = proxy.registry_generation();
@@ -2411,13 +2382,7 @@ mod tests {
             .unwrap();
         let generation = proxy.registry_generation();
         let grant = proxy
-            .authorize_connect(
-                &engine,
-                pending,
-                &admission,
-                generation,
-                AUTHORITY_NOW,
-            )
+            .authorize_connect(&engine, pending, &admission, generation, AUTHORITY_NOW)
             .unwrap();
         proxy
             .revalidate_tunnel_grant(&engine, &grant, generation, AUTHORITY_NOW)
