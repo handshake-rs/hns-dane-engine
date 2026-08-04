@@ -49,6 +49,9 @@ file. The public crates use a shared version and follow Semantic Versioning.
   has not yet run its focused or full qualification gate.
 - Enabled the new-policy HNSR requester/client default alongside the existing
   opaque HNSR relay, HIP-76/HIP-77 requester paths, and opaque ODoH proxy.
+  Fresh policy now selects the bounded `Auto` wire profile so current Denuo
+  draft assignments work while future exact official mappings can be
+  negotiated without silently reusing packet numbers.
   Persisted requester and relay opt-outs remain exact, direct authority remains
   first, and recursive DNS, plaintext output, target, endpoint, and rendezvous
   roles remain explicit opt-ins.

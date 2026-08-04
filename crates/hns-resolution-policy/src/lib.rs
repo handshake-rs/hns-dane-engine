@@ -336,7 +336,7 @@ impl Default for PolicyConfig {
             authenticated_authoritative_doh: true,
             user_configured_recursive_hns_doh: false,
             providers: ProviderPolicy::default(),
-            wire_profile: WireProfile::DenuoV1,
+            wire_profile: WireProfile::Auto,
             allow_legacy_regtest_compatibility: true,
         }
     }
@@ -1041,6 +1041,7 @@ mod tests {
         assert!(snapshot.config.hnsr.requester_enabled());
         assert!(!snapshot.config.hnsr.rendezvous_enabled());
         assert!(!snapshot.config.user_configured_recursive_hns_doh);
+        assert_eq!(snapshot.config.wire_profile, WireProfile::Auto);
     }
 
     #[test]
