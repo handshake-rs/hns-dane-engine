@@ -3,6 +3,18 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## hns-browser-observability 0.1.2 - 2026-08-09
+
+This maintenance release adds one browser-product-neutral currentness
+contract without changing the canonical browser status schema:
+
+- model HSD name-tree commit intervals for mainnet, testnet, regtest, and
+  simnet;
+- account for the following-header publication rule at interval boundaries;
+  and
+- report whether a validated local chain already contains the name-tree root
+  authoritative at an independently corroborated target height.
+
 ## hns-browser-observability 0.1.1 - 2026-08-09
 
 This maintenance release updates only `hns-browser-observability` so existing
