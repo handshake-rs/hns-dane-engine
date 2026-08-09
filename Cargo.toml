@@ -4,6 +4,7 @@ members = [
     "crates/hns-dane-engine",
     "crates/hns-dane-engine-ffi",
     "crates/hns-browser-observability",
+    "crates/hns-browser-primitives",
     "crates/hns-browser-runtime",
     "crates/hns-browser-testkit",
     "crates/hns-cache",
@@ -35,6 +36,7 @@ categories = ["cryptography", "network-programming", "web-programming"]
 
 [workspace.dependencies]
 hns-browser-observability = { version = "0.2.0", path = "crates/hns-browser-observability" }
+hns-browser-primitives = { version = "0.2.0", path = "crates/hns-browser-primitives" }
 hns-browser-runtime = { version = "0.2.0", path = "crates/hns-browser-runtime" }
 hns-cache = { version = "0.2.0", path = "crates/hns-cache" }
 hns-covenants = { version = "0.2.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "29e4b473bd2cfee460b56d5092b7bc28da5ec5dc" }

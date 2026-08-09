@@ -18,6 +18,7 @@ hns-resolution-policy ---> hns-gateway -------------------------------+         
 hns-browser-observability ---------------------------------------------+   hns-dane-engine-ffi
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
+hns-browser-primitives - - temporary product-adapter consolidation - -+
 hns-transport ---------------------------------------------------------+
 hns-p2p-transport -----------------------------------------------------+
                                                                                   |
@@ -195,6 +196,11 @@ diagnostic slot is not completion or provider authority.
 results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
 height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched
 entries before returning them; metrics contain only counts and byte totals.
+`hns-browser-primitives` is an unpublished consolidation boundary for the mobile and Chromium
+adapters while they move to the canonical `hns-rs` and engine 0.2 types. It owns the single shared
+implementation of their legacy header, DNS-wire, resource, proof-of-work, and network-policy
+types; product repositories must not carry private copies. New engine trust decisions must use the
+canonical private tokens above rather than accepting these compatibility types as authority.
 `hns-transport` derives immutable direct-DNS endpoints only from a current private HNS resource
 token. Mainnet/testnet accept globally routable in-bailiwick glue or synth addresses on port 53;
 nonstandard loopback ports require an explicit regtest-fixture policy. Connected UDP and
