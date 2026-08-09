@@ -11,6 +11,11 @@ configuration, active production wiring, and optional request observation as
 separate states. Its constructors reject claims such as an active but
 unconfigured feature.
 
+The shared name-tree currentness contract models HSD's interval commits and
+the following-header publication rule. Mobile and Chromium adapters can use
+it to distinguish a stale chain tip from a missing authoritative name-tree
+root without duplicating network intervals or boundary arithmetic.
+
 Published releases can be added with:
 
 ```bash

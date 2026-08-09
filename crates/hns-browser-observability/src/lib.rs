@@ -26,6 +26,133 @@ pub const STATUS_SCHEMA_VERSION: u16 = 2;
 pub const MAX_IDENTITY_BYTES: usize = 256;
 /// Maximum unsupported-evidence entries in one snapshot.
 pub const MAX_UNSUPPORTED_EVIDENCE: usize = 64;
+
+/// Return the consensus name-tree commit interval for one Handshake network.
+///
+/// HSD commits accumulated name changes at the end of each interval. The
+/// resulting root first appears in the following block header, so consumers
+/// must compare authority epochs rather than requiring identical chain tips.
+#[must_use]
+pub const fn name_tree_interval(network: Network) -> u32 {
+    match network {
+        Network::Mainnet | Network::Testnet => 36,
+        Network::Regtest => 5,
+        Network::Simnet => 2,
+    }
+}
+
+/// Return the header height that introduced the name-tree root authoritative
+/// at `chain_height`.
+///
+/// Genesis has no preceding interval. For every non-genesis height, the first
+/// authority epoch begins at header 1; a commit made at interval boundary
+/// `N` first becomes visible in header `N + 1`.
+#[must_use]
+pub const fn name_tree_authority_height(network: Network, chain_height: u32) -> u32 {
+    if chain_height == 0 {
+        return 0;
+    }
+    let interval = name_tree_interval(network);
+    ((chain_height - 1) / interval) * interval + 1
+}
+
+/// Name-tree authority readiness derived from validated local and
+/// independently corroborated target header heights.
+///
+/// This deliberately does not claim full chain-tip freshness. It answers the
+/// narrower browser question: whether catching up to the target can expose a
+/// newer committed name-tree root. Unknown heights and genesis remain
+/// fail-closed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NameTreeCurrentness {
+    network: Network,
+    local_header_height: Option<u32>,
+    target_header_height: Option<u32>,
+    local_authority_height: Option<u32>,
+    target_authority_height: Option<u32>,
+    blocks_until_authority: Option<u32>,
+    ready: bool,
+}
+
+impl NameTreeCurrentness {
+    /// Assess whether the local validated chain contains the name-tree root
+    /// authoritative at the independently corroborated target height.
+    #[must_use]
+    pub const fn assess(
+        network: Network,
+        local_header_height: Option<u32>,
+        target_header_height: Option<u32>,
+    ) -> Self {
+        let local_authority_height = match local_header_height {
+            Some(height) if height > 0 => Some(name_tree_authority_height(network, height)),
+            _ => None,
+        };
+        let target_authority_height = match target_header_height {
+            Some(height) if height > 0 => Some(name_tree_authority_height(network, height)),
+            _ => None,
+        };
+        let ready = match (local_authority_height, target_authority_height) {
+            (Some(local), Some(target)) => local >= target,
+            _ => false,
+        };
+        let blocks_until_authority = match (ready, local_header_height, target_authority_height) {
+            (true, Some(_), Some(_)) => Some(0),
+            (false, Some(local), Some(target)) => Some(target.saturating_sub(local)),
+            _ => None,
+        };
+        Self {
+            network,
+            local_header_height,
+            target_header_height,
+            local_authority_height,
+            target_authority_height,
+            blocks_until_authority,
+            ready,
+        }
+    }
+
+    /// Selected Handshake network.
+    #[must_use]
+    pub const fn network(self) -> Network {
+        self.network
+    }
+
+    /// Local validated header height, when available.
+    #[must_use]
+    pub const fn local_header_height(self) -> Option<u32> {
+        self.local_header_height
+    }
+
+    /// Independently corroborated target height, when available.
+    #[must_use]
+    pub const fn target_header_height(self) -> Option<u32> {
+        self.target_header_height
+    }
+
+    /// Header that introduced the local authoritative name-tree root.
+    #[must_use]
+    pub const fn local_authority_height(self) -> Option<u32> {
+        self.local_authority_height
+    }
+
+    /// Header that introduced the target authoritative name-tree root.
+    #[must_use]
+    pub const fn target_authority_height(self) -> Option<u32> {
+        self.target_authority_height
+    }
+
+    /// Validated headers still required before the target authority is local.
+    #[must_use]
+    pub const fn blocks_until_authority(self) -> Option<u32> {
+        self.blocks_until_authority
+    }
+
+    /// Whether local state contains the target's authoritative name-tree root.
+    #[must_use]
+    pub const fn is_ready(self) -> bool {
+        self.ready
+    }
+}
 /// Current effective-runtime-feature schema.
 pub const RUNTIME_FEATURE_SCHEMA_VERSION: u16 = 1;
 
@@ -1933,5 +2060,47 @@ mod tests {
             RuntimeFeatureState::try_new(true, true, false, Some(true)),
             Err(RuntimeFeatureStateError::ObservedWithoutActivePath),
         );
+    }
+
+    #[test]
+    fn name_tree_authority_follows_hsd_commit_boundaries() {
+        for network in [Network::Mainnet, Network::Testnet] {
+            assert_eq!(name_tree_interval(network), 36);
+            assert_eq!(name_tree_authority_height(network, 0), 0);
+            assert_eq!(name_tree_authority_height(network, 1), 1);
+            assert_eq!(name_tree_authority_height(network, 36), 1);
+            assert_eq!(name_tree_authority_height(network, 37), 37);
+            assert_eq!(name_tree_authority_height(network, 72), 37);
+            assert_eq!(name_tree_authority_height(network, 73), 73);
+        }
+
+        assert_eq!(name_tree_interval(Network::Regtest), 5);
+        assert_eq!(name_tree_authority_height(Network::Regtest, 5), 1);
+        assert_eq!(name_tree_authority_height(Network::Regtest, 6), 6);
+        assert_eq!(name_tree_interval(Network::Simnet), 2);
+        assert_eq!(name_tree_authority_height(Network::Simnet, 2), 1);
+        assert_eq!(name_tree_authority_height(Network::Simnet, 3), 3);
+    }
+
+    #[test]
+    fn name_tree_currentness_waits_only_for_a_new_authority_epoch() {
+        let same_epoch = NameTreeCurrentness::assess(Network::Mainnet, Some(1), Some(36));
+        assert!(same_epoch.is_ready());
+        assert_eq!(same_epoch.local_authority_height(), Some(1));
+        assert_eq!(same_epoch.target_authority_height(), Some(1));
+        assert_eq!(same_epoch.blocks_until_authority(), Some(0));
+
+        let boundary = NameTreeCurrentness::assess(Network::Mainnet, Some(36), Some(37));
+        assert!(!boundary.is_ready());
+        assert_eq!(boundary.target_authority_height(), Some(37));
+        assert_eq!(boundary.blocks_until_authority(), Some(1));
+
+        let caught_up = NameTreeCurrentness::assess(Network::Mainnet, Some(37), Some(72));
+        assert!(caught_up.is_ready());
+        assert_eq!(caught_up.local_header_height(), Some(37));
+        assert_eq!(caught_up.target_header_height(), Some(72));
+
+        assert!(!NameTreeCurrentness::assess(Network::Mainnet, Some(72), None).is_ready());
+        assert!(!NameTreeCurrentness::assess(Network::Mainnet, Some(0), Some(1)).is_ready());
     }
 }
