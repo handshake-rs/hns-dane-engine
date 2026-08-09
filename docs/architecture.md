@@ -18,6 +18,7 @@ hns-resolution-policy ---> hns-gateway -------------------------------+         
 hns-browser-observability ---------------------------------------------+   hns-dane-engine-ffi
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
+hns-browser-chain - - - durable browser header-store consolidation - -+
 hns-browser-primitives - - temporary product-adapter consolidation - -+
 hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
 hns-transport ---------------------------------------------------------+
@@ -197,6 +198,10 @@ diagnostic slot is not completion or provider authority.
 results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
 height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched
 entries before returning them; metrics contain only counts and byte totals.
+`hns-browser-chain` is the unpublished durable adapter used while browser products migrate their
+SQLite header state into `hns-light-chain`. It validates proof of work, difficulty transitions,
+checkpoints, chainwork selection, reorg publication, and restart snapshots before exposing a
+canonical tip; persisted or peer-claimed heights alone never authorize name state.
 `hns-browser-primitives` is an unpublished consolidation boundary for the mobile and Chromium
 adapters while they move to the canonical `hns-rs` and engine 0.2 types. It owns the single shared
 implementation of their legacy header, DNS-wire, resource, proof-of-work, and network-policy

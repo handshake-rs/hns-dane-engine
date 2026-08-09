@@ -1,0 +1,14 @@
+[package]
+name = "hns-browser-chain"
+description = "Durable validated Handshake header-chain adapter for browser runtimes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file = "../../LICENSE-POLYFORM-NONCOMMERCIAL"
+repository.workspace = true
+publish = false
+
+[dependencies]
+hns-core.workspace = true
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+thiserror = "2.0.19"
