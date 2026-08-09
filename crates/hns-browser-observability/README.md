@@ -6,6 +6,11 @@ The status schema keeps transport provenance separate from cryptographic
 evidence and omits query names, URLs, certificates, DNS payloads, and secrets.
 It is designed for consistent mobile and Chromium adapter reporting.
 
+The effective-runtime-feature schema reports compiled capability, current
+configuration, active production wiring, and optional request observation as
+separate states. Its constructors reject claims such as an active but
+unconfigured feature.
+
 Published releases can be added with:
 
 ```bash
