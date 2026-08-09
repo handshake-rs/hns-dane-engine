@@ -1,7 +1,7 @@
 [package]
 name = "hns-browser-observability"
 description = "Bounded shared browser security and transport status"
-version.workspace = true
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

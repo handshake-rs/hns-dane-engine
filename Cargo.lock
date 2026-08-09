@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-observability"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hns-browser-runtime",
  "hns-icann-dane",

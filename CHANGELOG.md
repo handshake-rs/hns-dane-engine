@@ -3,6 +3,18 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## hns-browser-observability 0.1.1 - 2026-08-09
+
+This maintenance release updates only `hns-browser-observability` so existing
+0.1.x consumers can adopt the shared effective-runtime-feature diagnostics
+schema without pulling the broader, not-yet-released 0.2 workspace:
+
+- distinguish compiled capability, effective configuration, active production
+  wiring, and optional request observation;
+- reject impossible feature-state combinations; and
+- add typed diagnostics for resolver caching, connection pooling, TLS session
+  resumption, and authenticated Alt-Svc HTTP/3 promotion.
+
 ## 0.1.0 - 2026-07-29
 
 Initial public release of the runtime-independent Handshake browser security

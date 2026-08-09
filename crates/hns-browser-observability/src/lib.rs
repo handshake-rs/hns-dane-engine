@@ -26,6 +26,141 @@ pub const STATUS_SCHEMA_VERSION: u16 = 2;
 pub const MAX_IDENTITY_BYTES: usize = 256;
 /// Maximum unsupported-evidence entries in one snapshot.
 pub const MAX_UNSUPPORTED_EVIDENCE: usize = 64;
+/// Current effective-runtime-feature schema.
+pub const RUNTIME_FEATURE_SCHEMA_VERSION: u16 = 1;
+
+/// Effective state for one browser runtime feature.
+///
+/// `observed` is request-scoped: `None` means no request observation was
+/// supplied, rather than claiming that the feature was or was not exercised.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeFeatureState {
+    compiled: bool,
+    configured: bool,
+    active: bool,
+    observed: Option<bool>,
+}
+
+impl RuntimeFeatureState {
+    /// Construct and validate an effective feature state.
+    pub fn try_new(
+        compiled: bool,
+        configured: bool,
+        active: bool,
+        observed: Option<bool>,
+    ) -> Result<Self, RuntimeFeatureStateError> {
+        if configured && !compiled {
+            return Err(RuntimeFeatureStateError::ConfiguredWithoutCapability);
+        }
+        if active && !configured {
+            return Err(RuntimeFeatureStateError::ActiveWithoutConfiguration);
+        }
+        if observed == Some(true) && !active {
+            return Err(RuntimeFeatureStateError::ObservedWithoutActivePath);
+        }
+        Ok(Self {
+            compiled,
+            configured,
+            active,
+            observed,
+        })
+    }
+
+    /// Capability is absent from this binary.
+    #[must_use]
+    pub const fn not_compiled() -> Self {
+        Self {
+            compiled: false,
+            configured: false,
+            active: false,
+            observed: None,
+        }
+    }
+
+    /// Capability is compiled but disabled by effective policy.
+    #[must_use]
+    pub const fn compiled_disabled() -> Self {
+        Self {
+            compiled: true,
+            configured: false,
+            active: false,
+            observed: None,
+        }
+    }
+
+    /// Capability is configured but is not wired into the current path.
+    #[must_use]
+    pub const fn configured_inactive() -> Self {
+        Self {
+            compiled: true,
+            configured: true,
+            active: false,
+            observed: None,
+        }
+    }
+
+    /// Capability is configured and wired into the current path.
+    #[must_use]
+    pub const fn active(observed: Option<bool>) -> Self {
+        Self {
+            compiled: true,
+            configured: true,
+            active: true,
+            observed,
+        }
+    }
+
+    /// Whether this binary contains the capability.
+    #[must_use]
+    pub const fn is_compiled(self) -> bool {
+        self.compiled
+    }
+
+    /// Whether current policy enables the capability.
+    #[must_use]
+    pub const fn is_configured(self) -> bool {
+        self.configured
+    }
+
+    /// Whether the current production path wires the capability.
+    #[must_use]
+    pub const fn is_active(self) -> bool {
+        self.active
+    }
+
+    /// Request-scoped observation, or no value without request context.
+    #[must_use]
+    pub const fn observed(self) -> Option<bool> {
+        self.observed
+    }
+}
+
+/// Stable validation errors for effective runtime feature state.
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum RuntimeFeatureStateError {
+    /// Policy configured a capability that is absent from the binary.
+    #[error("runtime feature cannot be configured when it is not compiled")]
+    ConfiguredWithoutCapability,
+    /// The production path claimed an unconfigured capability.
+    #[error("runtime feature cannot be active when it is not configured")]
+    ActiveWithoutConfiguration,
+    /// Request diagnostics claimed use of an inactive production path.
+    #[error("runtime feature cannot be observed on an inactive path")]
+    ObservedWithoutActivePath,
+}
+
+/// Effective production wiring for browser transport and resolver features.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeFeatureDiagnostics {
+    /// Persistent resolver cache.
+    pub resolver_cache: RuntimeFeatureState,
+    /// Origin connection pooling.
+    pub connection_pooling: RuntimeFeatureState,
+    /// TLS session resumption.
+    pub tls_resumption: RuntimeFeatureState,
+    /// HTTP/3 promotion from authenticated Alt-Svc advertisements.
+    pub http3_promotion: RuntimeFeatureState,
+}
 
 /// Provider lifecycle state.
 #[repr(u8)]
@@ -1761,6 +1896,42 @@ mod tests {
         assert_eq!(
             BrowserStatus::new(status),
             Err(StatusError::InvalidIcannTlsContext)
+        );
+    }
+
+    #[test]
+    fn effective_runtime_feature_state_preserves_wiring_layers() {
+        let active = RuntimeFeatureState::active(Some(true));
+        assert!(active.is_compiled());
+        assert!(active.is_configured());
+        assert!(active.is_active());
+        assert_eq!(active.observed(), Some(true));
+
+        let disabled = RuntimeFeatureState::compiled_disabled();
+        assert!(disabled.is_compiled());
+        assert!(!disabled.is_configured());
+        assert!(!disabled.is_active());
+        assert_eq!(disabled.observed(), None);
+
+        let inactive = RuntimeFeatureState::configured_inactive();
+        assert!(inactive.is_compiled());
+        assert!(inactive.is_configured());
+        assert!(!inactive.is_active());
+    }
+
+    #[test]
+    fn effective_runtime_feature_state_rejects_impossible_claims() {
+        assert_eq!(
+            RuntimeFeatureState::try_new(false, true, false, None),
+            Err(RuntimeFeatureStateError::ConfiguredWithoutCapability),
+        );
+        assert_eq!(
+            RuntimeFeatureState::try_new(true, false, true, None),
+            Err(RuntimeFeatureStateError::ActiveWithoutConfiguration),
+        );
+        assert_eq!(
+            RuntimeFeatureState::try_new(true, true, false, Some(true)),
+            Err(RuntimeFeatureStateError::ObservedWithoutActivePath),
         );
     }
 }
