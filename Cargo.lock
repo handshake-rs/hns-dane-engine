@@ -546,6 +546,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hns-browser-urkel"
+version = "0.2.0"
+dependencies = [
+ "hns-browser-primitives",
+ "thiserror",
+]
+
+[[package]]
 name = "hns-cache"
 version = "0.2.0"
 dependencies = [

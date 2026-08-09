@@ -6,6 +6,7 @@ members = [
     "crates/hns-browser-observability",
     "crates/hns-browser-primitives",
     "crates/hns-browser-runtime",
+    "crates/hns-browser-urkel",
     "crates/hns-browser-testkit",
     "crates/hns-cache",
     "crates/hns-dns-wire",
@@ -38,6 +39,7 @@ categories = ["cryptography", "network-programming", "web-programming"]
 hns-browser-observability = { version = "0.2.0", path = "crates/hns-browser-observability" }
 hns-browser-primitives = { version = "0.2.0", path = "crates/hns-browser-primitives" }
 hns-browser-runtime = { version = "0.2.0", path = "crates/hns-browser-runtime" }
+hns-browser-urkel = { version = "0.2.0", path = "crates/hns-browser-urkel" }
 hns-cache = { version = "0.2.0", path = "crates/hns-cache" }
 hns-covenants = { version = "0.2.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "29e4b473bd2cfee460b56d5092b7bc28da5ec5dc" }
 hns-dane = { version = "0.2.0", path = "crates/hns-dane" }
@@ -61,6 +63,7 @@ hns-p2p-experimental = { version = "0.2.0", git = "https://github.com/handshake-
 hns-p2p-transport = { version = "0.2.0", path = "crates/hns-p2p-transport" }
 hns-p2p-wire = { version = "0.2.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "29e4b473bd2cfee460b56d5092b7bc28da5ec5dc" }
 hns-primitives = { version = "0.2.0", git = "https://github.com/handshake-rs/hns-rs.git", rev = "29e4b473bd2cfee460b56d5092b7bc28da5ec5dc" }
+hns-core = { package = "hns-browser-primitives", version = "0.2.0", path = "crates/hns-browser-primitives" }
 hns-resolution-policy = { version = "0.2.0", path = "crates/hns-resolution-policy" }
 hns-resolver = { version = "0.2.0", path = "crates/hns-resolver" }
 hns-transport = { version = "0.2.0", path = "crates/hns-transport" }

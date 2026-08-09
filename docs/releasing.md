@@ -40,11 +40,12 @@ the compatible version requirements.
 
 ## Private packages
 
-`hns-browser-testkit` is a development-only fixture package and
-`hns-browser-primitives` is a temporary product-adapter consolidation package.
-Both must retain `publish = false`. Path-only development dependencies on the
-testkit are omitted from published packages. The release preflight fails if
-Cargo permits either private package to be published.
+`hns-browser-testkit` is a development-only fixture package;
+`hns-browser-primitives` and `hns-browser-urkel` are temporary product-adapter
+consolidation packages. All three must retain `publish = false`. Path-only
+development dependencies on the testkit are omitted from published packages.
+The release preflight fails if Cargo permits any private package to be
+published.
 
 ## Release procedure
 

@@ -19,6 +19,7 @@ hns-browser-observability ---------------------------------------------+   hns-d
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
 hns-browser-primitives - - temporary product-adapter consolidation - -+
+hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
 hns-transport ---------------------------------------------------------+
 hns-p2p-transport -----------------------------------------------------+
                                                                                   |
@@ -201,6 +202,9 @@ adapters while they move to the canonical `hns-rs` and engine 0.2 types. It owns
 implementation of their legacy header, DNS-wire, resource, proof-of-work, and network-policy
 types; product repositories must not carry private copies. New engine trust decisions must use the
 canonical private tokens above rather than accepting these compatibility types as authority.
+`hns-browser-urkel` centralizes the products' exact-root legacy proof decoder and verifier while
+their callers migrate to `hns-urkel-proof`. It remains an unpublished adapter and cannot establish
+name authority without the separately authenticated current tree root supplied by the runtime.
 `hns-transport` derives immutable direct-DNS endpoints only from a current private HNS resource
 token. Mainnet/testnet accept globally routable in-bailiwick glue or synth addresses on port 53;
 nonstandard loopback ports require an explicit regtest-fixture policy. Connected UDP and

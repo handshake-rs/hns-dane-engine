@@ -1,0 +1,13 @@
+[package]
+name = "hns-browser-urkel"
+description = "Browser adapter for exact Handshake Urkel proof verification"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file = "../../LICENSE-POLYFORM-NONCOMMERCIAL"
+repository.workspace = true
+publish = false
+
+[dependencies]
+hns-core.workspace = true
+thiserror = "2.0.19"

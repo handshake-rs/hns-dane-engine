@@ -133,6 +133,7 @@ dry_run_with_local_dependencies() {
 
 assert_private hns-browser-testkit
 assert_private hns-browser-primitives
+assert_private hns-browser-urkel
 
 case "$mode" in
     --dry-run)
