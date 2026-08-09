@@ -12,9 +12,11 @@
     reason = "HNS and DNS protocol names are intentional"
 )]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::hash::Hash;
+use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
 
 use hns_dns_wire::{Name, RecordType};
 use sha2::{Digest, Sha256};
@@ -202,6 +204,102 @@ pub struct SecureCache<Value> {
     entries: HashMap<CacheKey, Entry<Value>>,
     sequence: u64,
     stats: CacheStats,
+}
+
+#[derive(Clone, Debug)]
+struct TimedEntry<Value> {
+    value: Value,
+    expires_at: Instant,
+}
+
+/// Small process-local expiring LRU for data that is already bound to an
+/// authenticated authority fingerprint by its key.
+///
+/// Browser adapters use this for short-lived connection-plan and delegated
+/// answer reuse. Consensus, proof, DNSSEC, and DANE caches should use
+/// [`SecureCache`] so the engine also binds their generation and chain anchor.
+#[derive(Clone, Debug)]
+pub struct ExpiringLru<Key, Value> {
+    max_entries: NonZeroUsize,
+    entries: HashMap<Key, TimedEntry<Value>>,
+    order: VecDeque<Key>,
+}
+
+impl<Key, Value> ExpiringLru<Key, Value>
+where
+    Key: Clone + Eq + Hash,
+    Value: Clone,
+{
+    /// Construct an empty cache with a nonzero hard entry bound.
+    #[must_use]
+    pub fn new(max_entries: NonZeroUsize) -> Self {
+        Self {
+            max_entries,
+            entries: HashMap::with_capacity(max_entries.get()),
+            order: VecDeque::with_capacity(max_entries.get()),
+        }
+    }
+
+    /// Insert or replace one entry for a finite positive lifetime.
+    pub fn insert(&mut self, key: Key, value: Value, ttl: Duration) -> Result<(), CacheError> {
+        if ttl.is_zero() {
+            return Err(CacheError::TtlLimit);
+        }
+        let expires_at = Instant::now()
+            .checked_add(ttl)
+            .ok_or(CacheError::TimeOverflow)?;
+        self.prune_expired();
+        self.promote(&key);
+        self.order.push_back(key.clone());
+        self.entries.insert(key, TimedEntry { value, expires_at });
+        self.evict_over_limit();
+        Ok(())
+    }
+
+    /// Return a cloned live entry and promote it to most recently used.
+    pub fn get(&mut self, key: &Key) -> Option<Value> {
+        self.prune_expired();
+        let value = self.entries.get(key).map(|entry| entry.value.clone())?;
+        self.promote(key);
+        self.order.push_back(key.clone());
+        Some(value)
+    }
+
+    /// Number of live entries.
+    pub fn len(&mut self) -> usize {
+        self.prune_expired();
+        self.entries.len()
+    }
+
+    /// Whether no live entries remain.
+    pub fn is_empty(&mut self) -> bool {
+        self.len() == 0
+    }
+
+    /// Remove all entries.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+
+    fn prune_expired(&mut self) {
+        let now = Instant::now();
+        self.entries.retain(|_, entry| entry.expires_at > now);
+        self.order.retain(|key| self.entries.contains_key(key));
+    }
+
+    fn evict_over_limit(&mut self) {
+        while self.entries.len() > self.max_entries.get() {
+            let Some(key) = self.order.pop_front() else {
+                break;
+            };
+            self.entries.remove(&key);
+        }
+    }
+
+    fn promote(&mut self, key: &Key) {
+        self.order.retain(|candidate| candidate != key);
+    }
 }
 
 impl<Value> SecureCache<Value> {
@@ -421,6 +519,7 @@ pub enum CacheError {
 )]
 mod tests {
     use super::*;
+    use std::num::NonZeroUsize;
 
     fn cache_generation(value: u8) -> CacheGeneration {
         CacheGeneration {
@@ -440,6 +539,23 @@ mod tests {
             RecordType::Tlsa,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn expiring_lru_rejects_zero_ttl_and_evicts_least_recently_used() {
+        let mut cache = ExpiringLru::new(NonZeroUsize::new(2).unwrap());
+        assert!(matches!(
+            cache.insert("zero", 0, Duration::ZERO),
+            Err(CacheError::TtlLimit)
+        ));
+        cache.insert("a", 1, Duration::from_secs(60)).unwrap();
+        cache.insert("b", 2, Duration::from_secs(60)).unwrap();
+        assert_eq!(cache.get(&"a"), Some(1));
+        cache.insert("c", 3, Duration::from_secs(60)).unwrap();
+
+        assert_eq!(cache.get(&"a"), Some(1));
+        assert_eq!(cache.get(&"b"), None);
+        assert_eq!(cache.get(&"c"), Some(3));
     }
 
     #[test]
