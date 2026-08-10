@@ -22,6 +22,7 @@ hns-browser-chain - - - durable browser header-store consolidation - -+
 hns-browser-dnssec ---> hns-browser-dane - strict adapter consolidation+
 hns-browser-p2p - - - bounded browser peer/relay consolidation - - - -+
 hns-browser-primitives - - temporary product-adapter consolidation - -+
+hns-browser-resolver - - strict browser light-resolver consolidation -+
 hns-browser-sync - - bounded browser header/proof synchronization - - -+
 hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
 hns-transport ---------------------------------------------------------+
@@ -223,6 +224,12 @@ adapters while they move to the canonical `hns-rs` and engine 0.2 types. It owns
 implementation of their legacy header, DNS-wire, resource, proof-of-work, and network-policy
 types; product repositories must not carry private copies. New engine trust decisions must use the
 canonical private tokens above rather than accepting these compatibility types as authority.
+`hns-browser-resolver` is the unpublished light-client adapter for browser-specific proof-backed
+resolution, direct authoritative DNS/DoH, interception detection, and persistent verified-resource
+storage. It retains exact tree-root lineage and feeds complete HNS and ICANN plans into the shared
+dual-root classifier. The full-node `hns-resolverd` remains the canonical daemon resolver and now
+shares the same `hns-covenants` resource decoder; its RPC/server process boundary is intentionally
+not embedded in mobile or Chromium.
 `hns-browser-urkel` centralizes the products' exact-root legacy proof decoder and verifier while
 their callers migrate to `hns-urkel-proof`. It remains an unpublished adapter and cannot establish
 name authority without the separately authenticated current tree root supplied by the runtime.

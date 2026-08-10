@@ -9,6 +9,7 @@ members = [
     "crates/hns-browser-dnssec",
     "crates/hns-browser-p2p",
     "crates/hns-browser-primitives",
+    "crates/hns-browser-resolver",
     "crates/hns-browser-runtime",
     "crates/hns-browser-sync",
     "crates/hns-browser-urkel",
@@ -47,6 +48,7 @@ hns-browser-dane = { version = "0.2.0", path = "crates/hns-browser-dane" }
 hns-browser-dnssec = { version = "0.2.0", path = "crates/hns-browser-dnssec" }
 hns-browser-p2p = { version = "0.2.0", path = "crates/hns-browser-p2p" }
 hns-browser-primitives = { version = "0.2.0", path = "crates/hns-browser-primitives" }
+hns-browser-resolver = { version = "0.2.0", path = "crates/hns-browser-resolver" }
 hns-browser-runtime = { version = "0.2.0", path = "crates/hns-browser-runtime" }
 hns-browser-sync = { version = "0.2.0", path = "crates/hns-browser-sync" }
 hns-browser-urkel = { version = "0.2.0", path = "crates/hns-browser-urkel" }

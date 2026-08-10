@@ -1,0 +1,18 @@
+[package]
+name = "hns-browser-resolver"
+description = "Strict light-client resolver adapter for browser runtimes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file = "../../LICENSE-POLYFORM-NONCOMMERCIAL"
+repository.workspace = true
+publish = false
+
+[dependencies]
+hns-cache.workspace = true
+hns-core.workspace = true
+hns-dane = { package = "hns-browser-dane", version = "0.2.0", path = "../hns-browser-dane" }
+hns-dnssec = { package = "hns-browser-dnssec", version = "0.2.0", path = "../hns-browser-dnssec" }
+hns-namespace-resolution = "=0.1.0"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+thiserror = "2.0.19"

@@ -137,6 +137,7 @@ assert_private hns-browser-dane
 assert_private hns-browser-dnssec
 assert_private hns-browser-p2p
 assert_private hns-browser-primitives
+assert_private hns-browser-resolver
 assert_private hns-browser-sync
 assert_private hns-browser-urkel
 

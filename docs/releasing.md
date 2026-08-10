@@ -42,8 +42,8 @@ the compatible version requirements.
 
 `hns-browser-testkit` is a development-only fixture package;
 `hns-browser-chain`, `hns-browser-dane`, `hns-browser-dnssec`, `hns-browser-p2p`,
-`hns-browser-primitives`, `hns-browser-sync`, and `hns-browser-urkel` are temporary product-adapter
-consolidation packages. All eight must retain
+`hns-browser-primitives`, `hns-browser-resolver`, `hns-browser-sync`, and `hns-browser-urkel` are
+temporary product-adapter consolidation packages. All nine must retain
 `publish = false`. Path-only
 development dependencies on the testkit are omitted from published packages.
 The release preflight fails if Cargo permits any private package to be
