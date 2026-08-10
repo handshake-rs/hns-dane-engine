@@ -3,12 +3,14 @@
 The command transcript below is retained evidence from published tag `v0.1.0`
 (commit `02c063ac3e94a91b222201fb51d95ff3ac19f026`). It does not qualify the
 current unreleased 0.2 provider-authority continuation or the August 9 shared
-platform-adapter consolidation. The current line has not received the full
-lint, benchmark, C-header, or release qualification gate. The narrow
+platform-adapter consolidation. The current line has not received the
+benchmark, C-header, or complete release qualification gate. The narrow
 provider-authority ABI regression recorded below is the only compiled test
-evidence added in this continuation; the adapter consolidation and current
-`hns-rs` repin add no installed-product or live-network evidence. `cargo-deny`
-may separately refresh its advisory database:
+evidence retained from the earlier continuation. The focused HNSA batch
+selection and direct-open tests recorded below add current-head Rust evidence,
+but the adapter consolidation and current `hns-rs` repin add no
+installed-product or live-network evidence. `cargo-deny` may separately
+refresh its advisory database:
 
 ```text
 python3 -m unittest -v tests/test_cargo_source_policy.py
@@ -61,7 +63,7 @@ python3 -m unittest -v tests/test_cargo_source_policy.py
   13 tests passed
 
 python3 scripts/verify_cargo_source_policy.py
-  exact canonical hns-rs source at 4331eee2265ebc43a28390517c24a958fa4b7733
+  exact canonical hns-rs source at b33b346780c8f6a9bb18a54390019486cdab0221
   and repository-local paths passed
 
 cargo +1.89.0 metadata --locked --offline --format-version 1
@@ -71,9 +73,43 @@ cargo +1.89.0 metadata --locked --offline --format-version 1
 These checks qualify only the locked dependency-source policy; they compiled
 and executed no Rust or platform implementation.
 
+Current focused HNSA engine evidence (2026-08-09):
+
+```text
+cargo +1.89.0 fmt --all -- --check
+  passed
+
+cargo +1.89.0 test --locked --offline -p hns-dane-engine --lib hnsa_route::tests
+  10 passed; 0 failed; 33 filtered out
+
+cargo +1.89.0 check --locked --offline -p hns-dane-engine --lib
+  passed
+
+cargo +1.89.0 clippy --locked --offline -p hns-dane-engine --lib --tests -- -D warnings
+  passed
+
+cargo +1.89.0 test --locked --offline --workspace
+  passed
+
+cargo +1.89.0 clippy --locked --offline --workspace --all-targets -- -D warnings
+  passed
+
+cargo +1.89.0 build --locked --offline --release --workspace
+  passed
+```
+
+These commands compiled and exercised full signed regtest batch selection,
+multilevel conflict and rollback rejection, bounded state round trips and
+capacity exhaustion, state advancement without a usable route, direct
+named-route open, node-only raw-open enforcement, and external/engine
+invalidation boundaries. They do not qualify directory discovery,
+response-completeness or quorum policy, live network execution, authenticated
+platform persistence, mobile/Chromium products, or the complete 0.2 release.
+
 The requester-only ODoH lifecycle, status, revocation, and signed-target cache
-continuation was added after the August 3 ABI command. Its focused tests and
-the full gate have not run; no pass evidence is recorded for it yet.
+continuation was added after the August 3 ABI command. Its source tests are
+covered by the current full workspace pass, but the complete release gate and
+live adapter qualification have not run.
 
 The first locked invocation stopped before compilation because the workspace
 lockfile still carried a stale `hns-loopback-proxy` dependency list. The same
@@ -82,9 +118,9 @@ lockfile is committed with this continuation.
 
 Recorded foundation coverage and current source status:
 
-- independently cloneable Cargo resolution with ten reviewed direct
+- independently cloneable Cargo resolution with eleven reviewed direct
   `hns-rs` packages and the exact fourteen-package locked closure at
-  `4331eee2265ebc43a28390517c24a958fa4b7733`; rejection of mutable or
+  `b33b346780c8f6a9bb18a54390019486cdab0221`; rejection of mutable or
   noncanonical Git sources, aliases, unreviewed consumers/packages, lock
   drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;
@@ -209,6 +245,14 @@ Recorded foundation coverage and current source status:
   replacement/revocation; nested checksummed snapshots with caller-held
   generation and trusted-time floors; no restored live state; and permanently
   unavailable endpoint, rendezvous, plaintext, and transport-adapter fields;
+- unqualified 0.2 source for bounded HNSA batch verification and conflict-safe
+  greatest authorization/delegation/per-endpoint route selection from a
+  non-forgeable current HNS resource; one bounded checksummed
+  `HnsaNamedRouteState` with global authorization and up to 64 endpoint
+  delegation/route histories; sticky conflict and capacity-exhaustion states;
+  and a direct named-route requester-open sink that rechecks the exact
+  external, engine, requester, expiry, and committed-state authorities without
+  exposing raw tickets;
 - atomic engine admission of a gateway selection's policy generation, actual transport, response,
   identities, and relay-downgrade state, including non-cloneable selection consumption and
   stale-selection rejection before an engine event is consumed;
@@ -292,7 +336,11 @@ Still absent or unevidenced:
   lifecycle, and HNSR requester/opaque-relay state machines, plus HSD draft-PR
   cross-language execution (the requester consumes and enforces an already
   authenticated `NegotiatedRegistry`);
-- HNSA engine integration and HNSR endpoint/rendezvous roles;
+- complete HNSA directory discovery and response-completeness/quorum policy,
+  authenticated rollback-resistant platform persistence of
+  `HnsaNamedRouteState` with resource/profile generation and trusted-time state,
+  HNSA live routing and endpoint-authenticated inner sessions, and HNSR
+  endpoint/rendezvous roles;
 - qualified atomic authenticated rollback-resistant ODoH target-cache and HNSR
   snapshot/floor writes, durable platform preferences, and restart evidence;
 - pure-C namespace/context authority minting (the authorized-only consumer ABI
@@ -309,11 +357,13 @@ exposes neither the full proof workflow nor opaque namespace/authentication
 contexts. The source-only consumer ABI can retain an authorized Rust provider
 context, inspect its immutable bindings, copy its bounded host, check engine
 currentness, and destroy it, but cannot mint authority from C. Its two focused
-Rust ABI regressions passed in this continuation; the C header smoke, full
-workspace, lint, benchmark, and release gates were not rerun. The new
-Rust context/publication and ODoH requester-lifecycle source, the shared
-platform-adapter consolidation and source consumption, the current `hns-rs`
-repin, and the unreleased 0.2 line still require the applicable qualification
-gate. No installed-product evidence has been recorded, and platform provider
-availability remains disabled. This repository therefore does not claim that
-the complete browser engine or ecosystem is qualified.
+Rust ABI regressions passed in this continuation. Full Rust workspace tests,
+strict all-target Clippy, and an optimized workspace build passed; the C header
+smoke, benchmarks, and complete release gate were not rerun. The new Rust
+context/publication, ODoH requester-lifecycle, and HNSA
+batch-selection/direct-open source, the shared platform-adapter consolidation
+and source consumption, the current `hns-rs` repin, and the unreleased 0.2 line
+still require the applicable qualification gate. No installed-product evidence
+has been recorded, and
+platform provider availability remains disabled. This repository therefore
+does not claim that the complete browser engine or ecosystem is qualified.

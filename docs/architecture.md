@@ -180,6 +180,45 @@ signed binding, and never restores proxy sessions, HPKE query contexts, or
 in-flight work. Response completion must fall within request start
 and deadline. Native storage must add atomic authenticated rollback protection.
 No ODoH provider role is implemented by this lifecycle.
+The facade also selects HNSA named HNSR routes without making a directory or
+relay authoritative. A non-forgeable `VerifiedHnsResource` supplies the exact
+network, current height, name hash, name-tree root, and finite chain-currency
+interval. The application separately supplies the expected HNS name, HNSA
+service name, `HNS_WEB_V1` or `HNS_CHAT_V1`, exact capability/constraints
+policy, monotonic resource and profile-policy generations, and trusted time
+with a caller-held high-water mark. Only one complete ASCII `hsa1`
+character-string is accepted. For both reviewed profiles the exact endpoint
+key defines the logical endpoint; adding another profile requires an explicit
+definition and code review of its replacement scope.
+One platform-supplied complete response is bounded to 16 entries before decode;
+invalid records are ignored, while equal-sequence authorization, delegation,
+or route conflicts fail the batch. The engine selects the greatest current
+authorization, the greatest applicable delegation for each endpoint key, and
+the greatest verified route in `(route_key, endpoint_key)` scope.
+
+The caller supplies one `HnsaNamedRouteState` per authority/service scope. Its
+canonical checksummed encoding retains the global authorization and at most 64
+exact-endpoint delegation/route histories in no more than 7,519 bytes. The
+checksum detects accidental corruption; authenticated rollback-resistant
+storage supplies authenticity and freshness. A newer valid authorization or
+delegation can advance the state even when the selector returns an error or no
+route. Equal-sequence conflict and endpoint-capacity exhaustion are sticky
+until a verified changed `hsa1` authority is bound under a greater resource
+generation. The platform must inspect the state generation after every call
+and atomically commit every change before opening. Selection, persistence, and
+open must be serialized per scope. It must also advance the external
+`trusted_time_high_water` for every trusted time observation, including a
+failed selector call.
+
+`begin_hnsa_named_route_open` requires the current committed state, rechecks
+the current resource/context, monotonic time, chain/route expiry, engine and
+requester epochs, caps the deadline to the route/anchor lifetime, and passes
+one internally held ticket directly into the HNSR requester. No raw ticket
+escapes through the named-route API; raw `HnsrRequesterRuntime::begin_open`
+admits only the node profile. Encoded input must be fully reverified after
+restore. Signed tickets authenticate discovery reachability only, not relay
+liveness, local permission, or the profile's endpoint-authenticated inner
+session.
 `hns-browser-observability` schema v2 validates the shared, name-free mobile/Chromium status
 contract: the complete private-field runtime snapshot including authority state, policy and actual
 transport, chain anchor, HNSR/provider state and policy-derived readiness, rate-limit saturation,
@@ -308,9 +347,9 @@ SQLite, operating-system DNS, or a particular network stack. Callers can execute
 state machines under their native runtime.
 
 The `hns-rs` edge is canonical and immutable rather than a workspace-layout
-assumption. Ten direct packages inherit a single exact
+assumption. Eleven direct packages inherit a single exact
 `https://github.com/handshake-rs/hns-rs.git` revision from the root manifest;
-Cargo resolves their four additional transitive packages from that same Git
+Cargo resolves their three additional transitive packages from that same Git
 checkout. All other path dependencies must remain inside this repository.
 Consequently, the dependency direction is independently cloneable
 `hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports
@@ -322,7 +361,10 @@ HTTP/TLS handling, local CA and exact-host leaf management, and browser platform
 source composition only: it has no installed-product or live-network qualification evidence.
 Still absent are P2P socket dialing or peer discovery, download/reorganization from a fork
 predating the current tip, durable restart checkpoints, authenticated authoritative DoH, a native
-Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter, HNSA engine integration,
+Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,
+complete HNSA route discovery and response-completeness/quorum policy,
+authenticated rollback-resistant platform generation/time/named-route-state
+storage, and endpoint-authenticated inner-session integration,
 HIP-76/77 provider roles, and HNSR endpoint/rendezvous roles. A native network adapter must connect
 the implemented HIP-76/77 and HNSR requester/opaque-relay state machines to its established
 Brontide runtime and authenticated rollback-resistant storage. Platform-owned `BrowserRuntime`

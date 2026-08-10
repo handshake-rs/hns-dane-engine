@@ -27,6 +27,19 @@
   policy-resolved Denuo V1 peer profile, both Denuo-extension and ODoH service advertisements,
   and response-time monotonicity are required, and it exposes no proxy or target provider
   implementation;
+- engine-bound HNSR requester and ciphertext-only relay lifecycles with exact
+  service-profile, authenticated-connection, generation, acknowledgement,
+  disconnect, trusted-time, and rollback-floor handling, while endpoint,
+  rendezvous, and plaintext roles remain unavailable;
+- bounded, conflict-safe HNSA named-route selection from a non-forgeable
+  current HNS resource: one canonical `hsa1` character-string, caller-selected
+  name and service, the reviewed HNS Web or Chat profile, signed service
+  authorization and endpoint delegation, route and relay tickets, current
+  height/time, profile capabilities and constraints, and current engine
+  requester authority are checked; one checksummed `HnsaNamedRouteState`
+  retains the global authorization and per-endpoint delegation/route rollback
+  state, and a named-route open sink revalidates every authority before using
+  an internally held ticket;
 - typed DNSSEC and TLSA resource records;
 - local DNSSEC RRset, DS/DNSKEY-chain, NSEC, and NSEC3 validation;
 - bounded, DNSSEC-verified CNAME chasing for TLSA;
@@ -93,9 +106,19 @@ authenticated request/response boundary. The ODoH engine runtime now owns its
 requester lifecycle and signed-target restart representation, but it still
 consumes a platform-supplied established Brontide exchange. The shared
 platform adapter source supplies neither a native Brontide transport nor a
-live Denuo registry exchange. Authenticated authoritative DoH and live
-HIP-76/77 or HNSR network execution therefore remain unavailable rather than
-silently falling back.
+live Denuo registry exchange. The local HNSA selector accepts no unauthenticated
+directory input in place of a non-forgeable HNS resource, bounds the supplied
+complete response before decoding, applies all three replacement/conflict
+layers, and enters the HNSR open sink without exposing a raw ticket. For the
+reviewed `HNS_WEB_V1` and `HNS_CHAT_V1` profiles, the exact endpoint key is the
+logical endpoint; other named profiles are rejected until their replacement
+semantics receive explicit code review. Raw `HnsrRequesterRuntime::begin_open`
+admits only the node profile, so named profiles must use opaque HNSA selection.
+Directory lookup, complete-response and quorum policy, rollback-resistant
+platform storage, relay I/O, and the endpoint-authenticated inner session
+remain platform work.
+Authenticated authoritative DoH and live HIP-76/77 or HNSR network execution
+therefore remain unavailable rather than silently falling back.
 
 An HNS name proof may itself contain the verified origin data and require no
 DNS network transport. Such a successful result uses the append-only
@@ -160,10 +183,10 @@ degradation, revocation, stop, policy/runtime invalidation, or expiry does.
 Same-origin navigation or namespace-decision replacement must synchronously revoke or replace the
 exact publication; the engine deliberately does not retain an unbounded per-origin navigation map.
 
-The repository is a standalone Cargo checkout. Its ten direct `hns-rs`
+The repository is a standalone Cargo checkout. Its eleven direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
-`4331eee2265ebc43a28390517c24a958fa4b7733` and declare compatible crates.io
-version `0.2.0`; the lockfile binds those packages and the four-package
+`b33b346780c8f6a9bb18a54390019486cdab0221` and declare compatible crates.io
+version `0.2.0`; the lockfile binds those packages and the three-package
 transitive closure to the same revision. No sibling `hns-rs` checkout is
 required. Cargo preserves the version requirements when packaging and removes
 the Git selectors. A tested repository policy rejects unreviewed Git
@@ -193,6 +216,10 @@ evidence and does not establish provider availability. The source-only
 provider-authority consumer ABI can retain and inspect a context moved from
 trusted Rust, but cannot create one from C. Pure-C authority minting, a native
 Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,
-HNSA engine integration, and HNSR endpoint/rendezvous roles remain absent. The
+complete HNSA route discovery and response-completeness/quorum policy, atomic
+authenticated rollback-resistant storage of `HnsaNamedRouteState` with
+platform resource/profile generations and trusted-time high-water marks,
+endpoint-authenticated inner sessions, and HNSR endpoint/rendezvous roles
+remain absent. The
 unreleased 0.2 source, including the ODoH requester lifecycle and shared
 platform adapters, has not passed a new release qualification gate.

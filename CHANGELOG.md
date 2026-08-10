@@ -11,12 +11,37 @@ file. The public crates use a shared version and follow Semantic Versioning.
   browser integration building blocks. Mobile and Chromium shells consume this
   source, but no installed-product or live-network qualification evidence has
   been recorded. Native Brontide and live Denuo registry/HIP-76/77/HNSR network
-  adapters, HNSA engine integration, HNSR endpoint/rendezvous roles, pure-C
-  authority minting, and provider release availability remain absent.
-- Re-pinned the immutable ten-package direct and fourteen-package locked
+  adapters, HNSA route discovery and endpoint-authenticated inner-session
+  integration, HNSR endpoint/rendezvous roles, pure-C authority minting, and
+  provider release availability remain absent.
+- Added engine-bound HNSA named-route selection and direct requester-open
+  admission from non-forgeable current HNS resources. One bounded complete
+  response is filtered and verified against the caller-selected name, service,
+  reviewed HNS Web or Chat profile, exact single-character-string `hsa1` root,
+  network, height/time, flags, capabilities, constraints, lifetimes,
+  signatures, and current HNSR requester authority. The selector applies greatest service
+  authorization, endpoint delegation, and per-endpoint route sequence with
+  equal-sequence conflict rejection. One bounded, checksummed
+  `HnsaNamedRouteState` retains the global authorization and as many as 64
+  endpoint delegation/route histories in at most 7,519 bytes. Newer valid
+  authorization or delegation observations advance state even when selection
+  returns no route, while equal-sequence conflicts and capacity exhaustion are
+  sticky until a verified changed `hsa1` authority appears under a greater
+  resource generation. Opaque selections expose only redacted route/relay
+  metadata. The named-route open sink requires the current durably committed
+  state, rechecks the resource, policy, external generations, monotonic time,
+  expiry, engine and requester epochs, caps the open to the route/anchor
+  lifetime, and consumes an internal ticket by index. Raw requester open is
+  node-profile-only; HNS Web and Chat opens require opaque HNSA selection.
+  Complete directory discovery and response-completeness/quorum policy,
+  authenticated rollback-resistant platform storage, relay liveness, and the
+  endpoint-authenticated inner session remain outside this slice. Ten focused
+  full-chain regtest tests passed; the full release gate was not run.
+- Re-pinned the immutable eleven-package direct and fourteen-package locked
   `hns-rs` graph to canonical revision
-  `4331eee2265ebc43a28390517c24a958fa4b7733`. The exact-source policy remains
-  unchanged, and this repin does not qualify or release the 0.2 line.
+  `b33b346780c8f6a9bb18a54390019486cdab0221`, which permits every nonzero HNSR
+  circuit profile required by named browser services. The exact-source policy
+  remains unchanged, and this repin does not qualify or release the 0.2 line.
 - Added the canonical engine HNSR requester and ciphertext-only relay adapter
   over `hns-hnsr-protocol` 0.2.0. Both roles bind exact browser session/runtime
   and policy generations, network/genesis, concrete Denuo V1 registry/profile,

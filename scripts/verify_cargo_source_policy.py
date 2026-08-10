@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ROOT_MANIFEST = Path("Cargo.toml")
 LOCKFILE = Path("Cargo.lock")
 HNS_RS_GIT_URL = "https://github.com/handshake-rs/hns-rs.git"
-HNS_RS_REVISION = "4331eee2265ebc43a28390517c24a958fa4b7733"
+HNS_RS_REVISION = "b33b346780c8f6a9bb18a54390019486cdab0221"
 HNS_RS_CRATES_IO_VERSION = "0.2.0"
 HNS_RS_LOCK_SOURCE = (
     f"git+{HNS_RS_GIT_URL}?rev={HNS_RS_REVISION}#{HNS_RS_REVISION}"
@@ -33,13 +33,13 @@ DIRECT_HNS_RS_PACKAGES = frozenset(
         "hns-p2p-experimental",
         "hns-p2p-wire",
         "hns-primitives",
+        "hns-service-authority",
         "hns-urkel-proof",
     }
 )
 LOCKED_HNS_RS_PACKAGES = DIRECT_HNS_RS_PACKAGES | {
     "hns-chat-protocol",
     "hns-mining",
-    "hns-service-authority",
     "hns-transaction",
 }
 
@@ -56,6 +56,7 @@ EXPECTED_CONSUMERS = {
             ("dependencies", "hns-header-consensus"),
             ("dependencies", "hns-hnsr-protocol"),
             ("dependencies", "hns-p2p-wire"),
+            ("dependencies", "hns-service-authority"),
         }
     ),
     Path("crates/hns-light-chain/Cargo.toml"): frozenset(

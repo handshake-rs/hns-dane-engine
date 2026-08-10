@@ -276,7 +276,16 @@ fn blake2b_256(parts: &[&[u8]]) -> Result<[u8; 32], TestkitError> {
     Ok(output)
 }
 
-fn verified_hns_resource(ds: &Ds) -> Result<(VerifiedHnsResource, u32), TestkitError> {
+/// Authenticate arbitrary canonical regtest HNS resource bytes under a freshly
+/// mined one-block chain fixture.
+///
+/// This helper keeps downstream tests on the real header, Urkel, `NameState`,
+/// and resource-decoding path instead of exposing a constructor for
+/// [`VerifiedHnsResource`].
+pub fn verified_regtest_hns_resource(
+    name: &[u8],
+    resource: &[u8],
+) -> Result<(VerifiedHnsResource, u32), TestkitError> {
     let genesis_time = ConsensusNetwork::Regtest.parameters().genesis_time;
     let validation_time = u32::try_from(
         genesis_time
@@ -285,31 +294,23 @@ fn verified_hns_resource(ds: &Ds) -> Result<(VerifiedHnsResource, u32), TestkitE
             .ok_or(TestkitError::FixtureInvariant("validation time overflows"))?,
     )
     .map_err(|_| TestkitError::FixtureInvariant("validation time exceeds u32"))?;
-    let mut resource = vec![0, 0];
-    resource.extend_from_slice(&ds.key_tag.to_be_bytes());
-    resource.extend_from_slice(&[ds.algorithm, ds.digest_type]);
-    resource.push(
-        u8::try_from(ds.digest.len())
-            .map_err(|_| TestkitError::FixtureInvariant("DS digest length overflows"))?,
-    );
-    resource.extend_from_slice(&ds.digest);
     let mut state = Vec::new();
     state.push(
-        u8::try_from(STRICT_HNS_ORIGIN.len())
+        u8::try_from(name.len())
             .map_err(|_| TestkitError::FixtureInvariant("HNS label length overflows"))?,
     );
-    state.extend_from_slice(STRICT_HNS_ORIGIN.as_bytes());
+    state.extend_from_slice(name);
     state.extend_from_slice(
         &u16::try_from(resource.len())
             .map_err(|_| TestkitError::FixtureInvariant("resource length overflows"))?
             .to_le_bytes(),
     );
-    state.extend_from_slice(&resource);
+    state.extend_from_slice(resource);
     state.extend_from_slice(&1_u32.to_le_bytes());
     state.extend_from_slice(&1_u32.to_le_bytes());
     state.extend_from_slice(&0_u16.to_le_bytes());
 
-    let key = hns_covenants::hash_name(STRICT_HNS_ORIGIN.as_bytes())?;
+    let key = hns_covenants::hash_name(name)?;
     let value_hash = blake2b_256(&[&state])?;
     let tree_root = TreeRoot::new(blake2b_256(&[&[0], key.as_bytes(), &value_hash])?);
     let mut proof = Vec::new();
@@ -350,10 +351,19 @@ fn verified_hns_resource(ds: &Ds) -> Result<(VerifiedHnsResource, u32), TestkitE
         minimum_height: Height::new(1),
         minimum_chainwork: Chainwork::ZERO,
     })?;
-    Ok((
-        current.verify_name_resource(STRICT_HNS_ORIGIN.as_bytes(), &proof)?,
-        validation_time,
-    ))
+    Ok((current.verify_name_resource(name, &proof)?, validation_time))
+}
+
+fn verified_hns_resource(ds: &Ds) -> Result<(VerifiedHnsResource, u32), TestkitError> {
+    let mut resource = vec![0, 0];
+    resource.extend_from_slice(&ds.key_tag.to_be_bytes());
+    resource.extend_from_slice(&[ds.algorithm, ds.digest_type]);
+    resource.push(
+        u8::try_from(ds.digest.len())
+            .map_err(|_| TestkitError::FixtureInvariant("DS digest length overflows"))?,
+    );
+    resource.extend_from_slice(&ds.digest);
+    verified_regtest_hns_resource(STRICT_HNS_ORIGIN.as_bytes(), &resource)
 }
 
 fn authenticated_hns_authority()

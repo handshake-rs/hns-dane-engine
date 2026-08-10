@@ -13,6 +13,7 @@ readme = "README.md"
 documentation = "https://docs.rs/hns-dane-engine"
 
 [dependencies]
+blake2 = "0.10.6"
 hns-browser-observability.workspace = true
 hns-browser-runtime.workspace = true
 hns-dane.workspace = true
@@ -20,11 +21,13 @@ hns-dns-wire.workspace = true
 hns-gateway.workspace = true
 hns-header-consensus.workspace = true
 hns-hnsr-protocol.workspace = true
+hns-light-chain.workspace = true
 hns-namespace-resolution.workspace = true
 hns-p2p-transport.workspace = true
 hns-p2p-wire.workspace = true
 hns-resolver.workspace = true
 hns-resolution-policy.workspace = true
+hns-service-authority.workspace = true
 hns-transport.workspace = true
 
 [dev-dependencies]

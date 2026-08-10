@@ -76,13 +76,12 @@ class CargoSourcePolicyTests(unittest.TestCase):
         verify_repository(root, manifests)
 
     def test_reviewed_package_sets_are_explicit(self) -> None:
-        self.assertEqual(len(DIRECT_HNS_RS_PACKAGES), 10)
+        self.assertEqual(len(DIRECT_HNS_RS_PACKAGES), 11)
         self.assertEqual(
             LOCKED_HNS_RS_PACKAGES - DIRECT_HNS_RS_PACKAGES,
             {
                 "hns-chat-protocol",
                 "hns-mining",
-                "hns-service-authority",
                 "hns-transaction",
             },
         )

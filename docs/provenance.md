@@ -6,7 +6,7 @@ Compatibility was inspected against these immutable inputs:
 
 | Input | Commit | License | Relevant paths |
 | --- | --- | --- | --- |
-| handshake-rs/hns-rs | `4331eee2265ebc43a28390517c24a958fa4b7733` | MIT OR Apache-2.0 | Ten direct workspace dependencies and the locked fourteen-package closure |
+| handshake-rs/hns-rs | `b33b346780c8f6a9bb18a54390019486cdab0221` | MIT OR Apache-2.0 | Eleven direct workspace dependencies and the locked fourteen-package closure; generic nonzero HNSR circuit-profile admission |
 | handshake-org/hsd | `698e252ebc7b5c1dd0a9587e342fdd153d020ae4` | MIT | `test/dns-test.js`, `test/resource-test.js` |
 | Denuo-Web/hns-dane-browser | `a71f9ea8dd2e697df6059e8840907f96e6eea2c9` | PolyForm Noncommercial 1.0.0 | `rust/crates/hns-core/src/dns.rs`, `fixtures/experimental-dns-relay/manifest.json` |
 

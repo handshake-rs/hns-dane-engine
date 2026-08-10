@@ -285,6 +285,46 @@ Schema-1 and schema-2 blobs decode that new permission as false; schema-1 role m
 exact legacy role selection, and every current-schema blob retains its exact requester, relay, and
 output bits, so an upgrade cannot override a stored opt-out.
 
+HNSA named-route selection treats identity, name state, application policy,
+time, and prior replacement state as separate authorities. The application
+supplies the expected name, service, `HNS_WEB_V1` or `HNS_CHAT_V1`, and exact
+profile rules; only a non-forgeable current `VerifiedHnsResource` supplies HNS authority. The
+platform must advance nonzero resource and profile-policy generations whenever
+either authority changes and retain a nondecreasing trusted-time high-water
+mark after every trusted time observation, including a failed selector call.
+The engine bounds one complete supplied response before decode, verifies the
+full signed chain, and rejects equal-sequence conflicts while selecting the
+greatest authorization, delegation, and route values. For the two reviewed
+profiles the exact endpoint key is the logical endpoint; a future profile must
+define and receive code review for its replacement scope.
+
+The sole sequence persistence contract is one `HnsaNamedRouteState` per
+authority/service scope. Its checksummed encoding is bounded to 7,519 bytes and
+retains the global authorization plus at most 64 exact-endpoint delegation and
+route histories. Newer valid authorization or delegation observations can
+mutate it even when selection returns an error or no route. Equal-sequence
+conflict and endpoint-history exhaustion are sticky until a verified changed
+`hsa1` authority appears under a greater resource generation. After every
+selector call, the platform must inspect the state generation and atomically
+commit every change in authenticated rollback-resistant storage before any
+open. The checksum is not an authenticator. Selection, storage, and open must
+be serialized per scope. This deliberately lets a compromised delegated
+service key force fail-closed exhaustion by filling all 64 histories: a higher
+service authorization under the same on-chain `hsa1` authority does not clear
+the state; recovery requires rotating that on-chain authority and advancing the
+resource generation.
+
+Direct named-route open requires the current committed state and
+rechecks the resource and policy, both external generations, trusted-time
+floors, expiry, engine authority, requester epoch, and authenticated relay
+before passing an internally held ticket to the HNSR sink. Raw tickets are not
+exposed by this API. Raw `HnsrRequesterRuntime::begin_open` is
+node-profile-only; named profiles require opaque HNSA selection. Persisted
+encoded input must be fully reverified after restore. The platform must still
+establish relay liveness and authenticate the
+profile's inner session to the delegated endpoint key; an HNSA signature or
+relay ticket alone grants no browser permission or completed session.
+
 Every admitted operation is stamped with the caller-supplied per-start unique runtime session,
 current runtime generation, and monotonic event sequence. The session is a checked nonzero type,
 the runtime cannot be cloned, and its snapshot fields are private. Parsing and completion reject

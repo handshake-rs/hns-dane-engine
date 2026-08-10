@@ -33,7 +33,7 @@ The release script publishes only these packages, in dependency order:
 19. `hns-loopback-proxy`
 
 Repository-local public dependencies carry both a workspace path and the
-shared crates.io version. The ten direct `hns-rs` dependencies carry their
+shared crates.io version. The eleven direct `hns-rs` dependencies carry their
 crates.io version together with the reviewed Git URL and exact revision. Cargo
 removes path and Git selectors while creating a crates.io package and preserves
 the compatible version requirements.

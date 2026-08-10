@@ -13,6 +13,7 @@
     reason = "protocol acronyms, shared EngineError, and explicit facade names are intentional"
 )]
 
+mod hnsa_route;
 mod hnsr_transport;
 mod private_transport;
 
@@ -22,8 +23,13 @@ mod authority_sealed {
 
 pub use hns_hnsr_protocol::{
     DEFAULT_WINDOW, HNS_CHAT_V1, HNS_NODE_V1, HNS_WEB_V1, HnsrActionId, HnsrPacket, HnsrPeerId,
-    HnsrRequesterConfig, HnsrRequesterEvent, HnsrRoute, HnsrRuntimeStatus, OpaqueRelayConfig,
-    QueuedHnsrRoute, RelayConfig, RelayLimits, RelayTicket,
+    HnsrRequesterConfig, HnsrRequesterEvent, HnsrRoute, HnsrRuntimeStatus, NamedRoutePolicy,
+    OpaqueRelayConfig, QueuedHnsrRoute, RelayConfig, RelayLimits, RelayTicket,
+};
+pub use hnsa_route::{
+    HnsaNamedRouteContext, HnsaNamedRouteRequest, HnsaNamedRouteState, HnsaRelayEndpoint,
+    HnsaRouteError, MAX_HNSA_NAMED_ROUTE_ENDPOINTS, MAX_HNSA_NAMED_ROUTE_STATE_BYTES,
+    SelectedHnsaNamedRoute,
 };
 pub use hnsr_transport::{
     AuthenticatedHnsrPeer, HNSR_TRANSPORT_SCHEMA_VERSION, HnsrOpaqueRelayRuntime,

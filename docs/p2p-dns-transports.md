@@ -153,6 +153,53 @@ fresh, while authenticated peers, reservations, circuits, opaque frames, and
 queued writes are never serialized. The blob and both floors must be committed
 atomically in authenticated rollback-resistant platform storage.
 
+## HNSA named-route selection and open
+
+`Engine::verify_and_select_hnsa_named_routes` performs complete cryptographic
+verification and conflict-safe selection over one response containing at most
+16 encoded HNSA/HNSR records. The application selects the expected lowercase
+HNS name, canonical service name, `HNS_WEB_V1` or `HNS_CHAT_V1`, and exact
+capability/constraints policy. A non-forgeable current `VerifiedHnsResource`
+supplies the name hash, chain height, tree root, network, and one complete ASCII
+`hsa1` authority character-string. Every supplied item consumes batch capacity
+before decode; invalid records are ignored, but an equal-sequence conflict at
+the service-authorization, endpoint-delegation, or route layer fails closed.
+For the two reviewed profiles the exact endpoint key defines the logical
+endpoint. Future profile support requires explicit replacement-scope semantics
+and code review.
+
+The engine returns one opaque non-cloneable selection per accepted endpoint.
+It exposes only typed route/relay metadata, not the signed record or a
+detachable `RelayTicket`. The caller instead supplies the sole sequence
+persistence object, `HnsaNamedRouteState`. Its bounded checksummed encoding
+holds the global authorization and at most 64 exact-endpoint delegation and
+route histories in at most 7,519 bytes. The checksum detects accidental
+corruption but is not a storage authenticator. A newer valid authorization or
+delegation advances the state even when no usable route remains. An
+equal-sequence conflict or endpoint-history exhaustion is sticky until a
+verified changed `hsa1` authority appears under a greater
+`resource_generation`.
+
+The platform must compare the state generation after every selector call,
+including errors and empty selections, and atomically commit every change in
+authenticated rollback-resistant storage before opening. Selection, commit,
+and open must be serialized per authority/service scope. The external
+`HnsaNamedRouteContext::trusted_time_high_water` must likewise advance for
+every trusted time observation, including a selector failure.
+
+`Engine::begin_hnsa_named_route_open` requires the current committed state and
+rechecks the current resource, external generations and policy, caller and
+selection time floors, chain/route expiry, engine requester epoch,
+and the supplied requester/relay binding. It advances the selection time floor
+before later expiry or engine failures, bounds the deadline by the enclosing
+route/anchor lifetime, and gives the indexed internal ticket directly to the
+HNSR requester sink. Raw `HnsrRequesterRuntime::begin_open` admits only the
+node profile; named Web and Chat profiles must use the opaque HNSA path. The
+platform still owns complete directory acquisition, response-completeness and
+quorum policy, live Brontide/relay I/O, and the profile's
+endpoint-authenticated inner session. HNSA signatures and tickets alone grant
+no browser permission and prove neither relay liveness nor session completion.
+
 ## Engine admission
 
 A successful requester result becomes `AttemptOutcome::Response`; a failure

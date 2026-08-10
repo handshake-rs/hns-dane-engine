@@ -11,10 +11,10 @@ use std::error::Error;
 use std::fmt;
 
 use hns_hnsr_protocol::{
-    HnsrActionId, HnsrPacket, HnsrPeerId, HnsrProtocolError, HnsrRequester, HnsrRequesterConfig,
-    HnsrRequesterEvent, HnsrRequesterSnapshot, HnsrRoute, HnsrRuntimeError, HnsrRuntimeStatus,
-    HnsrService, OpaqueRelayConfig, OpaqueRelayRuntime, OpaqueRelaySnapshot, QueuedHnsrRoute,
-    RelayConfig, RelayService, RelayTicket,
+    HNS_NODE_V1, HnsrActionId, HnsrPacket, HnsrPeerId, HnsrProtocolError, HnsrRequester,
+    HnsrRequesterConfig, HnsrRequesterEvent, HnsrRequesterSnapshot, HnsrRoute, HnsrRuntimeError,
+    HnsrRuntimeStatus, HnsrService, OpaqueRelayConfig, OpaqueRelayRuntime, OpaqueRelaySnapshot,
+    QueuedHnsrRoute, RelayConfig, RelayService, RelayTicket,
 };
 
 use super::private_transport::{
@@ -294,6 +294,11 @@ impl HnsrRequesterRuntime {
     }
 
     /// Begin one signed-ticket-bound open routed to the authenticated relay.
+    ///
+    /// This is a generic HNSR transport seam and does not establish HNSA named
+    /// authority. Named-service integrations must use
+    /// [`Engine::begin_hnsa_named_route_open`], which retains the verified
+    /// record and ticket behind an opaque selection.
     #[allow(
         clippy::too_many_arguments,
         reason = "authority, authenticated peer, ticket, time, deadline, and flow credit are independent trust inputs"
@@ -308,6 +313,9 @@ impl HnsrRequesterRuntime {
         initial_window: u32,
     ) -> Result<HnsrRoute, HnsrTransportError> {
         self.ensure_peer(authority, relay)?;
+        if self.binding.service_profile != HNS_NODE_V1 {
+            return Err(HnsrTransportError::NamedRouteAuthorityRequired);
+        }
         self.requester
             .begin_open(
                 relay.peer_id.clone(),
@@ -966,7 +974,58 @@ impl Engine {
         )
     }
 
-    fn mint_hnsr_transport_binding(
+    /// Enter the requester open sink while one engine snapshot validates both
+    /// an enclosing authority binding and the requester/relay binding.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "enclosing authority, requester, relay, ticket, clock, deadline, and credit are independent trust inputs"
+    )]
+    pub(super) fn begin_hnsr_open_with_authority_binding(
+        &self,
+        authority_binding: HnsrTransportBinding,
+        requester: &mut HnsrRequesterRuntime,
+        relay: &AuthenticatedHnsrPeer,
+        ticket: RelayTicket,
+        trusted_now: u64,
+        deadline: u64,
+        initial_window: u32,
+    ) -> Result<HnsrRoute, HnsrTransportError> {
+        let state = self
+            .state
+            .read()
+            .map_err(|_| HnsrTransportError::Engine(EngineError::LockPoisoned))?;
+        let policy = state.policy.snapshot();
+        validate_hnsr_transport_binding(&state.runtime, state.network, policy, authority_binding)?;
+        if requester.revocation_reason.is_some() {
+            return Err(HnsrTransportError::BindingRevoked);
+        }
+        if let Err(error) = validate_hnsr_transport_binding(
+            &state.runtime,
+            state.network,
+            policy,
+            requester.binding,
+        ) {
+            let reason = revocation_reason_for_error(&error);
+            let _ = requester.revoke_for(reason);
+            return Err(error);
+        }
+        if relay.binding != requester.binding {
+            return Err(HnsrTransportError::PeerBindingMismatch);
+        }
+        requester
+            .requester
+            .begin_open(
+                relay.peer_id.clone(),
+                relay.identity.as_bytes(),
+                ticket,
+                trusted_now,
+                deadline,
+                initial_window,
+            )
+            .map_err(HnsrTransportError::Runtime)
+    }
+
+    pub(super) fn mint_hnsr_transport_binding(
         &self,
         role: HnsrTransportRole,
         service_profile: u16,
@@ -1695,6 +1754,8 @@ pub enum HnsrTransportError {
     ForbiddenProviderRoles,
     /// The inner service profile is zero.
     InvalidServiceProfile,
+    /// A non-node profile requires opaque HNSA named-route authority.
+    NamedRouteAuthorityRequired,
     /// Private addressing is restricted to regtest and simnet.
     PrivateAddressForbidden,
     /// Runtime or relay configuration conflicts with the engine binding.
@@ -1748,6 +1809,9 @@ impl fmt::Display for HnsrTransportError {
                 formatter.write_str("HNSR endpoint and rendezvous roles are hard disabled")
             }
             Self::InvalidServiceProfile => formatter.write_str("invalid HNSR service profile"),
+            Self::NamedRouteAuthorityRequired => {
+                formatter.write_str("HNSR non-node profile requires HNSA named-route authority")
+            }
             Self::PrivateAddressForbidden => {
                 formatter.write_str("private HNSR addresses are forbidden on this network")
             }

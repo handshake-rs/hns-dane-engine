@@ -19,6 +19,36 @@ The platform still owns Brontide I/O and atomic authenticated storage. No
 endpoint, rendezvous, plaintext output, or inferred live-adapter availability
 is exposed by these runtime seams.
 
+`Engine::verify_and_select_hnsa_named_routes` accepts only a non-forgeable
+`VerifiedHnsResource` and one complete response of at most 16 encoded records.
+It requires the exact application-selected HNS name, canonical service name,
+the reviewed `HNS_WEB_V1` or `HNS_CHAT_V1` profile,
+capability/constraints policy, and trusted time; selects one canonical
+single-string `hsa1` record; verifies the full HNSA authorization, delegation,
+route, and relay-ticket chain; and applies conflict-safe greatest
+authorization, delegation, and route sequences. For those reviewed profiles,
+the exact endpoint key defines the logical endpoint; any future profile
+requires explicit replacement-semantics review. The caller supplies one
+`HnsaNamedRouteState`, a bounded checksummed blob that retains the global
+authorization and up to 64 endpoint delegation/route histories in at most
+7,519 bytes. Selection can advance its generation even when it returns an
+error or no route. Every such change must be atomically committed in
+authenticated rollback-resistant storage before an open, and selection,
+storage, and open must be serialized per scope. Equal-sequence conflict and
+capacity-exhaustion states remain sticky until a verified changed `hsa1`
+authority appears with a greater resource generation. Each non-cloneable
+selection is bound to the engine requester epoch and exact HNS/profile/time
+context and exposes only non-authoritative relay metadata, never a raw ticket.
+`Engine::begin_hnsa_named_route_open` requires the current durably committed
+state, rechecks every external and engine authority, and begins the HNSR open
+using an internally selected ticket. Raw `HnsrRequesterRuntime::begin_open` is
+node-profile-only. The platform must advance
+`HnsaNamedRouteContext::trusted_time_high_water` after every trusted time
+observation, including failed selection. It still owns complete directory
+discovery and response-completeness/quorum policy, authenticated
+rollback-resistant storage, live Brontide/relay I/O, and the profile's
+endpoint-authenticated inner session.
+
 Rust facade version 3 also exposes the minimal browser-authority boundary for
 wallet-provider injection. It permits HTTPS only and stamps the exact logical
 origin and URL port, selected service port and namespace, complete
