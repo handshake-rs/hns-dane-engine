@@ -139,6 +139,9 @@ assert_private hns-browser-p2p
 assert_private hns-browser-primitives
 assert_private hns-browser-resolver
 assert_private hns-browser-sync
+assert_private hns-browser-transport
+assert_private hns-browser-gateway
+assert_private hns-browser-loopback-proxy
 assert_private hns-browser-urkel
 
 case "$mode" in

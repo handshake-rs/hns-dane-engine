@@ -24,6 +24,9 @@ hns-browser-p2p - - - bounded browser peer/relay consolidation - - - -+
 hns-browser-primitives - - temporary product-adapter consolidation - -+
 hns-browser-resolver - - strict browser light-resolver consolidation -+
 hns-browser-sync - - bounded browser header/proof synchronization - - -+
+hns-browser-transport - mobile streaming / Chromium CONNECT adapters -+
+hns-browser-gateway - - strict platform gateway adapters - - - - - - -+
+hns-browser-loopback-proxy - authenticated platform proxy adapters - -+
 hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
 hns-transport ---------------------------------------------------------+
 hns-p2p-transport -----------------------------------------------------+
@@ -94,6 +97,15 @@ and can mint a browser-bridge authorization while that stamp remains admitted in
 security epoch, its chain anchor is still valid, and its exact normalized origin remains bound.
 Unrelated completions do not overwrite that authority; the retained `last_provenance` is diagnostic
 only. The older caller-prerequisite completion path cannot mint this capability.
+The private `hns-browser-transport`, `hns-browser-gateway`, and
+`hns-browser-loopback-proxy` packages keep the production browser I/O adapters
+in this repository rather than allowing mobile and Chromium source forks to
+drift. Each requires an explicit platform feature. The mobile contract retains
+validated-head-before-body streaming and its process-owned ICANN network
+boundary; the Chromium contract retains authenticated CONNECT disposition,
+end-to-end WebPKI passthrough, local-CA identity generation, and typed gateway
+failure evidence. These are integration backends around the same canonical
+resolver and authority types, not additional DNS authorities.
 The Rust facade's provider-injection boundary derives the logical URL origin
 from the authoritative namespace query and permits HTTPS only. It binds a
 private authenticated context to that origin, its URL and selected service
