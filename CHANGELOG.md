@@ -5,6 +5,14 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - Unreleased
 
+- Re-pinned every direct, locked, source-policy, publication, and provenance
+  reference to the latest `hns-rs` 0.2.0 publication-preparation commit
+  `abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. The public Rust implementation
+  is unchanged from the qualified feature revision; the later upstream commits
+  update package metadata and harden dependency-ordered archive publication.
+  Engine publication still requires those exact 17 upstream archives, a repin
+  if the dated protocol release source advances, and a fresh exact-source
+  engine gate.
 - Hardened the 19-crate publication path with a machine-readable allowlist,
   source-package inventory and VCS checks, synchronized per-crate licenses and
   changelogs, exact upstream `hns-rs` archive verification, explicit

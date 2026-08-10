@@ -63,8 +63,8 @@ routine gate.
 
 ## Upstream protocol gate
 
-This source consumes `hns-rs` `0.2.0` at reviewed revision
-`b33b346780c8f6a9bb18a54390019486cdab0221`. Before any engine upload,
+This source consumes `hns-rs` `0.2.0` at publication-preparation revision
+`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. Before any engine upload,
 execute mode downloads all 17 protocol packages and requires every
 `.cargo_vcs_info.json` to identify that exact clean source revision. If the
 protocol release is prepared or published from a later commit, stop and repin

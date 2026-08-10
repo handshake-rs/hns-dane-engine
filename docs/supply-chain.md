@@ -21,7 +21,7 @@ Eleven packages are declared once in the root `[workspace.dependencies]` table:
 
 Every declaration uses
 `https://github.com/handshake-rs/hns-rs.git` at exact revision
-`b33b346780c8f6a9bb18a54390019486cdab0221` and also requires crates.io
+`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2` and also requires crates.io
 version `0.2.0`. Development and qualification therefore retain the reviewed
 Git source, while Cargo preserves the version and removes the Git selector
 when normalizing a package for crates.io. The lockfile resolves those packages

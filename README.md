@@ -185,7 +185,7 @@ exact publication; the engine deliberately does not retain an unbounded per-orig
 
 The repository is a standalone Cargo checkout. Its eleven direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
-`b33b346780c8f6a9bb18a54390019486cdab0221` and declare compatible crates.io
+`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2` and declare compatible crates.io
 version `0.2.0`; the lockfile binds those packages and the three-package
 transitive closure to the same revision. No sibling `hns-rs` checkout is
 required. Cargo preserves the version requirements when packaging and removes
