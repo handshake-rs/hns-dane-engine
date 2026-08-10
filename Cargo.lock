@@ -868,8 +868,8 @@ dependencies = [
  "hns-browser-primitives",
  "hns-browser-resolver",
  "hns-browser-transport",
- "hns-icann-dane 0.1.0",
- "hns-namespace-resolution 0.1.0",
+ "hns-icann-dane",
+ "hns-namespace-resolution",
  "subtle",
  "thiserror",
 ]
@@ -898,8 +898,8 @@ name = "hns-browser-observability"
 version = "0.2.0"
 dependencies = [
  "hns-browser-runtime",
- "hns-icann-dane 0.2.0",
- "hns-namespace-resolution 0.2.0",
+ "hns-icann-dane",
+ "hns-namespace-resolution",
  "hns-resolution-policy",
  "thiserror",
 ]
@@ -937,7 +937,7 @@ dependencies = [
  "hns-browser-dnssec",
  "hns-browser-primitives",
  "hns-cache",
- "hns-namespace-resolution 0.1.0",
+ "hns-namespace-resolution",
  "rusqlite",
  "thiserror",
 ]
@@ -982,7 +982,7 @@ dependencies = [
  "h3",
  "h3-quinn",
  "hns-browser-dane",
- "hns-icann-dane 0.1.0",
+ "hns-icann-dane",
  "http",
  "quinn",
  "rcgen",
@@ -1060,7 +1060,7 @@ dependencies = [
  "hns-header-consensus",
  "hns-hnsr-protocol",
  "hns-light-chain",
- "hns-namespace-resolution 0.2.0",
+ "hns-namespace-resolution",
  "hns-p2p-transport",
  "hns-p2p-wire",
  "hns-resolution-policy",
@@ -1076,7 +1076,7 @@ dependencies = [
  "hns-dane",
  "hns-dane-engine",
  "hns-dns-wire",
- "hns-namespace-resolution 0.2.0",
+ "hns-namespace-resolution",
  "hns-resolution-policy",
 ]
 
@@ -1148,12 +1148,6 @@ dependencies = [
 
 [[package]]
 name = "hns-icann-dane"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4b1c58b5f0a3def68f41a6994e5b14b79734e812f54b6ae4fb4c06439381da0"
-
-[[package]]
-name = "hns-icann-dane"
 version = "0.2.0"
 
 [[package]]
@@ -1195,7 +1189,7 @@ name = "hns-loopback-proxy"
 version = "0.2.0"
 dependencies = [
  "hns-dane-engine",
- "hns-namespace-resolution 0.2.0",
+ "hns-namespace-resolution",
  "hns-resolution-policy",
  "subtle",
  "thiserror",
@@ -1214,12 +1208,6 @@ dependencies = [
  "hns-transaction",
  "thiserror",
 ]
-
-[[package]]
-name = "hns-namespace-resolution"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f19eda78ba171a1063ea6d157973749847460c6fd6dabee6e589bd5f79112ab"
 
 [[package]]
 name = "hns-namespace-resolution"
@@ -1310,7 +1298,7 @@ dependencies = [
  "hns-dns-wire",
  "hns-dnssec",
  "hns-header-consensus",
- "hns-icann-dane 0.2.0",
+ "hns-icann-dane",
  "hns-light-chain",
  "hns-primitives",
  "openssl",
