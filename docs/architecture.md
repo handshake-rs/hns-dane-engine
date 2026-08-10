@@ -106,6 +106,12 @@ boundary; the Chromium contract retains authenticated CONNECT disposition,
 end-to-end WebPKI passthrough, local-CA identity generation, and typed gateway
 failure evidence. These are integration backends around the same canonical
 resolver and authority types, not additional DNS authorities.
+The adapters resolve `hns-icann-dane` and `hns-namespace-resolution` through
+the workspace's canonical 0.2 paths. They do not mix those types with the
+published 0.1 crates: one Cargo package identity now spans the engine, gateway,
+resolver, transport, observability, and loopback boundaries. This prevents an
+otherwise source-compatible plan, decision, or ICANN evidence value from
+becoming a distinct Rust type at an adapter boundary.
 The Rust facade's provider-injection boundary derives the logical URL origin
 from the authoritative namespace query and permits HTTPS only. It binds a
 private authenticated context to that origin, its URL and selected service
@@ -358,7 +364,11 @@ MeshMine nor requires an adjacent source tree.
 The shared private adapter layer now contains, and mobile/Chromium shells consume, source for
 request-surface wiring, validating ICANN DoH, origin TLS transport, native loopback listener and
 HTTP/TLS handling, local CA and exact-host leaf management, and browser platform bridges. This is
-source composition only: it has no installed-product or live-network qualification evidence.
+source composition only: the exact source through `84005f1` passed the complete
+locked engine gate, but it has no installed-product or live-network
+qualification evidence. The canonical 0.2 type-identity correction and
+hardened release tooling were committed after that run, so current HEAD still
+requires a new exact-commit qualification and release preflight.
 Still absent are P2P socket dialing or peer discovery, download/reorganization from a fork
 predating the current tip, durable restart checkpoints, authenticated authoritative DoH, a native
 Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,

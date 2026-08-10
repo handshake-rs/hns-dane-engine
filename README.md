@@ -207,9 +207,29 @@ The minimum supported compiler is Rust 1.89.0. See `docs/architecture.md`,
 `docs/supply-chain.md`, and `docs/qualification.md` for boundaries, pinned
 compatibility inputs, exact coverage, and remaining work.
 
+## Qualification status
+
+The exact source at commit
+`84005f1df21a30ea9dda7fafb95f9488b8f5da4b` passed the complete locked
+`scripts/check.sh` source gate in GitHub Actions run
+[`31372280327`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31372280327).
+That gate covered the default Chromium workspace, the separate mobile feature
+configurations, the ODoH requester and HNSR requester/opaque-relay state
+machines, HNSA batch selection/direct-open tests, strict Clippy, the release
+build, the C-header smoke test, and all public-package publish dry-runs present
+at that commit.
+
+That evidence applies to `84005f1`, not to every later commit. The canonical
+0.2 adapter type-identity correction in `636ed462c271e9502915c217c3d6ea77ba077756`
+and the hardened release tooling in
+`e8f5d24a3ef593730f73818608364a173449d485` both postdate the successful run.
+The current release candidate therefore requires a new exact-commit
+`scripts/check.sh` run and the separate exact-commit preflight described in the
+[`release guide`](docs/releasing.md); it has not been published or tagged.
+
 The provider-authority, loopback-publication, and shared platform-adapter Rust
-source is a production-continuation boundary, not a qualified product. Mobile
-and Chromium shells now consume the shared request, validating-DoH,
+source is a production-continuation boundary, not a qualified installed
+product. Mobile and Chromium shells now consume the shared request, validating-DoH,
 origin-transport, listener/HTTP/TLS, and local-CA building blocks, but that
 source-level integration has no installed-product or live-network qualification
 evidence and does not establish provider availability. The source-only
@@ -220,6 +240,5 @@ complete HNSA route discovery and response-completeness/quorum policy, atomic
 authenticated rollback-resistant storage of `HnsaNamedRouteState` with
 platform resource/profile generations and trusted-time high-water marks,
 endpoint-authenticated inner sessions, and HNSR endpoint/rendezvous roles
-remain absent. The
-unreleased 0.2 source, including the ODoH requester lifecycle and shared
-platform adapters, has not passed a new release qualification gate.
+remain absent. No source qualification result establishes wallet-provider or
+marketplace availability.

@@ -117,4 +117,7 @@ origin contexts, or strict HNS completions, and does not expose the trusted
 ICANN authenticator callback. A native integration that does not contain the
 trusted Rust minting host must therefore keep provider authority unavailable.
 No product provider, wallet permission, signing, value, or marketplace path is
-enabled by this ABI source, and the unreleased code remains unqualified.
+enabled by this ABI source. The deterministic ABI source through `84005f1`
+passed the complete locked engine gate, but no installed provider path has been
+qualified; later adapter type-identity and release-tooling commits require a
+new exact-commit gate for the current candidate.

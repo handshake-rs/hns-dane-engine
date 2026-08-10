@@ -5,6 +5,29 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - Unreleased
 
+- Hardened the 19-crate publication path with a machine-readable allowlist,
+  source-package inventory and VCS checks, synchronized per-crate licenses and
+  changelogs, exact upstream `hns-rs` archive verification, explicit
+  version/date/clean-tree confirmation for uploads, checksum-and-VCS-verified
+  resume behavior, and an exact-commit credential-free Actions workflow for
+  real `cargo publish --dry-run` checks. Routine qualification now uses the
+  non-compiling archive-only path. This tooling was added after the qualified
+  `84005f1` snapshot and still requires an exact current-candidate gate; it has
+  not uploaded or tagged anything.
+- Unified the private browser gateway, resolver, and transport adapters on the
+  workspace's canonical `hns-icann-dane` and `hns-namespace-resolution` 0.2
+  packages. This removes the duplicate published 0.1 identities from the
+  lockfile so plans, decisions, and ICANN evidence have one Cargo type identity
+  across the engine and adapters. The correction postdates the qualified
+  `84005f1` snapshot and requires a new current-commit qualification run.
+- Qualified the exact unreleased source through commit
+  `84005f1df21a30ea9dda7fafb95f9488b8f5da4b` with the complete locked
+  `scripts/check.sh` gate in GitHub Actions run `31372280327`. The successful
+  gate covered default Chromium and separate mobile feature configurations,
+  the ODoH/HNSR/HNSA source and tests, strict Clippy, the release build, C
+  header smoke, and every public-package publish dry-run present at that
+  commit. It supplied no installed-product, live-network, provider-availability,
+  wallet, value, or marketplace evidence and did not publish the 0.2 line.
 - Consolidated the private mobile/Chromium platform adapters around shared
   request wiring, validating ICANN DoH, origin transport, native loopback
   listener and HTTP/TLS handling, local CA and exact-host leaf management, and
@@ -36,12 +59,14 @@ file. The public crates use a shared version and follow Semantic Versioning.
   Complete directory discovery and response-completeness/quorum policy,
   authenticated rollback-resistant platform storage, relay liveness, and the
   endpoint-authenticated inner session remain outside this slice. Ten focused
-  full-chain regtest tests passed; the full release gate was not run.
+  full-chain regtest tests passed, and the same source was later covered by the
+  exact `84005f1` full qualification gate.
 - Re-pinned the immutable eleven-package direct and fourteen-package locked
   `hns-rs` graph to canonical revision
   `b33b346780c8f6a9bb18a54390019486cdab0221`, which permits every nonzero HNSR
   circuit profile required by named browser services. The exact-source policy
-  remains unchanged, and this repin does not qualify or release the 0.2 line.
+  remains unchanged. This graph was covered by the exact `84005f1` source gate,
+  which did not publish or release the 0.2 line.
 - Added the canonical engine HNSR requester and ciphertext-only relay adapter
   over `hns-hnsr-protocol` 0.2.0. Both roles bind exact browser session/runtime
   and policy generations, network/genesis, concrete Denuo V1 registry/profile,
@@ -53,8 +78,9 @@ file. The public crates use a shared version and follow Semantic Versioning.
   owns no socket or atomic store, never restores peers/circuits/queued writes,
   and exposes endpoint, rendezvous, plaintext, and transport-adapter readiness
   as false. Requester and opaque relay remain default-on policy roles; endpoint
-  and rendezvous are hard rejected on this runtime surface. This source has not
-  run its focused or full qualification gate.
+  and rendezvous are hard rejected on this runtime surface. The HNSR source and
+  tests were covered by the exact `84005f1` full qualification gate; no live
+  adapter or installed-product qualification follows from that result.
 - Added `PrivateTransportAuthority::new(&mut BrowserRuntime, Network,
   PolicySnapshot)` so platform shells can consume ODoH and HNSR without
   instantiating a second browser authority. Added canonical HIP-77
@@ -82,8 +108,9 @@ file. The public crates use a shared version and follow Semantic Versioning.
   start are rejected. Exact
   peer, registry, deadline, correlation, and HPKE errors remain typed, and an
   engine change during adapter I/O discards the result. No ODoH proxy or target
-  provider role is implemented or made available by this runtime. This source
-  has not yet run its focused or full qualification gate.
+  provider role is implemented or made available by this runtime. The ODoH
+  source and tests were covered by the exact `84005f1` full qualification gate;
+  no live adapter or provider role was qualified.
 - Enabled the new-policy HNSR requester/client default alongside the existing
   opaque HNSR relay, HIP-76/HIP-77 requester paths, and opaque ODoH proxy.
   Fresh policy now selects the bounded `Auto` wire profile so current Denuo
