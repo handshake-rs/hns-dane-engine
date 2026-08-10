@@ -12,6 +12,14 @@ but the adapter consolidation and current `hns-rs` repin add no
 installed-product or live-network evidence. `cargo-deny` may separately
 refresh its advisory database:
 
+The current `scripts/check.sh` qualifies the default Chromium workspace and
+then separately qualifies the mobile-only configurations of
+`hns-browser-gateway`, `hns-browser-loopback-proxy`, and
+`hns-browser-transport`. Those crates deliberately require exactly one platform
+feature, so a workspace-wide `--all-features` invocation is invalid rather than
+stronger coverage. The historical v0.1 transcript below predates those
+exclusive platform crates.
+
 ```text
 python3 -m unittest -v tests/test_cargo_source_policy.py
   12 tests passed
