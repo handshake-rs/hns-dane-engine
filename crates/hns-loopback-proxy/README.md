@@ -20,9 +20,11 @@ those records already cannot authorize a tunnel. Current records change only
 on a successful mutation.
 
 This crate does not perform DNS wire I/O, open a listener or origin socket,
-issue certificates, terminate TLS, forward bytes, or enable a wallet provider
-in any browser product. Those adapters remain unavailable and disabled until
-implemented and qualified.
+issue certificates, terminate TLS, forward bytes, or by itself enable a wallet
+provider. Private shared browser packages now implement those platform-adapter
+building blocks and mobile/Chromium shells consume them, but there is no
+installed-product qualification evidence and provider availability remains
+disabled.
 
 Published releases can be added with:
 

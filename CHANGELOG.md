@@ -5,6 +5,18 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - Unreleased
 
+- Consolidated the private mobile/Chromium platform adapters around shared
+  request wiring, validating ICANN DoH, origin transport, native loopback
+  listener and HTTP/TLS handling, local CA and exact-host leaf management, and
+  browser integration building blocks. Mobile and Chromium shells consume this
+  source, but no installed-product or live-network qualification evidence has
+  been recorded. Native Brontide and live Denuo registry/HIP-76/77/HNSR network
+  adapters, HNSA engine integration, HNSR endpoint/rendezvous roles, pure-C
+  authority minting, and provider release availability remain absent.
+- Re-pinned the immutable ten-package direct and fourteen-package locked
+  `hns-rs` graph to canonical revision
+  `4331eee2265ebc43a28390517c24a958fa4b7733`. The exact-source policy remains
+  unchanged, and this repin does not qualify or release the 0.2 line.
 - Added the canonical engine HNSR requester and ciphertext-only relay adapter
   over `hns-hnsr-protocol` 0.2.0. Both roles bind exact browser session/runtime
   and policy generations, network/genesis, concrete Denuo V1 registry/profile,
@@ -75,8 +87,8 @@ file. The public crates use a shared version and follow Semantic Versioning.
   decision, and lifetime bindings; copy the bounded exact host; check it
   against current engine state; and destroy it. There is no C mint, import,
   clone, serialization, wallet permission, signing, value, or marketplace
-  operation. Pure-C namespace/authentication minting and product wiring remain
-  unavailable.
+  operation. Pure-C namespace/authentication minting remains unavailable, and
+  this ABI alone makes no product-availability claim.
 - Added a consumable Rust provider-authority outcome that mints a private,
   non-cloneable, non-serializable context only after the complete injection
   decision succeeds. The context exposes typed origin, namespace, service,

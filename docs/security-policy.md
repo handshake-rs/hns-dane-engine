@@ -336,10 +336,11 @@ permission to resolve another origin. Native hosts must revalidate its complete 
 before listener/origin I/O; any registry mutation, security-invalidating authority event, lifecycle
 replacement, or expiry rejects it. Ordinary unrelated admissions do not. Same-origin navigation or
 decision replacement must synchronously revoke or replace its publication because the engine keeps
-no unbounded per-origin navigation map. Native hosts still own DNS wire I/O, the listener, local CA,
-exact-host leaf creation,
-upstream TLS, origin dialing, and byte forwarding, and must stop on runtime/policy revocation or
-lifecycle cancellation. No provider path is enabled in a platform product by this source.
+no unbounded per-origin navigation map. Private shared browser packages provide the listener,
+HTTP/TLS, local-CA, exact-host leaf, origin-transport, and byte-forwarding building blocks, while
+native hosts still own their execution and lifecycle and must stop on runtime/policy revocation or
+cancellation. Source consumption by mobile/Chromium shells is not installed-product qualification;
+provider availability remains disabled.
 
 The persisted policy CRC detects accidental corruption only. Platform adapters must use their normal
 integrity-protected settings or secure storage; the CRC is not a MAC or signature.

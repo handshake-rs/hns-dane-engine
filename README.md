@@ -91,9 +91,11 @@ HNS proof, DNSSEC, TLSA, and DANE validation; a remote AD bit is never
 authority. Direct UDP/TCP own their socket I/O here. HIP-76/77 own the complete
 authenticated request/response boundary. The ODoH engine runtime now owns its
 requester lifecycle and signed-target restart representation, but it still
-consumes a platform-supplied established Brontide exchange. Authenticated
-authoritative DoH and HNSR remain unavailable rather than silently falling
-back.
+consumes a platform-supplied established Brontide exchange. The shared
+platform adapter source supplies neither a native Brontide transport nor a
+live Denuo registry exchange. Authenticated authoritative DoH and live
+HIP-76/77 or HNSR network execution therefore remain unavailable rather than
+silently falling back.
 
 An HNS name proof may itself contain the verified origin data and require no
 DNS network transport. Such a successful result uses the append-only
@@ -148,23 +150,25 @@ callers cannot substitute a separate completion context. See `docs/p2p-dns-trans
 `hns-loopback-proxy` is deliberately the shared admission/publication boundary, not a DNS, socket,
 or TLS server. Its in-memory bounded registry consumes a `ProviderAuthorityContext`, atomically
 publishes/replaces/revokes the exact origin under an expected generation, and loses every
-publication on process or listener replacement. Native hosts still own DNS wire I/O, the listener,
-HTTP response I/O, origin dialing, per-install local CA, exact-host leaf issuance, and tunnel
-lifecycle. They must not begin those operations until the crate returns and immediately
-revalidates an exact-origin `TunnelGrant`. Ordinary unrelated admissions do not revoke a retained
-publication, but degradation, revocation, stop, policy/runtime invalidation, or expiry does.
+publication on process or listener replacement. The private browser adapter packages now provide
+shared mobile/Chromium request wiring and building blocks for validating ICANN DoH, origin
+transport, a native loopback listener with HTTP/TLS handling, and per-install local CA and
+exact-host leaf management. Platform hosts still own execution, secure persistence, and lifecycle,
+and must not begin tunnel I/O until the core returns and immediately revalidates an exact-origin
+`TunnelGrant`. Ordinary unrelated admissions do not revoke a retained publication, but
+degradation, revocation, stop, policy/runtime invalidation, or expiry does.
 Same-origin navigation or namespace-decision replacement must synchronously revoke or replace the
 exact publication; the engine deliberately does not retain an unbounded per-origin navigation map.
 
 The repository is a standalone Cargo checkout. Its ten direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
-`29e4b473bd2cfee460b56d5092b7bc28da5ec5dc` and declare compatible crates.io
+`4331eee2265ebc43a28390517c24a958fa4b7733` and declare compatible crates.io
 version `0.2.0`; the lockfile binds those packages and the four-package
 transitive closure to the same revision. No sibling `hns-rs` checkout is
 required. Cargo preserves the version requirements when packaging and removes
 the Git selectors. A tested repository policy rejects unreviewed Git
 dependencies, noncanonical URLs, mutable selectors, incompatible registry
-versions, lockfile drift, dependency aliases, and path dependencies that
+versions, lockfile drift, `hns-rs` dependency aliases, and path dependencies that
 escape this repository. See `docs/supply-chain.md`.
 
 ## Build
@@ -180,12 +184,15 @@ The minimum supported compiler is Rust 1.89.0. See `docs/architecture.md`,
 `docs/supply-chain.md`, and `docs/qualification.md` for boundaries, pinned
 compatibility inputs, exact coverage, and remaining work.
 
-The provider-authority and loopback-publication Rust source is a
-production-continuation boundary, not a complete platform integration. It does
-not enable a provider in any product. Mobile/Chromium request wiring, native
-listener/TLS I/O, pure-C authority minting, and product integration remain
-unavailable and disabled. The source-only provider-authority consumer ABI can
-retain and inspect a context moved from trusted Rust, but cannot create one
-from C. The unreleased 0.2 source has not passed a new release qualification
-gate. The new ODoH requester lifecycle is likewise unqualified source: no
-native/mobile/Chromium Brontide adapter or live network matrix has consumed it.
+The provider-authority, loopback-publication, and shared platform-adapter Rust
+source is a production-continuation boundary, not a qualified product. Mobile
+and Chromium shells now consume the shared request, validating-DoH,
+origin-transport, listener/HTTP/TLS, and local-CA building blocks, but that
+source-level integration has no installed-product or live-network qualification
+evidence and does not establish provider availability. The source-only
+provider-authority consumer ABI can retain and inspect a context moved from
+trusted Rust, but cannot create one from C. Pure-C authority minting, a native
+Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,
+HNSA engine integration, and HNSR endpoint/rendezvous roles remain absent. The
+unreleased 0.2 source, including the ODoH requester lifecycle and shared
+platform adapters, has not passed a new release qualification gate.

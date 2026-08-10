@@ -2,11 +2,13 @@
 
 The command transcript below is retained evidence from published tag `v0.1.0`
 (commit `02c063ac3e94a91b222201fb51d95ff3ac19f026`). It does not qualify the
-current unreleased 0.2 provider-authority continuation. That continuation has
-not received the full lint, benchmark, C-header, or release qualification
-gate. The narrow provider-authority ABI regression recorded below is the only
-test evidence added in this continuation. `cargo-deny` may separately refresh
-its advisory database:
+current unreleased 0.2 provider-authority continuation or the August 9 shared
+platform-adapter consolidation. The current line has not received the full
+lint, benchmark, C-header, or release qualification gate. The narrow
+provider-authority ABI regression recorded below is the only compiled test
+evidence added in this continuation; the adapter consolidation and current
+`hns-rs` repin add no installed-product or live-network evidence. `cargo-deny`
+may separately refresh its advisory database:
 
 ```text
 python3 -m unittest -v tests/test_cargo_source_policy.py
@@ -52,9 +54,26 @@ cargo test --offline -p hns-dane-engine-ffi provider_authority_ffi -- --test-thr
   2 passed; 0 failed; 5 filtered out
 ```
 
+Current non-compiling dependency-policy evidence (2026-08-09):
+
+```text
+python3 -m unittest -v tests/test_cargo_source_policy.py
+  13 tests passed
+
+python3 scripts/verify_cargo_source_policy.py
+  exact canonical hns-rs source at 4331eee2265ebc43a28390517c24a958fa4b7733
+  and repository-local paths passed
+
+cargo +1.89.0 metadata --locked --offline --format-version 1
+  passed
+```
+
+These checks qualify only the locked dependency-source policy; they compiled
+and executed no Rust or platform implementation.
+
 The requester-only ODoH lifecycle, status, revocation, and signed-target cache
-continuation was added after that command. Its focused tests and the full gate
-have not run; no pass evidence is recorded for it yet.
+continuation was added after the August 3 ABI command. Its focused tests and
+the full gate have not run; no pass evidence is recorded for it yet.
 
 The first locked invocation stopped before compilation because the workspace
 lockfile still carried a stale `hns-loopback-proxy` dependency list. The same
@@ -65,7 +84,7 @@ Recorded foundation coverage and current source status:
 
 - independently cloneable Cargo resolution with ten reviewed direct
   `hns-rs` packages and the exact fourteen-package locked closure at
-  `29e4b473bd2cfee460b56d5092b7bc28da5ec5dc`; rejection of mutable or
+  `4331eee2265ebc43a28390517c24a958fa4b7733`; rejection of mutable or
   noncanonical Git sources, aliases, unreviewed consumers/packages, lock
   drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;
@@ -250,31 +269,34 @@ Recorded foundation coverage and current source status:
   and panic containment; and
 - positive pinned vectors plus mutation-derived negatives.
 
-Not yet implemented:
+Implemented in shared source, but not qualified:
+
+- private mobile/Chromium adapter packages provide request-surface wiring,
+  validating ICANN DoH, origin TLS transport, native loopback listener and
+  HTTP/TLS handling, local CA and exact-host leaf management, and browser
+  platform bridges;
+- mobile and Chromium shells consume those shared packages at source level,
+  but no installed-product or live-network evidence and no current-head 0.2
+  qualification gate establish provider availability.
+
+Still absent or unevidenced:
 
 - socket dialing and peer discovery, competing-fork download/reorganization before the current
   base, durable restart state, and checkpoint bootstrap (current sync selects bounded extensions
   from one shared validated base);
 - subdelegation discovery and a complete live authoritative DNSSEC walk beyond the on-chain TLD
   DNSKEY path;
-- origin TLS socket/SNI execution (the Rust API checks the adapter-reported exact SNI);
-- live validating ICANN DoH I/O and browser request-surface wiring (the shared
-  owner/evidence decision contract and Rust provider-authority context are
-  implemented, and the source-only loopback core consumes the context, but no
-  platform adapter has consumed or qualified the boundary);
-- authenticated authoritative DoH, HIP-76/77 provider roles, and the native
-  Brontide socket adapter for the implemented HIP-76/77 requester boundary,
-  engine-owned ODoH lifecycle, and HNSR requester/opaque-relay state machines;
-- filesystem/mobile preferences adapters, atomic authenticated
-  rollback-resistant ODoH target-cache and HNSR snapshot/floor writes, and
-  restart qualification;
-- live registry negotiation exchange and HSD draft-PR cross-language execution (the requester
-  consumes and enforces an already authenticated `NegotiatedRegistry`);
-- native loopback listener/HTTP/TLS tunnel I/O, local CA and exact-host leaf
-  lifecycle, mobile ABI packaging, platform bridges, pure-C namespace/context
-  minting, strict-completion and trusted-ICANN bindings (the shared proxy
-  admission/publication core, Rust provider-authority core, and authorized-only
-  opaque consumer/lifecycle ABI are implemented only as unqualified source);
+- authenticated authoritative DoH and HIP-76/77 provider roles;
+- a native Brontide socket adapter and live Denuo registry negotiation exchange
+  for the implemented HIP-76/77 requester boundary, engine-owned ODoH
+  lifecycle, and HNSR requester/opaque-relay state machines, plus HSD draft-PR
+  cross-language execution (the requester consumes and enforces an already
+  authenticated `NegotiatedRegistry`);
+- HNSA engine integration and HNSR endpoint/rendezvous roles;
+- qualified atomic authenticated rollback-resistant ODoH target-cache and HNSR
+  snapshot/floor writes, durable platform preferences, and restart evidence;
+- pure-C namespace/context authority minting (the authorized-only consumer ABI
+  can only receive a context moved from trusted Rust);
 - fuzz targets, HSD-generated live DNSSEC fixture generation, and performance benchmarks.
 
 The strict Rust facade has a non-forgeable
@@ -289,7 +311,9 @@ context, inspect its immutable bindings, copy its bounded host, check engine
 currentness, and destroy it, but cannot mint authority from C. Its two focused
 Rust ABI regressions passed in this continuation; the C header smoke, full
 workspace, lint, benchmark, and release gates were not rerun. The new
-Rust context/publication and ODoH requester-lifecycle source, native platform consumption, and the
-unreleased 0.2 line still require the applicable qualification gate. Platform
-provider availability remains disabled. This repository therefore does not
-claim that the complete browser engine or ecosystem is qualified.
+Rust context/publication and ODoH requester-lifecycle source, the shared
+platform-adapter consolidation and source consumption, the current `hns-rs`
+repin, and the unreleased 0.2 line still require the applicable qualification
+gate. No installed-product evidence has been recorded, and platform provider
+availability remains disabled. This repository therefore does not claim that
+the complete browser engine or ecosystem is qualified.

@@ -297,9 +297,11 @@ projection plus bounded exact-host copy, retains the exact `Arc<Engine>` for cur
 and destroys the context exactly once. A mismatched Rust-side engine pairing remains non-current,
 and the handle keeps its engine alive until destruction. It has no C mint/import/clone/serialization
 path and does not expose namespace classification or authentication fields as authority.
-Adapters own DNS wire I/O, sockets, clocks, secure storage, threads, UI, platform lifecycle, local
-CA material, exact-host certificate issuance, origin authentication execution, and proxy/TLS byte
-forwarding. The publication core performs none of those operations.
+The private shared adapter packages implement mobile/Chromium request wiring and bounded building
+blocks for validating ICANN DoH, origin transport, native loopback listener and HTTP/TLS handling,
+local CA material, exact-host certificate issuance, and proxy byte forwarding. Installed platform
+hosts still own execution, clocks, secure storage, threads, UI, and process/navigation lifecycle.
+The publication core performs none of those operations.
 
 The dependency boundary is deliberate: these crates do not depend on Tokio, JNI, Swift, Chromium,
 SQLite, operating-system DNS, or a particular network stack. Callers can execute the deterministic
@@ -314,14 +316,17 @@ Consequently, the dependency direction is independently cloneable
 `hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports
 MeshMine nor requires an adjacent source tree.
 
-This foundation does not yet implement P2P socket dialing or peer discovery,
-download/reorganization from a fork predating the current tip, durable restart checkpoints,
-authenticated authoritative DoH, HNSR socket dialing/peer discovery, HIP-76/77 provider roles, origin TLS socket
-execution, native loopback listener and tunnel I/O, local CA management, or platform bridges. A
-native adapter must connect the implemented HIP-76/77 and HNSR requester/opaque
-relay state machines to its established Brontide runtime and authenticated
-rollback-resistant storage. Platform-owned `BrowserRuntime` integrations use a
-borrowed `PrivateTransportAuthority` view rather than a second engine runtime.
+The shared private adapter layer now contains, and mobile/Chromium shells consume, source for
+request-surface wiring, validating ICANN DoH, origin TLS transport, native loopback listener and
+HTTP/TLS handling, local CA and exact-host leaf management, and browser platform bridges. This is
+source composition only: it has no installed-product or live-network qualification evidence.
+Still absent are P2P socket dialing or peer discovery, download/reorganization from a fork
+predating the current tip, durable restart checkpoints, authenticated authoritative DoH, a native
+Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter, HNSA engine integration,
+HIP-76/77 provider roles, and HNSR endpoint/rendezvous roles. A native network adapter must connect
+the implemented HIP-76/77 and HNSR requester/opaque-relay state machines to its established
+Brontide runtime and authenticated rollback-resistant storage. Platform-owned `BrowserRuntime`
+integrations use a borrowed `PrivateTransportAuthority` view rather than a second engine runtime.
 Header sync currently selects only among bounded candidates extending the same validated base.
 PKIX usages 0/1 intentionally have no WebPKI path. The legacy C resolution ABI still exposes the earlier
 single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI
@@ -329,4 +334,5 @@ v2/mobile integration. The provider-authority consumer ABI can carry a context
 already minted by trusted Rust, but pure-C namespace decisions, authenticated
 contexts, strict completions, and ICANN authenticator integration remain
 unavailable. Raw caller-constructible allow fields are intentionally not
-exported as a substitute. No platform product enables this provider path yet.
+exported as a substitute. No installed product has qualification evidence establishing this
+provider path, and release availability remains disabled.
