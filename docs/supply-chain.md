@@ -66,8 +66,11 @@ Then run the complete gate:
 
 All Cargo compilation, test, lint, and release-build steps in that gate use
 `--locked --offline`. The source-policy tests and metadata check run before
-compilation. Qualification also repeats in an independent clone with no
-sibling `hns-rs` directory.
+compilation. After the workspace build, the gate creates and inspects all 19
+normalized source archives without compiling them again. Cargo's real publish
+dry-runs remain isolated in the exact-commit manual workflow documented in
+[`releasing.md`](releasing.md). Qualification also repeats in an independent
+clone with no sibling `hns-rs` directory.
 
 The dual Git-and-version dependency model supports deterministic Git checkout
 builds and crates.io normalization. The compatible `hns-rs` version must

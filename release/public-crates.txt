@@ -1,0 +1,20 @@
+# crates.io publication order. Keep one package per line.
+hns-dns-wire
+hns-browser-runtime
+hns-icann-dane
+hns-namespace-resolution
+hns-resolution-policy
+hns-light-chain
+hns-dane
+hns-dnssec
+hns-gateway
+hns-cache
+hns-light-p2p
+hns-light-sync
+hns-transport
+hns-resolver
+hns-browser-observability
+hns-p2p-transport
+hns-dane-engine
+hns-dane-engine-ffi
+hns-loopback-proxy

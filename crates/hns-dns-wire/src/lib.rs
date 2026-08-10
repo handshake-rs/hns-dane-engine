@@ -1527,11 +1527,11 @@ mod tests {
 
     #[test]
     fn pinned_fixture_corpus_matches_parser_contract() {
-        let query_wire = decode_hex(include_str!("../../../fixtures/dns/basic-query.hex"));
+        let query_wire = decode_hex(include_str!("../fixtures/dns/basic-query.hex"));
         let response_wire = decode_hex(include_str!(
-            "../../../fixtures/dns/compressed-a-response-ad.hex"
+            "../fixtures/dns/compressed-a-response-ad.hex"
         ));
-        let tlsa_wire = decode_hex(include_str!("../../../fixtures/dns/tlsa-response.hex"));
+        let tlsa_wire = decode_hex(include_str!("../fixtures/dns/tlsa-response.hex"));
         let query = Query::parse(&query_wire, ParseLimits::requester()).unwrap();
         let response = Message::parse(&response_wire).unwrap();
         assert!(query.correlate(&response).unwrap().untrusted_ad_claim());
@@ -1540,12 +1540,12 @@ mod tests {
         assert!(matches!(tlsa.answers[0].rdata, Rdata::Tlsa(_)));
 
         let self_loop = decode_hex(include_str!(
-            "../../../fixtures/dns/mutation-compression-self-loop.hex"
+            "../fixtures/dns/mutation-compression-self-loop.hex"
         ));
         assert_eq!(Message::parse(&self_loop), Err(Error::ForwardPointer));
 
         let out_of_bounds = decode_hex(include_str!(
-            "../../../fixtures/dns/mutation-pointer-out-of-bounds.hex"
+            "../fixtures/dns/mutation-pointer-out-of-bounds.hex"
         ));
         assert_eq!(
             Message::parse(&out_of_bounds),
@@ -1553,7 +1553,7 @@ mod tests {
         );
 
         let count_bomb = decode_hex(include_str!(
-            "../../../fixtures/dns/mutation-count-bomb.hex"
+            "../fixtures/dns/mutation-count-bomb.hex"
         ));
         assert_eq!(
             Message::parse_with_limits(&count_bomb, ParseLimits::requester()),

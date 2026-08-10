@@ -1939,7 +1939,7 @@ mod tests {
         );
 
         let certificate = decode_hex(include_str!(
-            "../../../fixtures/dane/self-signed-cert.der.hex"
+            "../fixtures/dane/self-signed-cert.der.hex"
         ));
         let query = Query::new(
             0x2345,

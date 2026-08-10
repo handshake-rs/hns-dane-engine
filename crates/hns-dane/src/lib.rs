@@ -919,13 +919,13 @@ mod tests {
 
     fn certificate() -> Vec<u8> {
         decode_hex(include_str!(
-            "../../../fixtures/dane/self-signed-cert.der.hex"
+            "../fixtures/dane/self-signed-cert.der.hex"
         ))
     }
 
     fn expected_spki() -> Vec<u8> {
         decode_hex(include_str!(
-            "../../../fixtures/dane/self-signed-spki.der.hex"
+            "../fixtures/dane/self-signed-spki.der.hex"
         ))
     }
 

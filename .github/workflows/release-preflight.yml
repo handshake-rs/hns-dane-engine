@@ -1,0 +1,44 @@
+name: Release preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: Exact 40-character engine release commit already qualified by CI
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preflight-${{ inputs.expected_commit }}
+  cancel-in-progress: false
+
+jobs:
+  normalized-publish-dry-run:
+    name: All crates.io package dry-runs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out the exact qualified commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.expected_commit }}
+          persist-credentials: false
+
+      - name: Verify the requested commit
+        env:
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          if ! printf '%s\n' "$EXPECTED_COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "expected_commit must be one lowercase 40-character Git SHA" >&2
+            exit 2
+          fi
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+
+      - name: Install declared Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal
+
+      - name: Verify every normalized crates.io package
+        run: ./scripts/publish.sh --dry-run
