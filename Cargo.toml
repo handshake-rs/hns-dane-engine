@@ -5,6 +5,8 @@ members = [
     "crates/hns-dane-engine-ffi",
     "crates/hns-browser-observability",
     "crates/hns-browser-chain",
+    "crates/hns-browser-dane",
+    "crates/hns-browser-dnssec",
     "crates/hns-browser-p2p",
     "crates/hns-browser-primitives",
     "crates/hns-browser-runtime",
@@ -40,6 +42,8 @@ categories = ["cryptography", "network-programming", "web-programming"]
 [workspace.dependencies]
 hns-browser-observability = { version = "0.2.0", path = "crates/hns-browser-observability" }
 hns-browser-chain = { version = "0.2.0", path = "crates/hns-browser-chain" }
+hns-browser-dane = { version = "0.2.0", path = "crates/hns-browser-dane" }
+hns-browser-dnssec = { version = "0.2.0", path = "crates/hns-browser-dnssec" }
 hns-browser-p2p = { version = "0.2.0", path = "crates/hns-browser-p2p" }
 hns-browser-primitives = { version = "0.2.0", path = "crates/hns-browser-primitives" }
 hns-browser-runtime = { version = "0.2.0", path = "crates/hns-browser-runtime" }

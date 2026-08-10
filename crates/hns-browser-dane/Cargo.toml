@@ -1,0 +1,16 @@
+[package]
+name = "hns-browser-dane"
+description = "Strict browser-adapter DANE validation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file = "../../LICENSE-POLYFORM-NONCOMMERCIAL"
+repository.workspace = true
+publish = false
+
+[dependencies]
+hns-core.workspace = true
+hns-dnssec = { package = "hns-browser-dnssec", version = "0.2.0", path = "../hns-browser-dnssec" }
+hns-urkel.workspace = true
+sha2 = "0.10.9"
+thiserror = "2.0.19"

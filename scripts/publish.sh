@@ -133,6 +133,8 @@ dry_run_with_local_dependencies() {
 
 assert_private hns-browser-testkit
 assert_private hns-browser-chain
+assert_private hns-browser-dane
+assert_private hns-browser-dnssec
 assert_private hns-browser-p2p
 assert_private hns-browser-primitives
 assert_private hns-browser-urkel

@@ -19,6 +19,7 @@ hns-browser-observability ---------------------------------------------+   hns-d
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
 hns-browser-chain - - - durable browser header-store consolidation - -+
+hns-browser-dnssec ---> hns-browser-dane - strict adapter consolidation+
 hns-browser-p2p - - - bounded browser peer/relay consolidation - - - -+
 hns-browser-primitives - - temporary product-adapter consolidation - -+
 hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
@@ -203,6 +204,10 @@ entries before returning them; metrics contain only counts and byte totals.
 SQLite header state into `hns-light-chain`. It validates proof of work, difficulty transitions,
 checkpoints, chainwork selection, reorg publication, and restart snapshots before exposing a
 canonical tip; persisted or peer-claimed heights alone never authorize name state.
+`hns-browser-dnssec` and `hns-browser-dane` centralize the products' strict legacy validation APIs
+while callers migrate to the engine 0.2 validators. They fail closed on malformed or unauthenticated
+DNSSEC material, require locally matched TLSA for HNS HTTPS, and intentionally expose no HNS-to-
+WebPKI compatibility mode.
 `hns-browser-p2p` is the unpublished socket/session adapter used while products migrate to
 `hns-light-p2p` and `hns-p2p-transport`. It bounds framing, handshakes, requests, advisory traffic,
 relay retries, discovery persistence, and peer penalties. Peer service flags and claimed heights
