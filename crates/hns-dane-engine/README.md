@@ -8,6 +8,18 @@ query correlation, locally verified evidence, certificate matching, and
 structured provenance. Native adapters own platform I/O and persistence; they
 cannot substitute transport assertions for local validation.
 
+Runtime-independent describes those state and I/O contracts, not a
+native-library-free dependency graph. This full facade depends on public
+`hns-dane` and, through `hns-resolver`, public `hns-dnssec`; both link OpenSSL.
+Android and Apple consumers must provide or cross-build OpenSSL for the exact
+target and qualify the resulting complete facade linkage. Current repository
+CI exercises `mobile` feature configurations only for the private
+`hns-browser-gateway`, `hns-browser-loopback-proxy`, and
+`hns-browser-transport` adapters on Ubuntu. It does not cross-build this facade
+for Android or Apple. Until a full-facade target is qualified, mobile shells
+should pin and consume the exact mobile-safe private adapter contracts they
+actually integrate.
+
 Chromium and mobile integrations that already own the canonical
 `BrowserRuntime` use `PrivateTransportAuthority::new(&mut runtime, network,
 policy)` to start, restore, and validate ODoH and HNSR roles without creating a
@@ -18,6 +30,15 @@ routing and acknowledgement, disconnect cleanup, and checksummed snapshots.
 The platform still owns Brontide I/O and atomic authenticated storage. No
 endpoint, rendezvous, plaintext output, or inferred live-adapter availability
 is exposed by these runtime seams.
+
+The HNSA selector and HNSR requester/opaque-relay cores described here are
+implemented, but no reviewed mobile-safe authority boundary currently exposes
+them across a platform bridge. Such a boundary must preserve the non-forgeable
+`VerifiedHnsResource`, the one `BrowserRuntime` and requester authority,
+authenticated rollback-resistant state and floors, and trusted-time checks;
+JNI, C, Swift, or UI code must not reconstruct those authorities. This mobile
+integration boundary is remaining platform work, not an absence of the Rust
+core capabilities.
 
 `Engine::verify_and_select_hnsa_named_routes` accepts only a non-forgeable
 `VerifiedHnsResource` and one complete response of at most 16 encoded records.

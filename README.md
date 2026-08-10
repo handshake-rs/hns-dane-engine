@@ -91,7 +91,24 @@
   DANE/WebPKI/fail-closed action;
 - a reusable browser testkit that constructs and verifies a mined regtest header, committed Urkel
   name proof, HNS DS/DNSKEY authority, signed TLSA response, and exact-certificate DANE path; and
-- a versioned Rust facade and C ABI suitable for Android, Apple, and native-host adapters.
+- a versioned Rust facade and C ABI that define adapter-facing contracts for
+  Android, Apple, and native hosts, subject to the platform linkage boundary
+  below.
+
+Runtime-independent describes the engine's state machines, authority checks,
+and injected-I/O boundary; it does not mean that the complete public facade is
+free of native-library requirements. The direct `hns-dane-engine` dependency
+graph includes public `hns-dane` and, through `hns-resolver`, public
+`hns-dnssec`; both cryptographic implementations link OpenSSL. An Android or
+Apple host that links the full facade must provide or cross-build OpenSSL for
+the exact target and qualify that complete target linkage. The repository's
+current `mobile` CI configurations exercise only the private
+`hns-browser-gateway`, `hns-browser-loopback-proxy`, and
+`hns-browser-transport` adapter crates on the Ubuntu host target; they are not
+Android/Apple cross-build evidence for the facade. Until that qualification
+exists, a mobile shell should pin and consume the exact mobile-safe private
+adapter contracts it integrates rather than treat `hns-dane-engine` as a
+turnkey mobile library.
 
 The policy transport order is direct delegated-authoritative UDP, direct
 delegated-authoritative TCP, optional authenticated authoritative DoH,
@@ -239,7 +256,12 @@ source is a production-continuation boundary, not a qualified installed
 product. Mobile and Chromium shells now consume the shared request, validating-DoH,
 origin-transport, listener/HTTP/TLS, and local-CA building blocks, but that
 source-level integration has no installed-product or live-network qualification
-evidence and does not establish provider availability. The source-only
+evidence and does not establish provider availability. The HNSA selector and
+HNSR requester/opaque-relay cores are implemented, but exposing them to a
+mobile shell still requires a reviewed mobile-safe authority boundary that
+preserves the non-forgeable verified resource, the single runtime/requester
+authority, authenticated rollback-resistant state and floors, and trusted-time
+checks across the platform bridge. The source-only
 provider-authority consumer ABI can retain and inspect a context moved from
 trusted Rust, but cannot create one from C. Pure-C authority minting, a native
 Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,

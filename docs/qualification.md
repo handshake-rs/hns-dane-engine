@@ -8,9 +8,11 @@ on 2026-08-10. Its successful `Standalone engine qualification` job ran the
 source-policy and locked-metadata checks, `cargo-deny`, formatting, tests,
 doctests, strict Clippy, and release builds for the default Chromium workspace;
 the corresponding test, doctest, Clippy, and release-build commands for the
-three exclusive mobile adapter configurations; the exact C-header comparison
-and smoke compile; the release validator and execute-argument guards; and the
-archive-only inspection of all 19 public packages. The same exact source
+three exclusive `mobile` feature configurations of the private adapter crates
+on the Ubuntu host target; the exact C-header comparison and smoke compile;
+the release validator and execute-argument guards; and the archive-only
+inspection of all 19 public packages. Those adapter checks did not cross-build
+the public `hns-dane-engine` facade for Android or Apple. The same exact source
 passed the Actions, C/C++, Python, and Rust CodeQL matrices in
 [`31400453827`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31400453827).
 The separately dispatched credential-free workflow then ran every real
@@ -54,14 +56,19 @@ inner sessions, platform rollback-resistant persistence, provider
 availability, wallet/value operations, or a marketplace.
 
 The `scripts/check.sh` gate runs the default Chromium workspace gate and
-then separately checks the mobile-only configurations of
+then separately checks the host-target `mobile` feature configurations of
 `hns-browser-gateway`, `hns-browser-loopback-proxy`, and
-`hns-browser-transport`. Those crates deliberately require exactly one platform
-feature, so a workspace-wide `--all-features` invocation is invalid rather than
-stronger coverage. It now finishes with the release validator, execute-argument
-guards, and an archive-only inspection of all 19 public packages. Cargo's real
-publish dry-runs run separately in the exact-commit workflow documented in
-[`releasing.md`](releasing.md).
+`hns-browser-transport`. Those three crates are private adapter packages, not
+the public `hns-dane-engine` facade. The facade's direct dependency graph
+includes public `hns-dane` and, through `hns-resolver`, public `hns-dnssec`;
+both link OpenSSL. A complete Android or Apple facade integration therefore
+must provide or cross-build OpenSSL for its target and run a separate
+cross-target qualification. The private adapters deliberately require exactly
+one platform feature, so a workspace-wide `--all-features` invocation is
+invalid rather than stronger coverage. The gate finishes with the release
+validator, execute-argument guards, and an archive-only inspection of all 19
+public packages. Cargo's real publish dry-runs run separately in the
+exact-commit workflow documented in [`releasing.md`](releasing.md).
 
 ## Historical v0.1 evidence
 
@@ -396,7 +403,11 @@ products:
 - mobile and Chromium shells consume those shared packages at source level,
   but no installed-product or live-network evidence establishes provider
   availability. The exact source qualification and 19-crate preflight do not
-  establish installed-product behavior.
+  establish installed-product behavior;
+- the current mobile shell should pin and consume only the exact mobile-safe
+  private adapter contracts it integrates. The host-target `mobile` feature
+  checks do not qualify turnkey linkage of the public facade on Android or
+  Apple.
 
 Still absent or unevidenced:
 
@@ -416,6 +427,11 @@ Still absent or unevidenced:
   `HnsaNamedRouteState` with resource/profile generation and trusted-time state,
   HNSA live routing and endpoint-authenticated inner sessions, and HNSR
   endpoint/rendezvous roles;
+- a reviewed mobile-safe HNSA/HNSR authority boundary that carries the
+  non-forgeable verified resource, the single runtime/requester authority,
+  authenticated rollback-resistant state and floors, and trusted-time checks
+  across the platform bridge without allowing native or UI code to reconstruct
+  them (the selector and requester/opaque-relay Rust cores already exist);
 - qualified atomic authenticated rollback-resistant ODoH target-cache and HNSR
   snapshot/floor writes, durable platform preferences, and restart evidence;
 - pure-C namespace/context authority minting (the authorized-only consumer ABI
@@ -434,11 +450,12 @@ context, inspect its immutable bindings, copy its bounded host, check engine
 currentness, and destroy it, but cannot mint authority from C. Its two focused
 Rust ABI regressions passed in the August 3 continuation. The exact dated
 `2b23bd5` gate passed full workspace tests, doctests, strict all-target Clippy,
-optimized workspace builds, the separate mobile configurations, the C-header
-comparison and smoke compile, and the archive-only package inspections in the
-routine gate. The separate 19-crate manual preflight also passed for that exact
-commit. Benchmarks were not run, and no qualification result is inherited by a
-successor commit.
+optimized workspace builds, the three private adapters' host-target `mobile`
+feature configurations, the C-header comparison and smoke compile, and the
+archive-only package inspections in the routine gate. It did not cross-build
+the OpenSSL-linked public facade for Android or Apple. The separate 19-crate
+manual preflight also passed for that exact commit. Benchmarks were not run,
+and no qualification result is inherited by a successor commit.
 No installed-product or live-network evidence has been recorded, platform
 provider availability remains disabled, and no wallet/value/marketplace path is
 qualified. This repository therefore does not claim that the complete browser
