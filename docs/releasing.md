@@ -63,13 +63,30 @@ routine gate.
 
 ## Upstream protocol gate
 
-This source consumes `hns-rs` `0.2.0` at publication-preparation revision
-`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. Before any engine upload,
+This source consumes `hns-rs` `0.2.0` at final dated release-source revision
+`b24b66c382de53330ec21dd3137e056a2bea3e2d`. Before any engine upload,
 execute mode downloads all 17 protocol packages and requires every
 `.cargo_vcs_info.json` to identify that exact clean source revision. If the
-protocol release is prepared or published from a later commit, stop and repin
+protocol release is published from a later commit, stop and repin
 the engine manifest, lockfile, release script, validator, and documentation to
 the actual published commit before qualifying the engine release.
+
+The pinned protocol source passed exact CI run
+[`31398600728`](https://github.com/handshake-rs/hns-rs/actions/runs/31398600728),
+CodeQL run
+[`31398598588`](https://github.com/handshake-rs/hns-rs/actions/runs/31398598588),
+and the 17-package credential-free release preflight in
+[`31399004538`](https://github.com/handshake-rs/hns-rs/actions/runs/31399004538).
+This is upstream dependency evidence and does not satisfy any engine gate.
+
+Intermediate engine commit `97cbeb2b4e83d603af757f903391c719b29bf429`,
+which still pinned protocol preparation source
+`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`, passed exact-source CI run
+[`31397210853`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397210853)
+and CodeQL run
+[`31397207768`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397207768).
+Those runs are historical evidence, not qualification inherited by this dated
+source, and they did not replace the manual 19-crate publish preflight.
 
 ## Release procedure
 
@@ -100,15 +117,17 @@ the actual published commit before qualifying the engine release.
 3. Inspect and commit the exact release source. Execute mode requires a clean
    worktree whose HEAD resolves to one exact 40-character Git commit.
 
-4. Qualify that exact commit with the complete locked gate, preferably in CI
-   after an authorized push:
+4. Qualify that exact commit with both the complete locked CI gate and the
+   repository's CodeQL workflow after an authorized push:
 
    ```bash
    ./scripts/check.sh
    ```
 
    Routine qualification runs one archive-only packaging pass after the normal
-   workspace checks; it does not repeat 19 normalized package builds.
+   workspace checks; it does not repeat 19 normalized package builds. Confirm
+   that CI and every configured CodeQL language completed successfully for the
+   same exact commit before continuing.
 
 5. After routine CI succeeds for the exact candidate, manually dispatch
    [`.github/workflows/release-preflight.yml`](../.github/workflows/release-preflight.yml)

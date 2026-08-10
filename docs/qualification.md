@@ -1,39 +1,50 @@
 # Foundation qualification
 
-The exact unreleased 0.2 source at
-`84005f1df21a30ea9dda7fafb95f9488b8f5da4b` passed the complete locked
+The exact intermediate 0.2 publication-preparation source at
+`97cbeb2b4e83d603af757f903391c719b29bf429` passed the complete locked
 `scripts/check.sh` gate in GitHub Actions
-[`31372280327`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31372280327)
+[`31397210853`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397210853)
 on 2026-08-10. Its successful `Standalone engine qualification` job ran the
 source-policy and locked-metadata checks, `cargo-deny`, formatting, tests,
 doctests, strict Clippy, and release builds for the default Chromium workspace;
 the corresponding test, doctest, Clippy, and release-build commands for the
 three exclusive mobile adapter configurations; the exact C-header comparison
-and smoke compile; and every public-package publish dry-run implemented at that
-commit. This covered the ODoH requester and HNSR requester/opaque-relay state
-machines, the focused HNSA batch-selection/direct-open tests, the `hns-rs`
-repin, and the shared platform-adapter consolidation present at `84005f1`.
+and smoke compile; the release validator and execute-argument guards; and the
+archive-only inspection of all 19 public packages. The same exact source
+passed the Actions, C/C++, Python, and Rust CodeQL matrices in
+[`31397207768`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397207768).
 
-This is deterministic engine-source evidence, not installed-platform or
-live-network evidence. It did not execute a benchmark, native Brontide or live
-Denuo/HIP-76/HIP-77/HNSR I/O, HNSA directory discovery or inner sessions,
-platform rollback-resistant persistence, provider availability, wallet/value
-operations, or a marketplace. It neither published crates nor created a tag.
+That intermediate source included the canonical workspace 0.2 adapter type
+identities, hardened release tooling, and the `hns-rs` publication-preparation
+pin at `abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. An earlier feature snapshot
+at `84005f1df21a30ea9dda7fafb95f9488b8f5da4b` separately passed the complete
+locked gate in
+[`31372280327`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31372280327).
+Both are historical, exact-commit source evidence; neither run published a
+crate, created a tag, or performed the separate manual 19-crate publish
+preflight.
 
-The current branch has moved beyond that qualified snapshot. Commit
-`636ed462c271e9502915c217c3d6ea77ba077756` removed duplicate crates.io 0.1
-adapter dependencies and gave the private gateway, resolver, and transport
-adapters the canonical workspace 0.2 `hns-icann-dane` and
-`hns-namespace-resolution` type identities. Commit
-`e8f5d24a3ef593730f73818608364a173449d485` then replaced the routine repeated
-publish builds with a validated 19-crate archive-only gate and added an
-exact-commit, credential-free manual workflow for the real publish dry-runs.
-Those commits and this documentation reconciliation postdate run `31372280327`.
-The next release candidate must pass a new exact-commit `scripts/check.sh` run
-and the manual release preflight; this document does not qualify `e8f5d24` or
-the current HEAD by inheritance.
+The dated 0.2 release source repins the fourteen-package protocol closure to
+final dated `hns-rs` source
+`b24b66c382de53330ec21dd3137e056a2bea3e2d`. Qualification does not transfer
+across commits. That exact upstream protocol source passed CI run
+[`31398600728`](https://github.com/handshake-rs/hns-rs/actions/runs/31398600728),
+the Actions, JavaScript/TypeScript, Python, and Rust CodeQL matrices in
+[`31398598588`](https://github.com/handshake-rs/hns-rs/actions/runs/31398598588),
+and the credential-free 17-package release preflight in
+[`31399004538`](https://github.com/handshake-rs/hns-rs/actions/runs/31399004538).
+Those results qualify the pinned dependency source, not this engine commit.
+Engine release acceptance requires successful CI and every configured CodeQL
+language for the exact dated engine commit, followed by the credential-free
+exact-commit manual preflight for all 19 public crates.
 
-The current `scripts/check.sh` runs the default Chromium workspace gate and
+This remains deterministic engine-source evidence, not installed-platform or
+live-network evidence. It does not establish benchmark results, native
+Brontide or live Denuo/HIP-76/HIP-77/HNSR I/O, HNSA directory discovery or
+inner sessions, platform rollback-resistant persistence, provider
+availability, wallet/value operations, or a marketplace.
+
+The `scripts/check.sh` gate runs the default Chromium workspace gate and
 then separately checks the mobile-only configurations of
 `hns-browser-gateway`, `hns-browser-loopback-proxy`, and
 `hns-browser-transport`. Those crates deliberately require exactly one platform
@@ -144,25 +155,25 @@ capacity exhaustion, state advancement without a usable route, direct
 named-route open, node-only raw-open enforcement, and external/engine
 invalidation boundaries. They do not qualify directory discovery,
 response-completeness or quorum policy, live network execution, authenticated
-platform persistence, or mobile/Chromium products. The later exact `84005f1`
+platform persistence, or mobile/Chromium products. The later exact `97cbeb2`
 gate covered this source as part of the complete workspace qualification; it
 still did not make those platform capabilities or the 0.2 release available.
 
 The requester-only ODoH lifecycle, status, revocation, and signed-target cache
 continuation was added after the August 3 ABI command. Its source tests are
-covered by the exact `84005f1` full gate. Live adapter and installed-product
-qualification have not run.
+covered by the exact `97cbeb2` intermediate full gate. Live adapter and
+installed-product qualification have not run.
 
 The first locked invocation stopped before compilation because the workspace
 lockfile still carried a stale `hns-loopback-proxy` dependency list. The same
 focused command regenerated that local-package stanza offline; the corrected
 lockfile is committed with this continuation.
 
-Recorded foundation coverage and current source status:
+Recorded foundation coverage and dated source status:
 
 - independently cloneable Cargo resolution with eleven reviewed direct
   `hns-rs` packages and the exact fourteen-package locked closure at
-  `b33b346780c8f6a9bb18a54390019486cdab0221`; rejection of mutable or
+  `b24b66c382de53330ec21dd3137e056a2bea3e2d`; rejection of mutable or
   noncanonical Git sources, aliases, unreviewed consumers/packages, lock
   drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;
@@ -188,7 +199,8 @@ Recorded foundation coverage and current source status:
   query/policy/root/configuration-bound decision and decision-derived cache fingerprints,
   including rejection of a silent switch away from an authentically absent pinned or persistently
   bound root;
-- 0.2 source and test cases covered by the exact `84005f1` gate for HTTPS-only
+- 0.2 source and test cases covered by the exact intermediate `97cbeb2` gate
+  for HTTPS-only
   logical-origin derivation; private decision/authentication contexts;
   exact-request opaque ICANN adapter tokens; strict HNS completion binding
   across URL/service ports, canonical TLSA, network, proof anchor, and
@@ -264,7 +276,8 @@ Recorded foundation coverage and current source status:
   distinct proxy/target enforcement; fixed-bucket outer padding; local HPKE seal/open; qname
   non-disclosure to the proxy; exact DNS parsing/correlation; mutated ciphertext rejection; and
   gateway failure classification;
-- 0.2 source covered by the exact `84005f1` gate for an engine-admitted,
+- 0.2 source covered by the exact intermediate `97cbeb2` gate for an
+  engine-admitted,
   requester-only ODoH runtime:
   exact runtime session/generation/invalidation/policy/network binding;
   canonical network/genesis/registry/negotiation proxy admission; exact
@@ -279,7 +292,7 @@ Recorded foundation coverage and current source status:
   checksummed schema-3 restart encoding, caller-held generation-floor
   enforcement, signature/network/locator/configuration/sequence/lifetime
   revalidation, and permanently unavailable proxy/target provider roles;
-- 0.2 source covered by the exact `84005f1` gate for canonical
+- 0.2 source covered by the exact intermediate `97cbeb2` gate for canonical
   GETCONFIG/CONFIG acquisition and the HNSR requester/opaque-relay adapter:
   borrowed consumption of the one
   platform-owned `BrowserRuntime`; exact Denuo V1 outer-peer, connection,
@@ -289,7 +302,7 @@ Recorded foundation coverage and current source status:
   replacement/revocation; nested checksummed snapshots with caller-held
   generation and trusted-time floors; no restored live state; and permanently
   unavailable endpoint, rendezvous, plaintext, and transport-adapter fields;
-- 0.2 source covered by the exact `84005f1` gate for bounded HNSA batch
+- 0.2 source covered by the exact intermediate `97cbeb2` gate for bounded HNSA batch
   verification and conflict-safe greatest authorization/delegation/per-endpoint
   route selection from a
   non-forgeable current HNS resource; one bounded checksummed
@@ -358,7 +371,8 @@ Recorded foundation coverage and current source status:
   and panic containment; and
 - positive pinned vectors plus mutation-derived negatives.
 
-Qualified as deterministic source at `84005f1`, but not as installed products:
+Qualified as deterministic intermediate source at `97cbeb2`, but not as
+installed products:
 
 - private mobile/Chromium adapter packages provide request-surface wiring,
   validating ICANN DoH, origin TLS transport, native loopback listener and
@@ -366,9 +380,8 @@ Qualified as deterministic source at `84005f1`, but not as installed products:
   platform bridges;
 - mobile and Chromium shells consume those shared packages at source level,
   but no installed-product or live-network evidence establishes provider
-  availability. The canonical 0.2 adapter type-identity correction and current
-  release tooling postdate the recorded gate and require a new exact-commit
-  qualification run.
+  availability. The dated release source has a separate exact-head CI,
+  CodeQL, and 19-crate release-preflight acceptance boundary.
 
 Still absent or unevidenced:
 
@@ -405,12 +418,13 @@ contexts. The source-only consumer ABI can retain an authorized Rust provider
 context, inspect its immutable bindings, copy its bounded host, check engine
 currentness, and destroy it, but cannot mint authority from C. Its two focused
 Rust ABI regressions passed in the August 3 continuation. The later exact
-`84005f1` gate passed full workspace tests, doctests, strict all-target Clippy,
+`97cbeb2` intermediate gate passed full workspace tests, doctests, strict
+all-target Clippy,
 optimized workspace builds, the separate mobile configurations, the C-header
-comparison and smoke compile, and the package dry-runs then in the routine
-gate. Benchmarks were not run. The canonical 0.2 adapter type-identity fix,
-hardened release checks, and current documentation are newer than that
-evidence, so current HEAD still requires both exact-commit qualification gates.
+comparison and smoke compile, and the archive-only package inspections in the
+routine gate. Benchmarks were not run. The dated release source is accepted
+only after exact-head CI and CodeQL plus the separate 19-crate manual preflight;
+no intermediate result is inherited across commits.
 No installed-product or live-network evidence has been recorded, platform
 provider availability remains disabled, and no wallet/value/marketplace path is
 qualified. This repository therefore does not claim that the complete browser

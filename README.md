@@ -185,7 +185,7 @@ exact publication; the engine deliberately does not retain an unbounded per-orig
 
 The repository is a standalone Cargo checkout. Its eleven direct `hns-rs`
 packages inherit one canonical Git source pinned to commit
-`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2` and declare compatible crates.io
+`b24b66c382de53330ec21dd3137e056a2bea3e2d` and declare compatible crates.io
 version `0.2.0`; the lockfile binds those packages and the three-package
 transitive closure to the same revision. No sibling `hns-rs` checkout is
 required. Cargo preserves the version requirements when packaging and removes
@@ -209,23 +209,25 @@ compatibility inputs, exact coverage, and remaining work.
 
 ## Qualification status
 
-The exact source at commit
-`84005f1df21a30ea9dda7fafb95f9488b8f5da4b` passed the complete locked
-`scripts/check.sh` source gate in GitHub Actions run
-[`31372280327`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31372280327).
-That gate covered the default Chromium workspace, the separate mobile feature
-configurations, the ODoH requester and HNSR requester/opaque-relay state
-machines, HNSA batch selection/direct-open tests, strict Clippy, the release
-build, the C-header smoke test, and all public-package publish dry-runs present
-at that commit.
+The exact intermediate publication-preparation source at
+`97cbeb2b4e83d603af757f903391c719b29bf429` passed the complete locked
+`scripts/check.sh` source gate in GitHub Actions
+[`31397210853`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397210853)
+and the Actions, C/C++, Python, and Rust CodeQL matrices in
+[`31397207768`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397207768).
+That source included the canonical 0.2 adapter type identities, hardened
+19-crate archive validation, and the intermediate `hns-rs` pin at
+`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. It was not published or tagged,
+and its routine gate did not replace the manual 19-crate publish preflight.
 
-That evidence applies to `84005f1`, not to every later commit. The canonical
-0.2 adapter type-identity correction in `636ed462c271e9502915c217c3d6ea77ba077756`
-and the hardened release tooling in
-`e8f5d24a3ef593730f73818608364a173449d485` both postdate the successful run.
-The current release candidate therefore requires a new exact-commit
-`scripts/check.sh` run and the separate exact-commit preflight described in the
-[`release guide`](docs/releasing.md); it has not been published or tagged.
+The dated 0.2 release source pins the final protocol source at
+`b24b66c382de53330ec21dd3137e056a2bea3e2d`. Qualification is commit-scoped, so
+the `97cbeb2` results are not inherited by that source. The pinned protocol
+commit passed its own exact CI, CodeQL, and 17-package release preflight; those
+upstream results likewise do not replace the engine gates. Engine release
+acceptance requires successful exact-head CI and CodeQL runs plus the
+credential-free manual preflight for all 19 public crates described in the
+[`release guide`](docs/releasing.md).
 
 The provider-authority, loopback-publication, and shared platform-adapter Rust
 source is a production-continuation boundary, not a qualified installed

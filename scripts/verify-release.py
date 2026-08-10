@@ -16,7 +16,7 @@ import verify_cargo_source_policy
 
 REPOSITORY = "https://github.com/handshake-rs/hns-dane-engine"
 PROTOCOL_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-PROTOCOL_REVISION = "abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2"
+PROTOCOL_REVISION = "b24b66c382de53330ec21dd3137e056a2bea3e2d"
 PROTOCOL_VERSION = "=0.2.0"
 PROTOCOL_PUBLIC_PACKAGES = (
     "hns-encoding",

@@ -3,33 +3,42 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
-## 0.2.0 - Unreleased
+## 0.2.0 - 2026-08-10
 
-- Re-pinned every direct, locked, source-policy, publication, and provenance
-  reference to the latest `hns-rs` 0.2.0 publication-preparation commit
-  `abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. The public Rust implementation
-  is unchanged from the qualified feature revision; the later upstream commits
-  update package metadata and harden dependency-ordered archive publication.
-  Engine publication still requires those exact 17 upstream archives, a repin
-  if the dated protocol release source advances, and a fresh exact-source
-  engine gate.
+- Finalized every direct, locked, source-policy, publication, and current
+  provenance reference on the dated `hns-rs` 0.2.0 release source
+  `b24b66c382de53330ec21dd3137e056a2bea3e2d`. The manifest and lockfile retain
+  one immutable source for the eleven direct and fourteen locked protocol
+  packages, and execute mode verifies all 17 upstream release archives against
+  that same clean source before any engine upload. The exact protocol source
+  passed upstream CI run `31398600728`, CodeQL run `31398598588`, and the
+  17-package release preflight in run `31399004538`; those upstream results do
+  not replace the engine's own exact-commit gates.
+- Recorded the immediately preceding publication-preparation source at engine
+  commit `97cbeb2b4e83d603af757f903391c719b29bf429`, which pinned `hns-rs` commit
+  `abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. It passed the complete locked CI
+  gate in run `31397210853` and all configured CodeQL languages in run
+  `31397207768`. Those exact-commit results are intermediate evidence and are
+  not inherited by the separately committed dated source; the routine run also
+  did not replace the manual 19-crate publish preflight.
 - Hardened the 19-crate publication path with a machine-readable allowlist,
   source-package inventory and VCS checks, synchronized per-crate licenses and
   changelogs, exact upstream `hns-rs` archive verification, explicit
   version/date/clean-tree confirmation for uploads, checksum-and-VCS-verified
   resume behavior, and an exact-commit credential-free Actions workflow for
-  real `cargo publish --dry-run` checks. Routine qualification now uses the
-  non-compiling archive-only path. This tooling was added after the qualified
-  `84005f1` snapshot and still requires an exact current-candidate gate; it has
-  not uploaded or tagged anything.
+  real `cargo publish --dry-run` checks. Routine qualification uses the
+  non-compiling archive-only path. The intermediate exact-source run exercised
+  that routine path; release acceptance requires exact-head CI and CodeQL plus
+  the separate all-19-crate preflight. Nothing here uploads or tags a release.
 - Unified the private browser gateway, resolver, and transport adapters on the
   workspace's canonical `hns-icann-dane` and `hns-namespace-resolution` 0.2
   packages. This removes the duplicate published 0.1 identities from the
   lockfile so plans, decisions, and ICANN evidence have one Cargo type identity
-  across the engine and adapters. The correction postdates the qualified
-  `84005f1` snapshot and requires a new current-commit qualification run.
-- Qualified the exact unreleased source through commit
-  `84005f1df21a30ea9dda7fafb95f9488b8f5da4b` with the complete locked
+  across the engine and adapters. The correction was covered by the exact
+  intermediate `97cbeb2` CI and CodeQL runs; the dated source retains its own
+  exact-commit release acceptance boundary.
+- Earlier exact feature source
+  `84005f1df21a30ea9dda7fafb95f9488b8f5da4b` passed the complete locked
   `scripts/check.sh` gate in GitHub Actions run `31372280327`. The successful
   gate covered default Chromium and separate mobile feature configurations,
   the ODoH/HNSR/HNSA source and tests, strict Clippy, the release build, C
@@ -68,7 +77,7 @@ file. The public crates use a shared version and follow Semantic Versioning.
   authenticated rollback-resistant platform storage, relay liveness, and the
   endpoint-authenticated inner session remain outside this slice. Ten focused
   full-chain regtest tests passed, and the same source was later covered by the
-  exact `84005f1` full qualification gate.
+  exact intermediate `97cbeb2` full qualification gate.
 - Re-pinned the immutable eleven-package direct and fourteen-package locked
   `hns-rs` graph to canonical revision
   `b33b346780c8f6a9bb18a54390019486cdab0221`, which permits every nonzero HNSR
@@ -87,8 +96,9 @@ file. The public crates use a shared version and follow Semantic Versioning.
   and exposes endpoint, rendezvous, plaintext, and transport-adapter readiness
   as false. Requester and opaque relay remain default-on policy roles; endpoint
   and rendezvous are hard rejected on this runtime surface. The HNSR source and
-  tests were covered by the exact `84005f1` full qualification gate; no live
-  adapter or installed-product qualification follows from that result.
+  tests were covered by the exact intermediate `97cbeb2` full qualification
+  gate; no live adapter or installed-product qualification follows from that
+  result.
 - Added `PrivateTransportAuthority::new(&mut BrowserRuntime, Network,
   PolicySnapshot)` so platform shells can consume ODoH and HNSR without
   instantiating a second browser authority. Added canonical HIP-77
@@ -117,8 +127,8 @@ file. The public crates use a shared version and follow Semantic Versioning.
   peer, registry, deadline, correlation, and HPKE errors remain typed, and an
   engine change during adapter I/O discards the result. No ODoH proxy or target
   provider role is implemented or made available by this runtime. The ODoH
-  source and tests were covered by the exact `84005f1` full qualification gate;
-  no live adapter or provider role was qualified.
+  source and tests were covered by the exact intermediate `97cbeb2` full
+  qualification gate; no live adapter or provider role was qualified.
 - Enabled the new-policy HNSR requester/client default alongside the existing
   opaque HNSR relay, HIP-76/HIP-77 requester paths, and opaque ODoH proxy.
   Fresh policy now selects the bounded `Auto` wire profile so current Denuo

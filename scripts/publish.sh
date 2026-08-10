@@ -16,7 +16,7 @@ require_clean_archive_vcs=no
 package_mode='publish-dry-run'
 release_manifest=release/public-crates.txt
 protocol_repository=https://github.com/handshake-rs/hns-rs.git
-protocol_revision=abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2
+protocol_revision=b24b66c382de53330ec21dd3137e056a2bea3e2d
 protocol_version=0.2.0
 protocol_crates='hns-encoding hns-primitives hns-covenants hns-dns-relay-protocol hns-header-consensus hns-service-authority hns-odoh-protocol hns-p2p-experimental hns-urkel-proof hns-transaction hns-chat-protocol hns-hnsr-protocol hns-script hns-mining hns-swap hns-marketplace-protocol hns-p2p-wire'
 
