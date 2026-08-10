@@ -22,6 +22,7 @@ hns-browser-chain - - - durable browser header-store consolidation - -+
 hns-browser-dnssec ---> hns-browser-dane - strict adapter consolidation+
 hns-browser-p2p - - - bounded browser peer/relay consolidation - - - -+
 hns-browser-primitives - - temporary product-adapter consolidation - -+
+hns-browser-sync - - bounded browser header/proof synchronization - - -+
 hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
 hns-transport ---------------------------------------------------------+
 hns-p2p-transport -----------------------------------------------------+
@@ -212,6 +213,11 @@ WebPKI compatibility mode.
 `hns-light-p2p` and `hns-p2p-transport`. It bounds framing, handshakes, requests, advisory traffic,
 relay retries, discovery persistence, and peer penalties. Peer service flags and claimed heights
 remain untrusted inputs until the local chain and proof verifiers accept their results.
+`hns-browser-sync` is the unpublished orchestration adapter shared by the mobile and Chromium
+products while their callers migrate to `hns-light-sync`. It races a bounded peer set under finite
+deadlines, validates downloaded headers through the local chain, and stores name values only after
+exact-root Urkel verification. Resource persistence is supplied through a narrow sink so sync does
+not depend on or authorize either product's legacy resolver implementation.
 `hns-browser-primitives` is an unpublished consolidation boundary for the mobile and Chromium
 adapters while they move to the canonical `hns-rs` and engine 0.2 types. It owns the single shared
 implementation of their legacy header, DNS-wire, resource, proof-of-work, and network-policy

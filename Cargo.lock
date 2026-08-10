@@ -630,6 +630,17 @@ name = "hns-browser-runtime"
 version = "0.2.0"
 
 [[package]]
+name = "hns-browser-sync"
+version = "0.2.0"
+dependencies = [
+ "hns-browser-chain",
+ "hns-browser-p2p",
+ "hns-browser-primitives",
+ "hns-browser-urkel",
+ "thiserror",
+]
+
+[[package]]
 name = "hns-browser-testkit"
 version = "0.2.0"
 dependencies = [
