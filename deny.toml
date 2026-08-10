@@ -11,8 +11,12 @@ version = 2
 allow = [
     "Apache-2.0",
     "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
     "MIT",
+    "PolyForm-Noncommercial-1.0.0",
     "Unicode-3.0",
+    "Zlib",
 ]
 
 [bans]
