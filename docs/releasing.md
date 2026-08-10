@@ -41,8 +41,8 @@ the compatible version requirements.
 ## Private packages
 
 `hns-browser-testkit` is a development-only fixture package;
-`hns-browser-chain`, `hns-browser-primitives`, and `hns-browser-urkel` are
-temporary product-adapter consolidation packages. All four must retain
+`hns-browser-chain`, `hns-browser-p2p`, `hns-browser-primitives`, and
+`hns-browser-urkel` are temporary product-adapter consolidation packages. All five must retain
 `publish = false`. Path-only
 development dependencies on the testkit are omitted from published packages.
 The release preflight fails if Cargo permits any private package to be

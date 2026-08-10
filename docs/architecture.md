@@ -19,6 +19,7 @@ hns-browser-observability ---------------------------------------------+   hns-d
 hns-browser-runtime ---------------------------------------------------+
 hns-cache -------------------------------------------------------------+
 hns-browser-chain - - - durable browser header-store consolidation - -+
+hns-browser-p2p - - - bounded browser peer/relay consolidation - - - -+
 hns-browser-primitives - - temporary product-adapter consolidation - -+
 hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
 hns-transport ---------------------------------------------------------+
@@ -202,6 +203,10 @@ entries before returning them; metrics contain only counts and byte totals.
 SQLite header state into `hns-light-chain`. It validates proof of work, difficulty transitions,
 checkpoints, chainwork selection, reorg publication, and restart snapshots before exposing a
 canonical tip; persisted or peer-claimed heights alone never authorize name state.
+`hns-browser-p2p` is the unpublished socket/session adapter used while products migrate to
+`hns-light-p2p` and `hns-p2p-transport`. It bounds framing, handshakes, requests, advisory traffic,
+relay retries, discovery persistence, and peer penalties. Peer service flags and claimed heights
+remain untrusted inputs until the local chain and proof verifiers accept their results.
 `hns-browser-primitives` is an unpublished consolidation boundary for the mobile and Chromium
 adapters while they move to the canonical `hns-rs` and engine 0.2 types. It owns the single shared
 implementation of their legacy header, DNS-wire, resource, proof-of-work, and network-policy
