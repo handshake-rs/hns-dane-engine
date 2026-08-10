@@ -364,11 +364,11 @@ MeshMine nor requires an adjacent source tree.
 The shared private adapter layer now contains, and mobile/Chromium shells consume, source for
 request-surface wiring, validating ICANN DoH, origin TLS transport, native loopback listener and
 HTTP/TLS handling, local CA and exact-host leaf management, and browser platform bridges. This is
-source composition only: the exact intermediate source through `97cbeb2`
-passed the complete locked engine gate and CodeQL, but it has no
-installed-product or live-network qualification evidence. A separately
-committed release source must pass exact-head CI, CodeQL, and the 19-crate
-release preflight; qualification is not inherited across commits.
+source composition only: the exact dated source at `2b23bd5` passed the
+complete locked engine gate, CodeQL, and the separate 19-crate release
+preflight, superseding the intermediate `97cbeb2` source evidence. It has no
+installed-product or live-network qualification evidence, and exact-commit
+source qualification is not inherited by a successor commit.
 Still absent are P2P socket dialing or peer discovery, download/reorganization from a fork
 predating the current tip, durable restart checkpoints, authenticated authoritative DoH, a native
 Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,

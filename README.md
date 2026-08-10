@@ -209,25 +209,30 @@ compatibility inputs, exact coverage, and remaining work.
 
 ## Qualification status
 
-The exact intermediate publication-preparation source at
-`97cbeb2b4e83d603af757f903391c719b29bf429` passed the complete locked
+The exact dated 0.2.0 source candidate at
+`2b23bd55d14d36fe60073606869d75b4796c54f7` passed the complete locked
 `scripts/check.sh` source gate in GitHub Actions
-[`31397210853`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397210853)
-and the Actions, C/C++, Python, and Rust CodeQL matrices in
-[`31397207768`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397207768).
-That source included the canonical 0.2 adapter type identities, hardened
-19-crate archive validation, and the intermediate `hns-rs` pin at
-`abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`. It was not published or tagged,
-and its routine gate did not replace the manual 19-crate publish preflight.
+[`31400455158`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31400455158),
+the Actions, C/C++, Python, and Rust CodeQL matrices in
+[`31400453827`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31400453827),
+and the separately dispatched credential-free publish preflight for all 19
+public crates in
+[`31401229842`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31401229842).
+That source pins the final protocol revision
+`b24b66c382de53330ec21dd3137e056a2bea3e2d`, whose own exact CI, CodeQL, and
+17-package preflight also passed. The qualification and preflight workflows
+performed no upload or tag operation. Their evidence is commit-scoped; any
+successor source must repeat the exact-commit gates before publication.
 
-The dated 0.2 release source pins the final protocol source at
-`b24b66c382de53330ec21dd3137e056a2bea3e2d`. Qualification is commit-scoped, so
-the `97cbeb2` results are not inherited by that source. The pinned protocol
-commit passed its own exact CI, CodeQL, and 17-package release preflight; those
-upstream results likewise do not replace the engine gates. Engine release
-acceptance requires successful exact-head CI and CodeQL runs plus the
-credential-free manual preflight for all 19 public crates described in the
-[`release guide`](docs/releasing.md).
+The immediately preceding publication-preparation source at
+`97cbeb2b4e83d603af757f903391c719b29bf429` passed CI run
+[`31397210853`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397210853)
+and CodeQL run
+[`31397207768`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397207768).
+It is retained as historical evidence for the canonical 0.2 adapter type
+identities and hardened archive validation; it used the earlier protocol pin
+and did not run the separate 19-crate preflight. See the
+[`release guide`](docs/releasing.md) for the exact publication procedure.
 
 The provider-authority, loopback-publication, and shared platform-adapter Rust
 source is a production-continuation boundary, not a qualified installed

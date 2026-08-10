@@ -117,8 +117,8 @@ origin contexts, or strict HNS completions, and does not expose the trusted
 ICANN authenticator callback. A native integration that does not contain the
 trusted Rust minting host must therefore keep provider authority unavailable.
 No product provider, wallet permission, signing, value, or marketplace path is
-enabled by this ABI source. The deterministic ABI source through intermediate
-commit `97cbeb2` passed the complete locked engine gate and CodeQL, but no
-installed provider path has been qualified. The separately committed dated
-release source must satisfy the exact-head CI, CodeQL, and 19-crate release
-preflight criteria; qualification is never inherited across commits.
+enabled by this ABI source. The exact dated source at `2b23bd5` passed the
+complete locked engine gate, CodeQL, and the separate 19-crate release
+preflight, superseding the intermediate `97cbeb2` source evidence. No installed
+provider path has been qualified, and exact-commit source qualification is
+never inherited by a successor commit.

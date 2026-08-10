@@ -5,6 +5,13 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.0 - 2026-08-10
 
+- Qualified the exact dated engine source at
+  `2b23bd55d14d36fe60073606869d75b4796c54f7`: the complete locked CI gate
+  passed in run `31400455158`, all configured CodeQL languages passed in run
+  `31400453827`, and the separately dispatched credential-free publish
+  preflight verified all 19 public crates in run `31401229842`. Those workflows
+  performed no upload or tag operation, and their evidence applies only to
+  that exact commit; any successor source requires a fresh exact-commit gate.
 - Finalized every direct, locked, source-policy, publication, and current
   provenance reference on the dated `hns-rs` 0.2.0 release source
   `b24b66c382de53330ec21dd3137e056a2bea3e2d`. The manifest and lockfile retain
@@ -28,15 +35,15 @@ file. The public crates use a shared version and follow Semantic Versioning.
   resume behavior, and an exact-commit credential-free Actions workflow for
   real `cargo publish --dry-run` checks. Routine qualification uses the
   non-compiling archive-only path. The intermediate exact-source run exercised
-  that routine path; release acceptance requires exact-head CI and CodeQL plus
-  the separate all-19-crate preflight. Nothing here uploads or tags a release.
+  that routine path, and the dated `2b23bd5` candidate subsequently passed
+  exact-head CI, CodeQL, and the separate all-19-crate preflight. Nothing here
+  uploads or tags a release.
 - Unified the private browser gateway, resolver, and transport adapters on the
   workspace's canonical `hns-icann-dane` and `hns-namespace-resolution` 0.2
   packages. This removes the duplicate published 0.1 identities from the
   lockfile so plans, decisions, and ICANN evidence have one Cargo type identity
-  across the engine and adapters. The correction was covered by the exact
-  intermediate `97cbeb2` CI and CodeQL runs; the dated source retains its own
-  exact-commit release acceptance boundary.
+  across the engine and adapters. The correction was covered by both the exact
+  intermediate `97cbeb2` CI and CodeQL runs and the dated `2b23bd5` gate.
 - Earlier exact feature source
   `84005f1df21a30ea9dda7fafb95f9488b8f5da4b` passed the complete locked
   `scripts/check.sh` gate in GitHub Actions run `31372280327`. The successful
@@ -184,6 +191,18 @@ file. The public crates use a shared version and follow Semantic Versioning.
   distribution metadata remains unaffected.
 - Advanced the shared package line because `0.1.0` is already published; this
   source change does not publish packages or create a tag.
+
+## hns-browser-observability 0.1.1 - 2026-08-09
+
+This maintenance release updated only `hns-browser-observability` so existing
+0.1.x consumers could adopt the shared effective-runtime-feature diagnostics
+schema independently of the later 0.2 workspace line:
+
+- distinguish compiled capability, effective configuration, active production
+  wiring, and optional request observation;
+- reject impossible feature-state combinations; and
+- add typed diagnostics for resolver caching, connection pooling, TLS session
+  resumption, and authenticated Alt-Svc HTTP/3 promotion.
 
 ## 0.1.0 - 2026-07-29
 

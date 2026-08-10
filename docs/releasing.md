@@ -79,14 +79,26 @@ and the 17-package credential-free release preflight in
 [`31399004538`](https://github.com/handshake-rs/hns-rs/actions/runs/31399004538).
 This is upstream dependency evidence and does not satisfy any engine gate.
 
+The exact dated engine source at
+`2b23bd55d14d36fe60073606869d75b4796c54f7` passed the complete locked CI gate
+in run
+[`31400455158`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31400455158),
+every configured CodeQL language in run
+[`31400453827`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31400453827),
+and the separately dispatched credential-free 19-crate preflight in run
+[`31401229842`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31401229842).
+Those workflows performed no upload or tag operation. The results qualify only
+that exact commit; a later documentation, metadata, dependency, or source
+commit must repeat the exact-commit gates before execute mode is authorized.
+
 Intermediate engine commit `97cbeb2b4e83d603af757f903391c719b29bf429`,
 which still pinned protocol preparation source
 `abf11ff3b16920c08f3c0b6d32d2e1af7cbe37b2`, passed exact-source CI run
 [`31397210853`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397210853)
 and CodeQL run
 [`31397207768`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31397207768).
-Those runs are historical evidence, not qualification inherited by this dated
-source, and they did not replace the manual 19-crate publish preflight.
+Those runs are retained historical evidence and did not replace the manual
+19-crate publish preflight.
 
 ## Release procedure
 
