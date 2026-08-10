@@ -1938,9 +1938,7 @@ mod tests {
             HnsDaneStatus::Ok.code()
         );
 
-        let certificate = decode_hex(include_str!(
-            "../fixtures/dane/self-signed-cert.der.hex"
-        ));
+        let certificate = decode_hex(include_str!("../fixtures/dane/self-signed-cert.der.hex"));
         let query = Query::new(
             0x2345,
             Name::from_ascii("_443._tcp.example").unwrap(),

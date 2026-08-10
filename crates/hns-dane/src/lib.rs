@@ -918,15 +918,11 @@ mod tests {
     }
 
     fn certificate() -> Vec<u8> {
-        decode_hex(include_str!(
-            "../fixtures/dane/self-signed-cert.der.hex"
-        ))
+        decode_hex(include_str!("../fixtures/dane/self-signed-cert.der.hex"))
     }
 
     fn expected_spki() -> Vec<u8> {
-        decode_hex(include_str!(
-            "../fixtures/dane/self-signed-spki.der.hex"
-        ))
+        decode_hex(include_str!("../fixtures/dane/self-signed-spki.der.hex"))
     }
 
     fn record(selector: Selector, matching_type: MatchingType, data: Vec<u8>) -> Tlsa {

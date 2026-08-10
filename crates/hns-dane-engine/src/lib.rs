@@ -2949,9 +2949,7 @@ mod tests {
     }
 
     fn certificate() -> Vec<u8> {
-        decode_hex(include_str!(
-            "../fixtures/dane/self-signed-cert.der.hex"
-        ))
+        decode_hex(include_str!("../fixtures/dane/self-signed-cert.der.hex"))
     }
 
     fn verified_prerequisites() -> LocalDanePrerequisites {
