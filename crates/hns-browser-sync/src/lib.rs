@@ -97,6 +97,17 @@ pub struct HeaderSyncRunResult {
     pub failures: Vec<HeaderPeerFailure>,
 }
 
+/// Non-authoritative diagnostic progress from a single header-sync run.
+///
+/// A snapshot is emitted only after a non-empty batch has passed chain
+/// validation and the chain store has accepted it. It intentionally contains
+/// no peer-advertised target height and must not be used as readiness evidence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HeaderSyncProgress {
+    pub best_height: Option<Height>,
+    pub accepted: usize,
+}
+
 pub trait HeaderPeerClient {
     fn handshake(&mut self, session: &mut HeaderSyncSession) -> Result<VersionPacket, P2pError>;
 
@@ -396,7 +407,7 @@ impl<C: HeaderPeerConnector> HeaderSyncRunner<C> {
         peers: &mut PeerManager,
         now: u64,
     ) -> Result<HeaderSyncRunResult, SyncError> {
-        self.sync_once_inner(coordinator, peers, now, None)
+        self.sync_once_inner(coordinator, peers, now, None, &mut |_| {})
     }
 
     fn sync_once_inner<S: HeaderStore>(
@@ -405,15 +416,17 @@ impl<C: HeaderPeerConnector> HeaderSyncRunner<C> {
         peers: &mut PeerManager,
         now: u64,
         store: Option<&SqlitePeerStore>,
+        progress: &mut dyn FnMut(HeaderSyncProgress),
     ) -> Result<HeaderSyncRunResult, SyncError> {
         let outbound = self.select_outbound_peers(peers, self.config.preferred_peers, now);
         let mut attempted_addresses = HashSet::new();
         let mut result = HeaderSyncRunResult::empty();
+        let mut progress = HeaderSyncProgressReporter::new(progress);
 
         for address in outbound {
             attempted_addresses.insert(address);
             result.attempted = result.attempted.saturating_add(1);
-            match self.sync_peer(coordinator, peers, address, now, store)? {
+            match self.sync_peer(coordinator, peers, address, now, store, &mut progress)? {
                 HeaderPeerSyncOutcome::Success(peer_result) => {
                     result.successful = result.successful.saturating_add(1);
                     result.accepted = result.accepted.saturating_add(peer_result.accepted);
@@ -435,7 +448,34 @@ impl<C: HeaderPeerConnector> HeaderSyncRunner<C> {
         store: &SqlitePeerStore,
         now: u64,
     ) -> Result<HeaderSyncRunResult, SyncError> {
-        let result = self.sync_once_inner(coordinator, peers, now, Some(store))?;
+        self.sync_once_and_persist_inner(coordinator, peers, store, now, &mut |_| {})
+    }
+
+    /// Runs one sequential sync and reports validated chain-store advancement.
+    pub fn sync_once_and_persist_with_progress<S, P>(
+        &self,
+        coordinator: &mut HeaderSyncCoordinator<S>,
+        peers: &mut PeerManager,
+        store: &SqlitePeerStore,
+        now: u64,
+        mut progress: P,
+    ) -> Result<HeaderSyncRunResult, SyncError>
+    where
+        S: HeaderStore,
+        P: FnMut(HeaderSyncProgress),
+    {
+        self.sync_once_and_persist_inner(coordinator, peers, store, now, &mut progress)
+    }
+
+    fn sync_once_and_persist_inner<S: HeaderStore>(
+        &self,
+        coordinator: &mut HeaderSyncCoordinator<S>,
+        peers: &mut PeerManager,
+        store: &SqlitePeerStore,
+        now: u64,
+        progress: &mut dyn FnMut(HeaderSyncProgress),
+    ) -> Result<HeaderSyncRunResult, SyncError> {
+        let result = self.sync_once_inner(coordinator, peers, now, Some(store), progress)?;
         store.save_manager(peers)?;
         Ok(result)
     }
@@ -447,6 +487,7 @@ impl<C: HeaderPeerConnector> HeaderSyncRunner<C> {
         address: SocketAddr,
         now: u64,
         store: Option<&SqlitePeerStore>,
+        progress: &mut HeaderSyncProgressReporter<'_>,
     ) -> Result<HeaderPeerSyncOutcome, SyncError> {
         let mut peer = match self
             .connector
@@ -532,6 +573,7 @@ impl<C: HeaderPeerConnector> HeaderSyncRunner<C> {
             match coordinator.ingest_headers(headers) {
                 Ok(batch) => {
                     accepted = accepted.saturating_add(batch.accepted);
+                    progress.report(&batch);
                     best = batch.best;
                     if header_count < MAX_HEADERS || batch.accepted == 0 {
                         if let Some(best_height) = best.as_ref().map(|header| header.height)
@@ -677,13 +719,50 @@ impl HeaderSyncRunner<TcpHeaderPeerConnector> {
         S: HeaderStore,
         F: FnOnce() -> u64,
     {
+        self.sync_once_parallel_and_persist_with_completion_time_and_progress(
+            coordinator,
+            peers,
+            store,
+            now,
+            completion_time,
+            |_| {},
+        )
+    }
+
+    /// Runs one parallel sync and reports validated chain-store advancement.
+    ///
+    /// The observer runs synchronously after each non-empty batch is committed
+    /// to the supplied coordinator's chain store. Snapshots are diagnostic
+    /// only: staged mobile callers must continue to publish the completed store
+    /// atomically before treating its height as authoritative.
+    pub fn sync_once_parallel_and_persist_with_completion_time_and_progress<S, F, P>(
+        &self,
+        coordinator: &mut HeaderSyncCoordinator<S>,
+        peers: &mut PeerManager,
+        store: &SqlitePeerStore,
+        now: u64,
+        completion_time: F,
+        mut progress: P,
+    ) -> Result<HeaderSyncRunResult, SyncError>
+    where
+        S: HeaderStore,
+        F: FnOnce() -> u64,
+        P: FnMut(HeaderSyncProgress),
+    {
         self.probe_peers_parallel_and_persist(peers, store, now)?;
         let result = if self.config.parallel_header_fetch_peers > 1 {
             let prefetch =
                 self.prefetch_checkpoint_header_ranges_and_persist(coordinator, peers, store, now)?;
-            self.sync_once_racing_and_persist(coordinator, peers, store, now, prefetch)
+            self.sync_once_racing_and_persist(
+                coordinator,
+                peers,
+                store,
+                now,
+                prefetch,
+                &mut progress,
+            )
         } else {
-            self.sync_once_and_persist(coordinator, peers, store, now)
+            self.sync_once_and_persist_inner(coordinator, peers, store, now, &mut progress)
         }?;
         if let Some(validated_tip) = coordinator
             .chain()
@@ -810,6 +889,7 @@ impl HeaderSyncRunner<TcpHeaderPeerConnector> {
         store: &SqlitePeerStore,
         now: u64,
         prefetch: HeaderCheckpointPrefetchResult,
+        progress: &mut dyn FnMut(HeaderSyncProgress),
     ) -> Result<HeaderSyncRunResult, SyncError> {
         let max_batches = self
             .config
@@ -824,16 +904,21 @@ impl HeaderSyncRunner<TcpHeaderPeerConnector> {
             failures: prefetch.failures,
         };
         let mut staged_ranges = prefetch.ranges;
+        let mut progress = HeaderSyncProgressReporter::new(progress);
+        let checkpoint_context = CheckpointRangeApplyContext {
+            store,
+            now,
+            malformed_ban_seconds: self.config.malformed_ban_seconds,
+        };
 
         for _ in 0..max_batches {
             apply_ready_checkpoint_ranges(
                 coordinator,
                 peers,
-                store,
-                now,
-                self.config.malformed_ban_seconds,
+                checkpoint_context,
                 &mut staged_ranges,
                 &mut result,
+                &mut progress,
             )?;
             let candidates = self.select_outbound_peers(
                 peers,
@@ -903,7 +988,8 @@ impl HeaderSyncRunner<TcpHeaderPeerConnector> {
             match coordinator.ingest_headers(headers) {
                 Ok(batch) => {
                     result.successful = result.successful.saturating_add(1);
-                    result.accepted = result.accepted.saturating_add(batch.accepted);
+                    progress.report(&batch);
+                    result.accepted = progress.accepted();
                     result.best = batch.best;
                     let validated_height = result
                         .best
@@ -931,11 +1017,10 @@ impl HeaderSyncRunner<TcpHeaderPeerConnector> {
                     apply_ready_checkpoint_ranges(
                         coordinator,
                         peers,
-                        store,
-                        now,
-                        self.config.malformed_ban_seconds,
+                        checkpoint_context,
                         &mut staged_ranges,
                         &mut result,
+                        &mut progress,
                     )?;
                 }
                 Err(SyncError::Chain(error)) => {
@@ -975,11 +1060,10 @@ impl HeaderSyncRunner<TcpHeaderPeerConnector> {
         apply_ready_checkpoint_ranges(
             coordinator,
             peers,
-            store,
-            now,
-            self.config.malformed_ban_seconds,
+            checkpoint_context,
             &mut staged_ranges,
             &mut result,
+            &mut progress,
         )?;
         store.save_manager(peers)?;
         Ok(result)
@@ -1186,6 +1270,43 @@ struct PrefetchedHeaderRange {
     address: SocketAddr,
     checkpoint: HeaderCheckpoint,
     headers: Vec<BlockHeader>,
+}
+
+struct HeaderSyncProgressReporter<'a> {
+    accepted: usize,
+    callback: &'a mut dyn FnMut(HeaderSyncProgress),
+}
+
+impl<'a> HeaderSyncProgressReporter<'a> {
+    fn new(callback: &'a mut dyn FnMut(HeaderSyncProgress)) -> Self {
+        Self {
+            accepted: 0,
+            callback,
+        }
+    }
+
+    fn report(&mut self, batch: &HeaderBatchResult) {
+        self.accepted = self.accepted.saturating_add(batch.accepted);
+        if batch.accepted == 0 {
+            return;
+        }
+
+        (self.callback)(HeaderSyncProgress {
+            best_height: batch.best.as_ref().map(|header| header.height),
+            accepted: self.accepted,
+        });
+    }
+
+    fn accepted(&self) -> usize {
+        self.accepted
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CheckpointRangeApplyContext<'a> {
+    store: &'a SqlitePeerStore,
+    now: u64,
+    malformed_ban_seconds: u64,
 }
 
 enum HeaderRacePeerOutcome {
@@ -1416,11 +1537,10 @@ fn record_race_failures(
 fn apply_ready_checkpoint_ranges<S: HeaderStore>(
     coordinator: &mut HeaderSyncCoordinator<S>,
     peers: &mut PeerManager,
-    store: &SqlitePeerStore,
-    now: u64,
-    malformed_ban_seconds: u64,
+    context: CheckpointRangeApplyContext<'_>,
     staged_ranges: &mut Vec<PrefetchedHeaderRange>,
     result: &mut HeaderSyncRunResult,
+    progress: &mut HeaderSyncProgressReporter<'_>,
 ) -> Result<bool, SyncError> {
     let mut applied_any = false;
 
@@ -1434,13 +1554,20 @@ fn apply_ready_checkpoint_ranges<S: HeaderStore>(
         let address = range.address;
         match coordinator.ingest_headers(range.headers) {
             Ok(batch) => {
-                result.accepted = result.accepted.saturating_add(batch.accepted);
+                progress.report(&batch);
+                result.accepted = progress.accepted();
                 result.best = batch.best;
                 applied_any = true;
             }
             Err(SyncError::Chain(error)) => {
-                record_chain_failure(peers, address, now, &error, malformed_ban_seconds);
-                persist_peer_manager(Some(store), peers)?;
+                record_chain_failure(
+                    peers,
+                    address,
+                    context.now,
+                    &error,
+                    context.malformed_ban_seconds,
+                );
+                persist_peer_manager(Some(context.store), peers)?;
                 match error {
                     ChainError::Storage(_) | ChainError::MissingBestHeader => {
                         return Err(SyncError::Chain(error));
@@ -2200,6 +2327,7 @@ mod tests {
 
     #[test]
     fn header_sync_runner_requests_multiple_header_batches_per_peer() {
+        let path = temp_db_path("sync-progress-sequential");
         let mut coordinator = seeded_coordinator();
         let genesis = coordinator.chain().best_header().unwrap().unwrap();
         let headers = low_difficulty_chain(&genesis, MAX_HEADERS + 1);
@@ -2226,9 +2354,21 @@ mod tests {
             },
         );
 
-        let result = runner
-            .sync_once(&mut coordinator, &mut peers, 1_000)
-            .unwrap();
+        let mut progress = Vec::new();
+        let result = {
+            let store = SqlitePeerStore::open(&path).unwrap();
+            let result = runner
+                .sync_once_and_persist_with_progress(
+                    &mut coordinator,
+                    &mut peers,
+                    &store,
+                    1_000,
+                    |snapshot| progress.push(snapshot),
+                )
+                .unwrap();
+            store.flush().unwrap();
+            result
+        };
 
         assert_eq!(result.attempted, 1);
         assert_eq!(result.successful, 1);
@@ -2238,6 +2378,21 @@ mod tests {
             result.best.unwrap().height,
             Height((MAX_HEADERS + 1) as u32)
         );
+        assert_eq!(
+            progress,
+            vec![
+                HeaderSyncProgress {
+                    best_height: Some(Height(MAX_HEADERS as u32)),
+                    accepted: MAX_HEADERS,
+                },
+                HeaderSyncProgress {
+                    best_height: Some(Height((MAX_HEADERS + 1) as u32)),
+                    accepted: MAX_HEADERS + 1,
+                },
+            ]
+        );
+
+        cleanup_db_path(&path);
     }
 
     #[test]
@@ -2566,15 +2721,19 @@ mod tests {
 
         {
             let store = SqlitePeerStore::open(&path).unwrap();
+            let mut progress = Vec::new();
             runner
-                .sync_once_parallel_and_persist_with_completion_time(
+                .sync_once_parallel_and_persist_with_completion_time_and_progress(
                     &mut coordinator,
                     &mut peers,
                     &store,
                     1_000,
                     || 1_275,
+                    |snapshot| progress.push(snapshot),
                 )
                 .unwrap();
+
+            assert!(progress.is_empty());
 
             for address in [first, second, third] {
                 assert_eq!(
@@ -2624,8 +2783,21 @@ mod tests {
 
         {
             let store = SqlitePeerStore::open(&path).unwrap();
+            let mut progress = Vec::new();
             let result = runner
-                .sync_once_parallel_and_persist(&mut coordinator, &mut peers, &store, 800)
+                .sync_once_racing_and_persist(
+                    &mut coordinator,
+                    &mut peers,
+                    &store,
+                    800,
+                    HeaderCheckpointPrefetchResult {
+                        attempted: 0,
+                        successful: 0,
+                        ranges: Vec::new(),
+                        failures: Vec::new(),
+                    },
+                    &mut |snapshot| progress.push(snapshot),
+                )
                 .unwrap();
 
             assert_eq!(result.attempted, 1);
@@ -2634,6 +2806,13 @@ mod tests {
             assert_eq!(result.best.unwrap().height, Height(1));
             assert_eq!(peers.get(fast).unwrap().successes, 1);
             assert_eq!(peers.get(slow).unwrap().successes, 0);
+            assert_eq!(
+                progress,
+                vec![HeaderSyncProgress {
+                    best_height: Some(Height(1)),
+                    accepted: 1,
+                }]
+            );
             store.flush().unwrap();
         }
 
@@ -2748,49 +2927,69 @@ mod tests {
         let mut peers = PeerManager::default();
         peers.seed([address]);
         let mut result = HeaderSyncRunResult::empty();
-
+        let mut progress = Vec::new();
         {
-            let store = SqlitePeerStore::open(&path).unwrap();
-            let applied = apply_ready_checkpoint_ranges(
-                &mut coordinator,
-                &mut peers,
-                &store,
-                1_000,
-                DEFAULT_MALFORMED_BAN_SECONDS,
-                &mut staged_ranges,
-                &mut result,
-            )
-            .unwrap();
+            let mut observe = |snapshot| progress.push(snapshot);
+            let mut progress_reporter = HeaderSyncProgressReporter::new(&mut observe);
 
-            assert!(!applied);
-            assert_eq!(result.accepted, 0);
-            assert_eq!(staged_ranges.len(), 1);
-            store.flush().unwrap();
+            {
+                let store = SqlitePeerStore::open(&path).unwrap();
+                let applied = apply_ready_checkpoint_ranges(
+                    &mut coordinator,
+                    &mut peers,
+                    CheckpointRangeApplyContext {
+                        store: &store,
+                        now: 1_000,
+                        malformed_ban_seconds: DEFAULT_MALFORMED_BAN_SECONDS,
+                    },
+                    &mut staged_ranges,
+                    &mut result,
+                    &mut progress_reporter,
+                )
+                .unwrap();
+
+                assert!(!applied);
+                assert_eq!(result.accepted, 0);
+                assert_eq!(staged_ranges.len(), 1);
+                assert_eq!(progress_reporter.accepted(), 0);
+                store.flush().unwrap();
+            }
+
+            coordinator
+                .ingest_headers(headers[..2].to_vec())
+                .expect("prefix should attach");
+
+            {
+                let store = SqlitePeerStore::open(&path).unwrap();
+                let applied = apply_ready_checkpoint_ranges(
+                    &mut coordinator,
+                    &mut peers,
+                    CheckpointRangeApplyContext {
+                        store: &store,
+                        now: 1_000,
+                        malformed_ban_seconds: DEFAULT_MALFORMED_BAN_SECONDS,
+                    },
+                    &mut staged_ranges,
+                    &mut result,
+                    &mut progress_reporter,
+                )
+                .unwrap();
+
+                assert!(applied);
+                assert_eq!(result.accepted, 2);
+                assert_eq!(result.best.unwrap().height, Height(4));
+                assert!(staged_ranges.is_empty());
+                assert_eq!(progress_reporter.accepted(), 2);
+                store.flush().unwrap();
+            }
         }
-
-        coordinator
-            .ingest_headers(headers[..2].to_vec())
-            .expect("prefix should attach");
-
-        {
-            let store = SqlitePeerStore::open(&path).unwrap();
-            let applied = apply_ready_checkpoint_ranges(
-                &mut coordinator,
-                &mut peers,
-                &store,
-                1_000,
-                DEFAULT_MALFORMED_BAN_SECONDS,
-                &mut staged_ranges,
-                &mut result,
-            )
-            .unwrap();
-
-            assert!(applied);
-            assert_eq!(result.accepted, 2);
-            assert_eq!(result.best.unwrap().height, Height(4));
-            assert!(staged_ranges.is_empty());
-            store.flush().unwrap();
-        }
+        assert_eq!(
+            progress,
+            vec![HeaderSyncProgress {
+                best_height: Some(Height(4)),
+                accepted: 2,
+            }]
+        );
 
         cleanup_db_path(&path);
     }

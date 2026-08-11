@@ -5,6 +5,10 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## Unreleased
 
+- Added an opt-in browser header-sync progress observer that reports cumulative
+  accepted headers and the best validated height after each non-empty batch is
+  accepted by the caller's chain store. Existing APIs retain their behavior,
+  and the observer is explicitly diagnostic rather than readiness evidence.
 - Added RFC 9848/9849 Encrypted ClientHello to the private mobile origin
   transport for HTTP/1.1, HTTP/2, HTTP/3, and secure WebSocket connections.
   Plan-bound HTTPS/SVCB ECH configuration is carried from the selected
