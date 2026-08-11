@@ -15,9 +15,9 @@ mobile = []
 
 [dependencies]
 base64 = "0.22"
-hns-core = { package = "hns-browser-primitives", version = "0.2.0", path = "../hns-browser-primitives" }
-hns-dane = { package = "hns-browser-dane", version = "0.2.0", path = "../hns-browser-dane" }
-hns-resolver = { package = "hns-browser-resolver", version = "0.2.0", path = "../hns-browser-resolver" }
+hns-core = { package = "hns-browser-primitives", version = "0.2.1", path = "../hns-browser-primitives" }
+hns-dane = { package = "hns-browser-dane", version = "0.2.1", path = "../hns-browser-dane" }
+hns-resolver = { package = "hns-browser-resolver", version = "0.2.1", path = "../hns-browser-resolver" }
 httparse = "1.10"
 idna = "1.1"
 rcgen = { version = "0.14.8", default-features = false, features = ["ring", "x509-parser", "zeroize"] }

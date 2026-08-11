@@ -14,11 +14,11 @@ chromium = ["hns-transport/chromium"]
 mobile = ["hns-transport/mobile"]
 
 [dependencies]
-hns-core = { package = "hns-browser-primitives", version = "0.2.0", path = "../hns-browser-primitives" }
-hns-dane = { package = "hns-browser-dane", version = "0.2.0", path = "../hns-browser-dane" }
+hns-core = { package = "hns-browser-primitives", version = "0.2.1", path = "../hns-browser-primitives" }
+hns-dane = { package = "hns-browser-dane", version = "0.2.1", path = "../hns-browser-dane" }
 hns-icann-dane.workspace = true
 hns-namespace-resolution.workspace = true
-hns-resolver = { package = "hns-browser-resolver", version = "0.2.0", path = "../hns-browser-resolver" }
-hns-transport = { package = "hns-browser-transport", version = "0.2.0", path = "../hns-browser-transport", default-features = false }
+hns-resolver = { package = "hns-browser-resolver", version = "0.2.1", path = "../hns-browser-resolver" }
+hns-transport = { package = "hns-browser-transport", version = "0.2.1", path = "../hns-browser-transport", default-features = false }
 subtle = "2"
 thiserror = "2"

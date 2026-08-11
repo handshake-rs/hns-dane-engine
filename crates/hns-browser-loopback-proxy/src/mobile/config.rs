@@ -123,7 +123,8 @@ impl ProxyLimits {
     pub const DEFAULT_MAX_BODY_BYTES: u64 = 1024 * 1024;
     pub const DEFAULT_MAX_ACTIVE_CLIENTS: usize = 64;
     pub const DEFAULT_MAX_REQUESTS_PER_WINDOW: usize = 240;
-    pub const DEFAULT_MAX_REQUESTS_PER_HOST_PER_WINDOW: usize = 80;
+    pub const DEFAULT_MAX_REQUESTS_PER_HOST_PER_WINDOW: usize =
+        Self::DEFAULT_MAX_REQUESTS_PER_WINDOW;
     pub const DEFAULT_MAX_TRACKED_HOSTS: usize = 256;
     pub const DEFAULT_RATE_WINDOW: Duration = Duration::from_secs(10);
 
@@ -473,7 +474,7 @@ mod tests {
         assert_eq!(limits.max_body_bytes(), 1024 * 1024);
         assert_eq!(limits.max_active_clients(), 64);
         assert_eq!(limits.max_requests_per_window(), 240);
-        assert_eq!(limits.max_requests_per_host_per_window(), 80);
+        assert_eq!(limits.max_requests_per_host_per_window(), 240);
         assert_eq!(limits.max_tracked_hosts(), 256);
         assert_eq!(limits.rate_window(), Duration::from_secs(10));
     }

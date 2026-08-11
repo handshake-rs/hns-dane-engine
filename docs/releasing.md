@@ -184,7 +184,7 @@ Those runs are retained historical evidence and did not replace the manual
    confirmation must equal the workspace version:
 
    ```bash
-   ./scripts/publish.sh --execute --confirm-publish 0.2.0
+   ./scripts/publish.sh --execute --confirm-publish 0.2.1
    ```
 
 Execute mode validates the clean, dated source and all upstream protocol
@@ -203,7 +203,7 @@ non-negative limit:
 
 ```bash
 PUBLISH_INTERVAL_SECONDS=605 \
-  ./scripts/publish.sh --execute --confirm-publish 0.2.0
+  ./scripts/publish.sh --execute --confirm-publish 0.2.1
 ```
 
 After each cooldown, the script downloads the new archive and applies the same

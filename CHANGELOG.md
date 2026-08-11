@@ -3,8 +3,12 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
-## Unreleased
+## 0.2.1 - Unreleased
 
+- Raised the default per-host loopback-proxy request budget from 80 to the
+  unchanged global budget of 240 requests per 10 seconds for both mobile and
+  Chromium, allowing same-origin code-split asset bursts without increasing
+  aggregate proxy admission.
 - Added an opt-in browser header-sync progress observer that reports cumulative
   accepted headers and the best validated height after each non-empty batch is
   accepted by the caller's chain store. Existing APIs retain their behavior,

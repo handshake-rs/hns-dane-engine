@@ -9,7 +9,7 @@ use thiserror::Error;
 
 pub const DEFAULT_MAX_ACTIVE_CLIENTS: usize = 64;
 pub const DEFAULT_GLOBAL_REQUESTS_PER_WINDOW: usize = 240;
-pub const DEFAULT_HOST_REQUESTS_PER_WINDOW: usize = 80;
+pub const DEFAULT_HOST_REQUESTS_PER_WINDOW: usize = DEFAULT_GLOBAL_REQUESTS_PER_WINDOW;
 pub const DEFAULT_MAX_TRACKED_HOSTS: usize = 256;
 pub const DEFAULT_RATE_WINDOW: Duration = Duration::from_secs(10);
 
@@ -321,7 +321,7 @@ mod tests {
             RateLimitConfig::default(),
             RateLimitConfig {
                 global_requests: 240,
-                per_host_requests: 80,
+                per_host_requests: 240,
                 window: Duration::from_secs(10),
                 max_tracked_hosts: 256,
             }
@@ -403,6 +403,23 @@ mod tests {
             RateLimitDecision::Limited {
                 scope: RateLimitScope::Global,
                 retry_after: Duration::from_secs(10),
+            }
+        );
+    }
+
+    #[test]
+    fn default_window_allows_same_host_asset_bursts_up_to_global_limit() {
+        let limiter = RequestRateLimiter::new(RateLimitConfig::default()).expect("valid config");
+        let now = Instant::now();
+
+        for _ in 0..DEFAULT_GLOBAL_REQUESTS_PER_WINDOW {
+            assert_eq!(limiter.check("app.example", now), RateLimitDecision::Allowed);
+        }
+        assert_eq!(
+            limiter.check("app.example", now),
+            RateLimitDecision::Limited {
+                scope: RateLimitScope::Global,
+                retry_after: DEFAULT_RATE_WINDOW,
             }
         );
     }

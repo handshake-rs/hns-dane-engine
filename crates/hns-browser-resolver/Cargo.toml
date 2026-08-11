@@ -11,8 +11,8 @@ publish = false
 [dependencies]
 hns-cache.workspace = true
 hns-core.workspace = true
-hns-dane = { package = "hns-browser-dane", version = "0.2.0", path = "../hns-browser-dane" }
-hns-dnssec = { package = "hns-browser-dnssec", version = "0.2.0", path = "../hns-browser-dnssec" }
+hns-dane = { package = "hns-browser-dane", version = "0.2.1", path = "../hns-browser-dane" }
+hns-dnssec = { package = "hns-browser-dnssec", version = "0.2.1", path = "../hns-browser-dnssec" }
 hns-namespace-resolution.workspace = true
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 thiserror = "2.0.19"
