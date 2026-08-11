@@ -102,7 +102,15 @@ The private `hns-browser-transport`, `hns-browser-gateway`, and
 in this repository rather than allowing mobile and Chromium source forks to
 drift. Each requires an explicit platform feature. The mobile contract retains
 validated-head-before-body streaming and its process-owned ICANN network
-boundary; the Chromium contract retains authenticated CONNECT disposition,
+boundary. Its origin-facing rustls/Quinn client consumes only ECHConfigList
+bytes retained by the selected namespace plan, encrypts the inner origin
+SNI for HTTP/1.1, HTTP/2, HTTP/3, and secure WebSocket handshakes, and requires
+ECH acceptance before application data. ECH rejection is terminal: the adapter
+does not retry with plaintext or with server retry configurations that cannot
+be bound uniformly across its TCP and QUIC paths. ECH configuration is part of
+the verifier, session-resumption, and HTTP/1.1 pool identity, and ECH requests
+do not consume or publish Alt-Svc promotion state. The Chromium contract
+retains authenticated CONNECT disposition,
 end-to-end WebPKI passthrough, local-CA identity generation, and typed gateway
 failure evidence. These are integration backends around the same canonical
 resolver and authority types, not additional DNS authorities.

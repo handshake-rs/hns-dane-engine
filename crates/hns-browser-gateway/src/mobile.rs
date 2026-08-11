@@ -326,6 +326,10 @@ where
         }
 
         let mut origin_request = request.origin.clone();
+        // The selected resolver policy, never the loopback caller, owns ECH.
+        // This legacy adapter does not retain a plan-bound ECH service
+        // parameter, so clear any caller-provided value.
+        origin_request.tls.ech_config_list = None;
         // Never trust a caller-supplied connection override. The native transport bypasses the
         // browser DNS stack, so the connection address must come from this validated resolution.
         origin_request.connect_host =
@@ -410,8 +414,8 @@ where
             .selected_plan()
             .ok_or(ResolverError::NamespaceUnavailable)?;
         let selected_answer = selected_answer.ok_or(ResolverError::NamespaceUnavailable)?;
-        if plan.service().ech_config().is_some() {
-            return Err(GatewayError::UnsupportedSvcb);
+        if plan.service().ech_config().is_some() && !is_tls_origin_scheme(&request.origin.scheme) {
+            return Err(ResolverError::InvalidDnsResponse.into());
         }
         let protocol = origin_protocol(plan.service().selected_protocol());
         if !supported_origin_protocols.contains(&protocol) {
@@ -435,6 +439,7 @@ where
         origin_request.tls.namespace_fingerprint = Some(decision_fingerprint(&decision).to_hex());
         origin_request.tls.service_port = plan.service().effective_port().get();
         origin_request.tls.service_transport = tlsa_transport(plan.service().transport());
+        origin_request.tls.ech_config_list = plan.service().ech_config().map(<[u8]>::to_vec);
 
         match plan.tls_policy() {
             TlsTrustPolicy::Cleartext => {
@@ -945,13 +950,13 @@ fn is_http3_alpn(id: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hns_core::dns::{DnsMessage, DnsName, RecordType, ResourceRecord};
+    use hns_core::dns::{DnsMessage, DnsName, RecordType, ResourceRecord, SVCB_PARAM_ECH};
     use hns_dane::{DaneDecision, DaneError, TlsaMatching, TlsaSelector, TlsaUsage};
     use hns_namespace_resolution::{
-        CanonicalHost, DefaultPrecedence, EvidenceProvenance, Freshness, HnsNetwork,
+        CanonicalHost, CanonicalTlsa, DefaultPrecedence, EvidenceProvenance, Freshness, HnsNetwork,
         IcannChainState, OriginPlanInput, OriginQuery, ProtocolCapabilities, RootLookup,
-        SelectionPolicy, ServiceBinding, ServiceBindingInput, ValidatedOriginPlan,
-        decide_namespace,
+        SelectionPolicy, ServiceBinding, ServiceBindingInput, ServiceParameter,
+        ValidatedOriginPlan, decide_namespace,
     };
     use hns_resolver::{ResolutionAnswer, Resolver};
     use hns_transport::{
@@ -961,6 +966,13 @@ mod tests {
     use std::num::NonZeroU16;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+
+    const VALID_ECH_CONFIG_LIST: &[u8] = &[
+        0, 69, 254, 13, 0, 65, 251, 0, 32, 0, 32, 34, 62, 233, 148, 85, 152, 125, 143, 197, 34,
+        168, 119, 78, 69, 170, 69, 24, 250, 250, 207, 253, 171, 248, 243, 158, 107, 87, 55, 81,
+        235, 160, 25, 0, 4, 0, 1, 0, 1, 0, 18, 99, 108, 111, 117, 100, 102, 108, 97, 114, 101, 45,
+        101, 99, 104, 46, 99, 111, 109, 0, 0,
+    ];
 
     struct StaticResolver {
         secure: bool,
@@ -1141,6 +1153,33 @@ mod tests {
             captured.tls.namespace_fingerprint.as_deref(),
             Some(expected_fingerprint.as_str())
         );
+    }
+
+    #[test]
+    fn prepared_namespace_plan_propagates_only_plan_bound_ech_policy() {
+        let ech_config = VALID_ECH_CONFIG_LIST.to_vec();
+        let gateway = Gateway::new(
+            GatewayConfig::default(),
+            PreparedOnlyResolver {
+                prepared: prepared_ech_resolution(&ech_config),
+                resolve_calls: Arc::new(AtomicUsize::new(0)),
+            },
+            CapturingTransport::default(),
+        )
+        .unwrap();
+        let mut request = request("name", "name");
+        request.origin.tls.ech_config_list = Some(vec![9, 9, 9]);
+
+        gateway.handle(&request).unwrap();
+
+        let captured = gateway
+            .transport()
+            .last_request
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
+        assert_eq!(captured.tls.ech_config_list, Some(ech_config));
     }
 
     #[test]
@@ -2998,6 +3037,77 @@ mod tests {
                 service: service.clone(),
                 tls_policy: TlsTrustPolicy::Cleartext,
                 tlsa_records: Vec::new(),
+                provenance,
+                freshness: Freshness::new(90, 110).unwrap(),
+            })
+            .unwrap()
+        };
+        let decision = decide_namespace(
+            &query,
+            RootLookup::Present(plan(
+                Namespace::Hns,
+                EvidenceProvenance::Hns {
+                    network: HnsNetwork::Mainnet,
+                    tree_root: [1; 32],
+                    height: 1,
+                },
+            )),
+            RootLookup::Present(plan(
+                Namespace::Icann,
+                EvidenceProvenance::IcannDoh {
+                    chain_state: IcannChainState::Secure,
+                },
+            )),
+            SelectionPolicy::new(DefaultPrecedence::PreferIcann, 1),
+            100,
+        )
+        .unwrap();
+        PreparedNamespaceResolution {
+            decision,
+            selected_answer: Some(ResolutionAnswer {
+                name: DnsName::from_ascii("name").unwrap(),
+                records: vec![address_record()],
+                secure: true,
+            }),
+        }
+    }
+
+    fn prepared_ech_resolution(ech_config: &[u8]) -> PreparedNamespaceResolution {
+        let host = CanonicalHost::parse("name").unwrap();
+        let port = NonZeroU16::new(443).unwrap();
+        let query = OriginQuery::new(
+            host.clone(),
+            OriginScheme::Https,
+            Some(port),
+            ProtocolCapabilities::all(),
+        );
+        let service = ServiceBinding::new(ServiceBindingInput {
+            priority: Some(1),
+            service_target: host.clone(),
+            mandatory_keys: vec![SVCB_PARAM_ECH],
+            advertised_alpn: Vec::new(),
+            selected_protocol: ApplicationProtocol::Http11,
+            effective_port: port,
+            transport: ServiceTransport::Tcp,
+            connection_hints: Vec::new(),
+            ech_config: Some(ech_config.to_vec()),
+            parameters: vec![ServiceParameter::new(SVCB_PARAM_ECH, ech_config.to_vec()).unwrap()],
+        })
+        .unwrap();
+        let plan = |namespace, provenance| {
+            let mut tlsa_rdata = vec![3, 1, 1];
+            tlsa_rdata.extend_from_slice(&[7; 32]);
+            ValidatedOriginPlan::new(OriginPlanInput {
+                namespace,
+                query: query.clone(),
+                alias_path: Vec::new(),
+                terminal_target: host.clone(),
+                endpoint_alias_path: Vec::new(),
+                endpoint_target: host.clone(),
+                endpoints: vec![SocketAddr::from(([1, 1, 1, 1], 443))],
+                service: service.clone(),
+                tls_policy: TlsTrustPolicy::Dane,
+                tlsa_records: vec![CanonicalTlsa::new(tlsa_rdata).unwrap()],
                 provenance,
                 freshness: Freshness::new(90, 110).unwrap(),
             })

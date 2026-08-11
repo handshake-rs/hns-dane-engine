@@ -3,6 +3,21 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## Unreleased
+
+- Added RFC 9848/9849 Encrypted ClientHello to the private mobile origin
+  transport for HTTP/1.1, HTTP/2, HTTP/3, and secure WebSocket connections.
+  Plan-bound HTTPS/SVCB ECH configuration is carried from the selected
+  namespace plan into rustls, forces TLS 1.3, and fails closed if ECH is
+  rejected; no plaintext or unbound retry is attempted.
+- Added strict ECHConfigList framing and capability classification for service
+  selection. ECH configuration now partitions verifier, TLS resumption, and
+  HTTP/1.1 pool state, while ECH requests cannot be promoted from unaffiliated
+  Alt-Svc state. The existing ring TLS provider remains in use; AWS-LC supplies
+  only the HPKE suites rustls requires for ECH.
+- This successor to the qualified 0.2.0 source requires fresh exact-commit CI,
+  CodeQL, platform cross-build, installed-product, and live-network evidence.
+
 ## 0.2.0 - 2026-08-10
 
 - Qualified the exact dated engine source at

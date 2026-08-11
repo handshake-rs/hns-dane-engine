@@ -8,11 +8,11 @@ use hns_dane::{
 pub use hns_icann_dane::{BrowserTlsDecision, TlsaTransport};
 use http::{HeaderName, HeaderValue, Request as Http2Request};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::client::{Resumption, WebPkiServerVerifier};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::client::{EchConfig, EchMode, EchStatus, Resumption, WebPkiServerVerifier};
+use rustls::pki_types::{CertificateDer, EchConfigListBytes, ServerName, UnixTime};
 use rustls::{
-    ClientConfig, ClientConnection, DigitallySignedStruct, OtherError, RootCertStore,
-    SignatureScheme,
+    ClientConfig, ClientConnection, DigitallySignedStruct, EncryptedClientHelloError, OtherError,
+    RootCertStore, SignatureScheme,
 };
 use rustls::{Error as RustlsError, StreamOwned};
 use sha2::{Digest, Sha256};
@@ -79,6 +79,11 @@ pub struct TlsValidation {
     pub tlsa_source: Option<TlsaRecordSource>,
     pub service_port: u16,
     pub service_transport: TlsaTransport,
+    /// The plan-bound, TLS-encoded `ECHConfigList` selected from the
+    /// origin's HTTPS/SVCB service binding. When a compatible configuration is
+    /// present, origin TLS must use ECH and must fail rather than fall back to
+    /// a plaintext ClientHello.
+    pub ech_config_list: Option<Vec<u8>>,
     pub browser_tls_decision: Option<BrowserTlsDecision>,
     pub stateless_dane: StatelessDaneConfig,
 }
@@ -87,6 +92,43 @@ pub struct TlsValidation {
 pub enum TlsaRecordSource {
     NativeTlsa,
     HnsProofTxt,
+}
+
+/// Local support classification for a TLS-encoded `ECHConfigList`.
+///
+/// This is intended for HTTPS/SVCB record compatibility filtering before
+/// service-priority selection. It performs the same format, ECH-version, KEM,
+/// KDF, and AEAD selection that the origin transport uses.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EchConfigListCompatibility {
+    /// At least one ECH configuration is usable by this client.
+    Compatible,
+    /// The list is well formed, but contains no supported configuration.
+    Unsupported,
+    /// The list is not a valid TLS-encoded `ECHConfigList`.
+    Malformed,
+}
+
+/// Classifies a DNS HTTPS/SVCB `ech` value for local client support.
+#[must_use]
+pub fn classify_ech_config_list(value: &[u8]) -> EchConfigListCompatibility {
+    let [length_high, length_low, encoded_configs @ ..] = value else {
+        return EchConfigListCompatibility::Malformed;
+    };
+    let declared_length = usize::from(u16::from_be_bytes([*length_high, *length_low]));
+    if declared_length == 0 || declared_length != encoded_configs.len() {
+        return EchConfigListCompatibility::Malformed;
+    }
+    match EchConfig::new(
+        EchConfigListBytes::from(value),
+        rustls::crypto::aws_lc_rs::hpke::ALL_SUPPORTED_SUITES,
+    ) {
+        Ok(_) => EchConfigListCompatibility::Compatible,
+        Err(RustlsError::InvalidEncryptedClientHello(
+            EncryptedClientHelloError::NoCompatibleConfig,
+        )) => EchConfigListCompatibility::Unsupported,
+        Err(_) => EchConfigListCompatibility::Malformed,
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -438,6 +480,7 @@ impl Default for TlsValidation {
             tlsa_source: None,
             service_port: 443,
             service_transport: TlsaTransport::Tcp,
+            ech_config_list: None,
             browser_tls_decision: None,
             stateless_dane: StatelessDaneConfig::default(),
         }
@@ -454,6 +497,7 @@ impl TlsValidation {
             tlsa_source: None,
             service_port: 443,
             service_transport: TlsaTransport::Tcp,
+            ech_config_list: None,
             browser_tls_decision: None,
             stateless_dane: StatelessDaneConfig::default(),
         }
@@ -553,10 +597,16 @@ impl TcpHttpTransport {
                 let connection =
                     ClientConnection::new(Arc::new(config), server_name).map_err(tls_error)?;
                 let mut tls_stream = StreamOwned::new(connection, stream);
+                complete_blocking_tls_handshake(
+                    &mut tls_stream,
+                    &request.tls,
+                    &verifier,
+                    &request.host,
+                )?;
+                let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
                 let (mut head, _) = self
                     .send_http11_stream(&mut tls_stream, request, &mut body)
                     .map_err(|error| verifier.classify_handshake_error(&request.host, error))?;
-                let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
                 head.dane_decision = dane_decision;
                 head.tls_inspection = tls_inspection;
                 head
@@ -772,11 +822,12 @@ impl TcpHttpTransport {
         verifier.begin_handshake(&request.host);
         let connection = ClientConnection::new(Arc::new(config), server_name).map_err(tls_error)?;
         let mut tls_stream = StreamOwned::new(connection, stream);
+        complete_blocking_tls_handshake(&mut tls_stream, &request.tls, &verifier, &request.host)?;
+        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
 
         let (mut head, reusable) = self
             .send_tls_http11(&mut tls_stream, request, body)
             .map_err(|error| verifier.classify_handshake_error(&request.host, error))?;
-        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         head.dane_decision = dane_decision.clone();
         head.tls_inspection = tls_inspection.clone();
         if reusable {
@@ -841,14 +892,7 @@ impl TcpHttpTransport {
         verifier.begin_handshake(&request.host);
         let connection = ClientConnection::new(Arc::new(config), server_name).map_err(tls_error)?;
         let mut tls_stream = StreamOwned::new(connection, stream);
-        while tls_stream.conn.is_handshaking() {
-            tls_stream
-                .conn
-                .complete_io(&mut tls_stream.sock)
-                .map_err(|error| {
-                    verifier.classify_handshake_error(&request.host, io_error(error))
-                })?;
-        }
+        complete_blocking_tls_handshake(&mut tls_stream, &request.tls, &verifier, &request.host)?;
         let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         let (head, reusable) = self.send_http11_streaming(
             &mut tls_stream,
@@ -944,6 +988,8 @@ impl TcpHttpTransport {
             .connect(server_name, stream)
             .await
             .map_err(|error| verifier.classify_handshake_error(&request.host, io_error(error)))?;
+        ensure_ech_accepted(&request.tls, tls_stream.get_ref().1.ech_status())?;
+        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         if tls_stream.get_ref().1.alpn_protocol() != Some(b"h2".as_slice()) {
             return Err(TransportError::UnsupportedTransport);
         }
@@ -973,7 +1019,6 @@ impl TcpHttpTransport {
             return Err(TransportError::MalformedResponse);
         }
         let expected_body_len = content_length(&headers)?;
-        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         if let Some(on_head) = on_head {
             on_head(&OriginResponseHead {
                 status,
@@ -1084,6 +1129,10 @@ impl TcpHttpTransport {
         let connection = http3_timeout(self.connect_timeout, "connect", connecting)
             .await?
             .map_err(|error| verifier.classify_handshake_error(&request.host, quic_error(error)))?;
+        // A rustls-backed Quinn connection cannot complete when real ECH was
+        // rejected. Commit the staged certificate decision before creating an
+        // HTTP/3 stream or sending any request fields.
+        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         let close_connection = connection.clone();
         let quic = h3_quinn::Connection::new(connection);
         let (mut driver, mut sender) = http3_timeout(
@@ -1133,7 +1182,6 @@ impl TcpHttpTransport {
             return Err(TransportError::MalformedResponse);
         }
         let expected_body_len = content_length(&headers)?;
-        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         if let Some(on_head) = on_head {
             on_head(&OriginResponseHead {
                 status,
@@ -1240,6 +1288,8 @@ impl TcpHttpTransport {
         verifier.begin_handshake(&request.host);
         let connection = ClientConnection::new(Arc::new(config), server_name).map_err(tls_error)?;
         let mut tls_stream = StreamOwned::new(connection, stream);
+        complete_blocking_tls_handshake(&mut tls_stream, &request.tls, &verifier, &request.host)?;
+        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         let response_head = self
             .send_http11_upgrade(&mut tls_stream, request)
             .map_err(|error| verifier.classify_handshake_error(&request.host, error))?;
@@ -1251,7 +1301,6 @@ impl TcpHttpTransport {
             .sock
             .set_write_timeout(Some(TUNNEL_IO_TIMEOUT))
             .map_err(io_error)?;
-        let (dane_decision, tls_inspection) = verifier.finish_handshake(&request.host)?;
         Ok(OriginTunnel {
             response_head,
             stream: Box::new(tls_stream),
@@ -1268,11 +1317,47 @@ impl TcpHttpTransport {
         validate_browser_tls_decision(&tls)?;
         let tls_key = tls_validation_key(&tls);
         let verifier = self.dane_verifier_for(tls.clone(), &tls_key)?;
+        let ech_config = match tls.ech_config_list.as_deref() {
+            Some(ech_config_list) => {
+                if classify_ech_config_list(ech_config_list)
+                    != EchConfigListCompatibility::Compatible
+                {
+                    return Err(TransportError::Tls(
+                        "ECHConfigList is malformed or unsupported".to_owned(),
+                    ));
+                }
+                Some(
+                    EchConfig::new(
+                        EchConfigListBytes::from(ech_config_list),
+                        rustls::crypto::aws_lc_rs::hpke::ALL_SUPPORTED_SUITES,
+                    )
+                    .map_err(tls_error)?,
+                )
+            }
+            None => None,
+        };
+        // Keep the established ring TLS provider. AWS-LC is enabled solely for
+        // its rustls HPKE implementations used to seal ECH.
         let provider = rustls::crypto::ring::default_provider();
+        let builder = ClientConfig::builder_with_provider(Arc::new(provider));
+        let builder = if let Some(ech_config) = ech_config {
+            // `Enable` is deliberately fail closed: rustls completes the
+            // authenticated outer handshake on rejection only to send
+            // `ech_required`, then returns an error before application data.
+            // We do not retry with ECH disabled or with unbound DNS results.
+            // rustls/Quinn do not expose one uniform, stable API for safely
+            // binding retry_configs across TCP and QUIC, so a fresh resolver
+            // plan is required for a later attempt.
+            builder
+                .with_ech(EchMode::Enable(ech_config))
+                .map_err(tls_error)?
+        } else {
+            builder
+                .with_safe_default_protocol_versions()
+                .map_err(tls_error)?
+        };
 
-        let mut config = ClientConfig::builder_with_provider(Arc::new(provider))
-            .with_safe_default_protocol_versions()
-            .map_err(tls_error)?
+        let mut config = builder
             .dangerous()
             .with_custom_certificate_verifier(verifier.clone())
             .with_no_client_auth();
@@ -1372,6 +1457,7 @@ impl TcpHttpTransport {
             || request.protocol == OriginProtocol::Http3
             || !is_safe_retry_method(&request.method)
             || request.tls.namespace_fingerprint.is_some()
+            || request.tls.ech_config_list.is_some()
         {
             // A fingerprint marks a retained dual-root namespace plan. Its
             // application protocol, transport, service port, and TLSA owner
@@ -1418,6 +1504,7 @@ impl TcpHttpTransport {
     fn record_alt_svc(&self, request: &OriginRequest, headers: &[(String, String)]) {
         if !request.scheme.eq_ignore_ascii_case("https")
             || request.tls.namespace_fingerprint.is_some()
+            || request.tls.ech_config_list.is_some()
         {
             return;
         }
@@ -1705,6 +1792,9 @@ impl DaneServerCertVerifier {
             if capture.failure == Some(HandshakeFailure::DaneCertificateAssociation) {
                 return Err(TransportError::DaneFailed);
             }
+            if capture.decision.is_some() {
+                self.commit_last_success(&capture)?;
+            }
             if let Some(decision) = capture.decision {
                 return Ok((decision, capture.inspection));
             }
@@ -1767,16 +1857,22 @@ impl DaneServerCertVerifier {
         let capture = handshakes.entry(std::thread::current().id()).or_default();
         capture.decision = Some(decision);
         capture.inspection = Some(inspection);
-        let capture = capture.clone();
+        // Certificate verification can also run for ClientHelloOuter when a
+        // server rejects ECH. Keep the result provisional until the transport
+        // has confirmed an accepted handshake and calls finish_handshake().
+        Ok(())
+    }
+
+    fn commit_last_success(&self, capture: &HandshakeCapture) -> Result<(), TransportError> {
         let mut last_success = self
             .last_success
             .lock()
-            .map_err(|_| RustlsError::General("TLS handshake cache lock is poisoned".to_owned()))?;
+            .map_err(|_| TransportError::Tls("TLS handshake cache lock is poisoned".to_owned()))?;
         if !capture.server_name.is_empty() {
             if !last_success.contains_key(&capture.server_name) {
                 evict_one_if_at_capacity(&mut last_success, MAX_TLS_CAPTURE_ENTRIES);
             }
-            last_success.insert(capture.server_name.clone(), capture);
+            last_success.insert(capture.server_name.clone(), capture.clone());
         }
         Ok(())
     }
@@ -2149,7 +2245,14 @@ fn validate_request_common(
     {
         return Err(TransportError::InvalidRequest);
     }
-
+    if request.tls.ech_config_list.is_some()
+        && !matches!(
+            request.scheme.to_ascii_lowercase().as_str(),
+            "https" | "wss"
+        )
+    {
+        return Err(TransportError::InvalidRequest);
+    }
     if let Some(connect_host) = &request.connect_host
         && !is_valid_host(connect_host)
     {
@@ -2934,6 +3037,13 @@ fn tls_validation_key(tls: &TlsValidation) -> String {
         ));
         append_hash_hex(&mut out, &record.association_data);
     }
+    match tls.ech_config_list.as_deref() {
+        Some(ech_config_list) => {
+            out.push_str(";ech=");
+            append_hash_hex(&mut out, ech_config_list);
+        }
+        None => out.push_str(";ech=none"),
+    }
     out.push_str(&format!(
         ";stateless={};roots={}",
         tls.stateless_dane.enabled,
@@ -2943,6 +3053,37 @@ fn tls_validation_key(tls: &TlsValidation) -> String {
         append_hash_hex(&mut out, root);
     }
     out
+}
+
+fn ensure_ech_accepted(tls: &TlsValidation, status: EchStatus) -> Result<(), TransportError> {
+    let ech_was_offered = tls.ech_config_list.as_deref().is_some_and(|value| {
+        classify_ech_config_list(value) == EchConfigListCompatibility::Compatible
+    });
+    if ech_was_offered && status != EchStatus::Accepted {
+        Err(TransportError::Tls(
+            "encrypted ClientHello was not accepted".to_owned(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn complete_blocking_tls_handshake<S: Read + Write>(
+    stream: &mut StreamOwned<ClientConnection, S>,
+    tls: &TlsValidation,
+    verifier: &DaneServerCertVerifier,
+    server_name: &str,
+) -> Result<(), TransportError> {
+    while stream.conn.is_handshaking() {
+        stream
+            .conn
+            .complete_io(&mut stream.sock)
+            .map_err(|error| verifier.classify_handshake_error(server_name, io_error(error)))?;
+    }
+    // This gate is intentionally before the first application write. rustls
+    // already aborts a rejected ECH handshake, and this explicit status check
+    // prevents future API behavior from accidentally exposing the request.
+    ensure_ech_accepted(tls, stream.conn.ech_status())
 }
 
 fn validate_browser_tls_decision(tls: &TlsValidation) -> Result<(), TransportError> {
@@ -3122,6 +3263,194 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
     use std::thread;
+
+    // RFC-format ECHConfigList observed for api.pirate.sc. The public name is
+    // cloudflare-ech.com. Keep this fixture offline so compatibility tests do
+    // not depend on DNS or a live ECH deployment.
+    const VALID_ECH_CONFIG_LIST: &[u8] = &[
+        0, 69, 254, 13, 0, 65, 251, 0, 32, 0, 32, 34, 62, 233, 148, 85, 152, 125, 143, 197, 34,
+        168, 119, 78, 69, 170, 69, 24, 250, 250, 207, 253, 171, 248, 243, 158, 107, 87, 55, 81,
+        235, 160, 25, 0, 4, 0, 1, 0, 1, 0, 18, 99, 108, 111, 117, 100, 102, 108, 97, 114, 101, 45,
+        101, 99, 104, 46, 99, 111, 109, 0, 0,
+    ];
+
+    #[test]
+    fn classifies_ech_config_lists_for_service_selection() {
+        // One structurally valid ECHConfig with an unknown version.
+        let unsupported = [0, 4, 0x12, 0x34, 0, 0];
+        let mut valid_with_trailing_byte = VALID_ECH_CONFIG_LIST.to_vec();
+        valid_with_trailing_byte.push(0);
+
+        assert_eq!(
+            classify_ech_config_list(VALID_ECH_CONFIG_LIST),
+            EchConfigListCompatibility::Compatible,
+        );
+        assert_eq!(
+            classify_ech_config_list(&unsupported),
+            EchConfigListCompatibility::Unsupported,
+        );
+        assert_eq!(
+            classify_ech_config_list(&[]),
+            EchConfigListCompatibility::Malformed,
+        );
+        assert_eq!(
+            classify_ech_config_list(&[0, 0]),
+            EchConfigListCompatibility::Malformed,
+        );
+        assert_eq!(
+            classify_ech_config_list(&valid_with_trailing_byte),
+            EchConfigListCompatibility::Malformed,
+        );
+    }
+
+    #[test]
+    fn compatible_ech_config_builds_an_offered_client_hello() {
+        let transport = TcpHttpTransport::default();
+        let tls = TlsValidation {
+            ech_config_list: Some(VALID_ECH_CONFIG_LIST.to_vec()),
+            ..TlsValidation::default()
+        };
+        let (config, _) = transport.client_config(tls, Vec::new()).unwrap();
+        let server_name = ServerName::try_from("private.example").unwrap();
+        let mut connection = ClientConnection::new(Arc::new(config), server_name).unwrap();
+        let mut client_hello = Vec::new();
+
+        connection.write_tls(&mut client_hello).unwrap();
+
+        assert_eq!(connection.ech_status(), EchStatus::Offered);
+        assert!(
+            !client_hello
+                .windows(b"private.example".len())
+                .any(|window| window == b"private.example")
+        );
+        assert_eq!(
+            ensure_ech_accepted(
+                &TlsValidation {
+                    ech_config_list: Some(VALID_ECH_CONFIG_LIST.to_vec()),
+                    ..TlsValidation::default()
+                },
+                connection.ech_status(),
+            ),
+            Err(TransportError::Tls(
+                "encrypted ClientHello was not accepted".to_owned()
+            )),
+        );
+    }
+
+    #[test]
+    fn unsupported_and_malformed_ech_are_rejected_by_transport() {
+        let transport = TcpHttpTransport::default();
+        for value in [vec![0, 4, 0x12, 0x34, 0, 0], Vec::new(), vec![0, 0]] {
+            let tls = TlsValidation {
+                ech_config_list: Some(value),
+                ..TlsValidation::default()
+            };
+            assert!(matches!(
+                transport.client_config(tls, Vec::new()),
+                Err(TransportError::Tls(_)),
+            ));
+        }
+    }
+
+    #[test]
+    fn compatible_ech_config_is_accepted_by_quinn_tls_adapter() {
+        let transport = TcpHttpTransport::default();
+        let tls = TlsValidation {
+            ech_config_list: Some(VALID_ECH_CONFIG_LIST.to_vec()),
+            ..TlsValidation::default()
+        };
+        let (config, _) = transport.client_config(tls, vec![b"h3".to_vec()]).unwrap();
+
+        assert!(quinn::crypto::rustls::QuicClientConfig::try_from(config).is_ok());
+    }
+
+    #[test]
+    fn rejected_ech_sends_no_http_application_bytes() {
+        let server = TlsTestServer::start();
+        let transport = TcpHttpTransport::new(
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            TransportLimits::default(),
+        );
+        let mut request = request(server.address);
+        request.scheme = "https".to_owned();
+        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls.ech_config_list = Some(VALID_ECH_CONFIG_LIST.to_vec());
+
+        assert!(transport.fetch(&request).is_err());
+        assert!(server.request().is_empty());
+    }
+
+    #[test]
+    fn rejected_ech_sends_no_websocket_upgrade_bytes() {
+        let server = TlsTestServer::start();
+        let transport = TcpHttpTransport::new(
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            TransportLimits::default(),
+        );
+        let mut request = request(server.address);
+        request.scheme = "wss".to_owned();
+        request.headers.extend([
+            ("Connection".to_owned(), "Upgrade".to_owned()),
+            ("Upgrade".to_owned(), "websocket".to_owned()),
+        ]);
+        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls.ech_config_list = Some(VALID_ECH_CONFIG_LIST.to_vec());
+
+        assert!(transport.open_tunnel(&request).is_err());
+        assert!(server.request().is_empty());
+    }
+
+    #[test]
+    fn certificate_capture_is_cached_only_after_handshake_success() {
+        let transport = TcpHttpTransport::default();
+        let tls = TlsValidation::default();
+        let tls_key = tls_validation_key(&tls);
+        let verifier = transport.dane_verifier_for(tls, &tls_key).unwrap();
+        let inspection = TlsCertificateInspection {
+            end_entity_der: vec![1],
+            end_entity_spki_der: vec![2],
+            intermediate_der: Vec::new(),
+            webpki_status: WebPkiStatus::Valid,
+        };
+
+        verifier.begin_handshake("example.com");
+        verifier
+            .store_capture(DaneDecision::NoTlsa, inspection.clone())
+            .unwrap();
+        assert!(verifier.last_success.lock().unwrap().is_empty());
+        let error = TransportError::Tls("rejected ECH".to_owned());
+        assert_eq!(
+            verifier.classify_handshake_error("example.com", error),
+            TransportError::Tls("rejected ECH".to_owned()),
+        );
+        assert!(verifier.last_success.lock().unwrap().is_empty());
+
+        verifier.begin_handshake("example.com");
+        verifier
+            .store_capture(DaneDecision::NoTlsa, inspection.clone())
+            .unwrap();
+        assert_eq!(
+            verifier.finish_handshake("example.com").unwrap(),
+            (DaneDecision::NoTlsa, Some(inspection.clone())),
+        );
+        assert!(
+            verifier
+                .last_success
+                .lock()
+                .unwrap()
+                .contains_key("example.com")
+        );
+
+        // A resumed TLS 1.3 handshake may not invoke certificate verification;
+        // in that case the last fully accepted result is reused.
+        verifier.begin_handshake("example.com");
+        assert_eq!(
+            verifier.finish_handshake("example.com").unwrap(),
+            (DaneDecision::NoTlsa, Some(inspection)),
+        );
+    }
 
     #[test]
     fn fetches_http_origin_response() {
@@ -4426,6 +4755,11 @@ mod tests {
         append_hash_hex(&mut expected_digest, b"first association");
         assert_ne!(first_key, second_key);
         assert!(first_key.contains(&expected_digest));
+
+        let mut with_ech = first.clone();
+        with_ech.ech_config_list = Some(VALID_ECH_CONFIG_LIST.to_vec());
+        let with_ech_key = tls_validation_key(&with_ech);
+        assert_ne!(first_key, with_ech_key);
     }
 
     #[test]
