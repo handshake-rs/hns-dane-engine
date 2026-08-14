@@ -5,7 +5,8 @@ repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 
 rust_toolchain=${RUST_TOOLCHAIN:-1.89.0}
-publish_interval_seconds=${PUBLISH_INTERVAL_SECONDS-605}
+publish_new_interval_seconds=${PUBLISH_NEW_INTERVAL_SECONDS-605}
+publish_update_interval_seconds=${PUBLISH_UPDATE_INTERVAL_SECONDS-65}
 mode=${1:---dry-run}
 requested_package=${2:-}
 confirmed_version=${3:-}
@@ -422,6 +423,27 @@ create_source_package() {
     verify_source_package "$package"
 }
 
+create_registry_source_package() {
+    package=$1
+    cargo +"$rust_toolchain" publish \
+        --locked \
+        --dry-run \
+        -p "$package"
+    verify_source_package "$package"
+}
+
+published_crate_status() {
+    package=$1
+    version=$2
+    curl \
+        --silent \
+        --show-error \
+        --user-agent "hns-dane-engine-release/$version (https://github.com/handshake-rs/hns-dane-engine)" \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        "https://crates.io/api/v1/crates/$package"
+}
+
 published_package_status() {
     package=$1
     version=$2
@@ -532,11 +554,13 @@ verify_protocol_packages_published() {
 verify_new_upload() {
     package=$1
     version=$2
+    publish_interval_seconds=$3
+    publish_kind=$4
 
     if [ "$package" != "$last_public_crate" ] &&
         [ "$publish_interval_seconds" != "0" ]
     then
-        echo "waiting ${publish_interval_seconds}s for crates.io propagation and cooldown"
+        echo "waiting ${publish_interval_seconds}s for crates.io propagation and $publish_kind cooldown"
         sleep "$publish_interval_seconds"
     fi
 
@@ -608,9 +632,15 @@ case "$mode" in
             echo "error: irreversible publication requires --confirm-publish VERSION" >&2
             exit 2
         fi
-        case "$publish_interval_seconds" in
+        case "$publish_new_interval_seconds" in
             *[!0-9]*|'')
-                echo "error: PUBLISH_INTERVAL_SECONDS must be a non-negative integer" >&2
+                echo "error: PUBLISH_NEW_INTERVAL_SECONDS must be a non-negative integer" >&2
+                exit 2
+                ;;
+        esac
+        case "$publish_update_interval_seconds" in
+            *[!0-9]*|'')
+                echo "error: PUBLISH_UPDATE_INTERVAL_SECONDS must be a non-negative integer" >&2
                 exit 2
                 ;;
         esac
@@ -634,20 +664,45 @@ case "$mode" in
         do
             version=$(package_version "$package")
             verify_release_source_unchanged
-            # Construct and inspect the normalized archive before either an
-            # irreversible upload or an exact-checksum resume decision.
-            create_source_package "$package"
             status=$(published_package_status "$package" "$version")
             verify_release_source_unchanged
             case "$status" in
                 200)
+                    # Reproduce the uploaded Cargo.lock through Cargo's
+                    # registry-backed publish path. A local workspace package
+                    # omits registry source/checksum fields and is not an exact
+                    # resume artifact once its dependencies are published.
+                    create_registry_source_package "$package"
                     verify_published_package "$package" "$version"
                     echo "skipping $package $version: already published and verified"
                     ;;
                 404)
+                    crate_status=$(published_crate_status "$package" "$version")
+                    case "$crate_status" in
+                        200)
+                            publish_interval_seconds=$publish_update_interval_seconds
+                            publish_kind=existing-crate-update
+                            ;;
+                        404)
+                            publish_interval_seconds=$publish_new_interval_seconds
+                            publish_kind=new-crate-name
+                            ;;
+                        *)
+                            echo "error: crates.io returned HTTP $crate_status while classifying $package" >&2
+                            exit 1
+                            ;;
+                    esac
+                    # Construct and inspect the normalized archive before the
+                    # irreversible upload. cargo publish then replaces it with
+                    # the registry-backed archive used for exact verification.
+                    create_source_package "$package"
                     verify_release_source_unchanged
                     cargo +"$rust_toolchain" publish --locked -p "$package"
-                    verify_new_upload "$package" "$version"
+                    verify_new_upload \
+                        "$package" \
+                        "$version" \
+                        "$publish_interval_seconds" \
+                        "$publish_kind"
                     ;;
                 *)
                     echo "error: crates.io returned HTTP $status for $package $version" >&2

@@ -196,20 +196,27 @@ archive, and requires both archives to identify the current clean release
 commit. This makes a partially completed release safely resumable without
 accepting another artifact under the same package and version.
 
-New uploads use a 605-second propagation and cooldown interval before the next
-allowlisted crate by default. Verified resume skips and the final new upload do
-not sleep. Override the interval only when crates.io communicates a different
-non-negative limit:
+Before an upload, the script checks whether the crate name already exists and
+selects crates.io's independent action bucket. A new name uses a 605-second
+new-name propagation/cooldown interval; a new version of an existing name uses
+a 65-second existing-crate update interval. Those defaults add five seconds to
+the current [crates.io default refill periods](https://github.com/rust-lang/crates.io/blob/main/src/rate_limiter.rs).
+Verified resume skips and the final new upload do not sleep. Override either
+interval only when crates.io communicates a different non-negative limit:
 
 ```bash
-PUBLISH_INTERVAL_SECONDS=605 \
+PUBLISH_NEW_INTERVAL_SECONDS=605 \
+PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
   ./scripts/publish.sh --execute --confirm-publish 0.2.1
 ```
 
-After each cooldown, the script downloads the new archive and applies the same
-checksum and VCS checks before continuing. If the registry has not exposed the
-archive yet, the command exits safely; rerun the identical execute command
-after propagation so resume verification can continue without republishing.
+After each applicable cooldown, the script downloads the new archive and
+applies the same checksum and VCS checks before continuing. On resume, it
+reconstructs an already-published package through Cargo's registry-backed
+publish dry-run so normalized `Cargo.lock` source/checksum fields reproduce the
+uploaded archive exactly. If the registry has not exposed the archive yet, the
+command exits safely; rerun the identical execute command after propagation so
+resume verification can continue without republishing.
 
 After publication, create and push the annotated `vX.Y.Z` tag from the exact
 qualified release commit, then confirm every package page and docs.rs build.

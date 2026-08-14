@@ -26,16 +26,28 @@ assert_rejected \
     "irreversible publication requires --confirm-publish VERSION" \
     ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION extra
 assert_rejected \
-    "PUBLISH_INTERVAL_SECONDS must be a non-negative integer" \
-    env PUBLISH_INTERVAL_SECONDS=invalid \
+    "PUBLISH_NEW_INTERVAL_SECONDS must be a non-negative integer" \
+    env PUBLISH_NEW_INTERVAL_SECONDS=invalid \
     ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION
 assert_rejected \
-    "PUBLISH_INTERVAL_SECONDS must be a non-negative integer" \
-    env PUBLISH_INTERVAL_SECONDS=-1 \
+    "PUBLISH_NEW_INTERVAL_SECONDS must be a non-negative integer" \
+    env PUBLISH_NEW_INTERVAL_SECONDS=-1 \
     ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION
 assert_rejected \
-    "PUBLISH_INTERVAL_SECONDS must be a non-negative integer" \
-    env PUBLISH_INTERVAL_SECONDS= \
+    "PUBLISH_NEW_INTERVAL_SECONDS must be a non-negative integer" \
+    env PUBLISH_NEW_INTERVAL_SECONDS= \
+    ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION
+assert_rejected \
+    "PUBLISH_UPDATE_INTERVAL_SECONDS must be a non-negative integer" \
+    env PUBLISH_UPDATE_INTERVAL_SECONDS=invalid \
+    ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION
+assert_rejected \
+    "PUBLISH_UPDATE_INTERVAL_SECONDS must be a non-negative integer" \
+    env PUBLISH_UPDATE_INTERVAL_SECONDS=-1 \
+    ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION
+assert_rejected \
+    "PUBLISH_UPDATE_INTERVAL_SECONDS must be a non-negative integer" \
+    env PUBLISH_UPDATE_INTERVAL_SECONDS= \
     ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION
 assert_rejected \
     "usage:" \

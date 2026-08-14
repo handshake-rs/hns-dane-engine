@@ -5,6 +5,12 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.1 - Unreleased
 
+- Split the release runner's crates.io cadence between new crate names and new
+  versions of existing names (605 seconds and 65 seconds respectively), with
+  fail-closed registry classification. Resume verification now rebuilds through
+  Cargo's registry-backed publish dry-run so dependency `Cargo.lock`
+  source/checksum fields reproduce the uploaded archive byte-for-byte. This is
+  release tooling only and does not publish or qualify the 0.2.1 engine source.
 - Raised the default per-host loopback-proxy request budget from 80 to the
   unchanged global budget of 240 requests per 10 seconds for both mobile and
   Chromium, allowing same-origin code-split asset bursts without increasing

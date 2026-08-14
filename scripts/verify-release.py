@@ -135,18 +135,40 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         fail("docs/releasing.md does not use the current version in its execute example")
 
     publish_script = (repo / "scripts/publish.sh").read_text(encoding="utf-8")
-    interval_match = re.search(
-        r"^publish_interval_seconds=\$\{PUBLISH_INTERVAL_SECONDS-(\d+)\}$",
-        publish_script,
-        re.MULTILINE,
+    interval_defaults = (
+        (
+            "publish_new_interval_seconds",
+            "PUBLISH_NEW_INTERVAL_SECONDS",
+            "new-name",
+        ),
+        (
+            "publish_update_interval_seconds",
+            "PUBLISH_UPDATE_INTERVAL_SECONDS",
+            "existing-crate update",
+        ),
     )
-    if interval_match is None:
-        fail("scripts/publish.sh has no validated publication interval default")
-    default_interval = interval_match.group(1)
-    if f"{default_interval}-second" not in document:
-        fail("docs/releasing.md omits the publication interval default")
-    if f"PUBLISH_INTERVAL_SECONDS={default_interval}" not in document:
-        fail("docs/releasing.md cooldown example differs from the script default")
+    for shell_name, environment_name, description in interval_defaults:
+        interval_match = re.search(
+            rf"^{shell_name}=\$\{{{environment_name}-(\d+)\}}$",
+            publish_script,
+            re.MULTILINE,
+        )
+        if interval_match is None:
+            fail(
+                f"scripts/publish.sh has no validated {description} "
+                "publication interval default"
+            )
+        default_interval = interval_match.group(1)
+        if re.search(
+            rf"{re.escape(default_interval)}-second\s+{re.escape(description)}",
+            document,
+        ) is None:
+            fail(f"docs/releasing.md omits the {description} interval default")
+        if f"{environment_name}={default_interval}" not in document:
+            fail(
+                f"docs/releasing.md {description} cooldown example differs "
+                "from the script default"
+            )
 
     required_text = (
         "release/public-crates.txt",
@@ -213,6 +235,8 @@ def verify_publish_script_safety(repo: Path) -> None:
         "--archive-only)",
         "verify_protocol_packages_published()",
         "verify_published_package()",
+        "published_crate_status()",
+        "create_registry_source_package()",
         "verify_fixture_source_package()",
         "verify_release_source_unchanged()",
         "require_clean_archive_vcs=yes",
@@ -241,15 +265,24 @@ def verify_publish_script_safety(repo: Path) -> None:
     try:
         execute = script.split("    --execute)", 1)[1]
         protocol_position = execute.index("verify_protocol_packages_published")
-        package_position = execute.index('create_source_package "$package"')
+        resume_package_position = execute.index(
+            'create_registry_source_package "$package"'
+        )
+        new_package_position = execute.index('create_source_package "$package"')
         upload_position = execute.index(
             'cargo +"$rust_toolchain" publish --locked -p "$package"'
         )
         resume_position = execute.index('verify_published_package "$package" "$version"')
     except (IndexError, ValueError) as error:
         fail(f"scripts/publish.sh execute path is incomplete: {error}")
-    if not protocol_position < package_position < resume_position < upload_position:
-        fail("protocol, local archive, and resume checks must precede execute upload")
+    if not (
+        protocol_position < resume_package_position < resume_position < upload_position
+        and protocol_position < new_package_position < upload_position
+    ):
+        fail(
+            "protocol and path-specific local archive checks must precede "
+            "resume verification and execute upload"
+        )
     if "--allow-dirty" in execute:
         fail("scripts/publish.sh execute path must never allow dirty packaging")
 
