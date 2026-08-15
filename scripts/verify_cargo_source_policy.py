@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tomllib
@@ -15,11 +16,35 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 ROOT_MANIFEST = Path("Cargo.toml")
 LOCKFILE = Path("Cargo.lock")
-HNS_RS_GIT_URL = "https://github.com/handshake-rs/hns-rs.git"
-HNS_RS_REVISION = "b24b66c382de53330ec21dd3137e056a2bea3e2d"
-HNS_RS_CRATES_IO_VERSION = "0.2.0"
-HNS_RS_LOCK_SOURCE = (
-    f"git+{HNS_RS_GIT_URL}?rev={HNS_RS_REVISION}#{HNS_RS_REVISION}"
+HNS_RS_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
+HNS_RS_REVISION = "d0cde9ded6f8f93f96f16daafc094849c6d484bf"
+HNS_RS_CRATES_IO_VERSION = "0.3.0"
+HNS_RS_CRATES_IO_REQUIREMENT = f"={HNS_RS_CRATES_IO_VERSION}"
+HNS_RS_REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
+HNS_RS_CHECKSUM_MANIFEST = Path(
+    f"release/hns-rs-{HNS_RS_CRATES_IO_VERSION}-crates.sha256"
+)
+
+HNS_RS_PUBLIC_PACKAGES = (
+    "hns-encoding",
+    "hns-rollback-journal",
+    "hns-hrm",
+    "hns-primitives",
+    "hns-covenants",
+    "hns-dns-relay-protocol",
+    "hns-header-consensus",
+    "hns-service-authority",
+    "hns-odoh-protocol",
+    "hns-p2p-experimental",
+    "hns-urkel-proof",
+    "hns-transaction",
+    "hns-chat-protocol",
+    "hns-hnsr-protocol",
+    "hns-script",
+    "hns-mining",
+    "hns-swap",
+    "hns-marketplace-protocol",
+    "hns-p2p-wire",
 )
 
 DIRECT_HNS_RS_PACKAGES = frozenset(
@@ -29,10 +54,12 @@ DIRECT_HNS_RS_PACKAGES = frozenset(
         "hns-encoding",
         "hns-header-consensus",
         "hns-hnsr-protocol",
+        "hns-hrm",
         "hns-odoh-protocol",
         "hns-p2p-experimental",
         "hns-p2p-wire",
         "hns-primitives",
+        "hns-rollback-journal",
         "hns-service-authority",
         "hns-urkel-proof",
     }
@@ -55,7 +82,9 @@ EXPECTED_CONSUMERS = {
         {
             ("dependencies", "hns-header-consensus"),
             ("dependencies", "hns-hnsr-protocol"),
+            ("dependencies", "hns-hrm"),
             ("dependencies", "hns-p2p-wire"),
+            ("dependencies", "hns-rollback-journal"),
             ("dependencies", "hns-service-authority"),
         }
     ),
@@ -144,6 +173,36 @@ def load_toml(path: Path) -> dict[str, Any]:
         return tomllib.load(handle)
 
 
+def load_hns_rs_checksums(root: Path) -> dict[str, str]:
+    path = root / HNS_RS_CHECKSUM_MANIFEST
+    lines = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if len(lines) != len(HNS_RS_PUBLIC_PACKAGES):
+        raise CargoSourcePolicyError(
+            f"{HNS_RS_CHECKSUM_MANIFEST}: expected "
+            f"{len(HNS_RS_PUBLIC_PACKAGES)} archive hashes, found {len(lines)}"
+        )
+
+    checksums: dict[str, str] = {}
+    for package, line in zip(HNS_RS_PUBLIC_PACKAGES, lines, strict=True):
+        fields = line.split()
+        expected_filename = f"{package}-{HNS_RS_CRATES_IO_VERSION}.crate"
+        if (
+            len(fields) != 2
+            or re.fullmatch(r"[0-9a-f]{64}", fields[0]) is None
+            or fields[1] != expected_filename
+        ):
+            raise CargoSourcePolicyError(
+                f"{HNS_RS_CHECKSUM_MANIFEST}: expected '<sha256>  "
+                f"{expected_filename}'"
+            )
+        checksums[package] = fields[0]
+    return checksums
+
+
 def validate_manifests(root: Path, manifests: list[Path]) -> None:
     root = root.resolve()
     root_declarations: dict[str, int] = {
@@ -176,35 +235,24 @@ def validate_manifests(root: Path, manifests: list[Path]) -> None:
                         f"{relative_path}:{rendered_location}: Cargo Git "
                         f"dependency {dependency!r} is not allowed"
                     )
+                package_override = specification.get("package")
+                if (
+                    isinstance(package_override, str)
+                    and package_override in DIRECT_HNS_RS_PACKAGES
+                ):
+                    raise CargoSourcePolicyError(
+                        f"{relative_path}:{rendered_location}: hns-rs dependency "
+                        "renaming is not allowed"
+                    )
                 continue
 
             root_location = ("workspace", "dependencies", dependency)
             if relative_path == ROOT_MANIFEST and location == root_location:
-                if specification.get("git") != HNS_RS_GIT_URL:
+                if specification != {"version": HNS_RS_CRATES_IO_REQUIREMENT}:
                     raise CargoSourcePolicyError(
                         f"{relative_path}:{rendered_location}: expected "
-                        f"canonical Git URL {HNS_RS_GIT_URL!r}"
-                    )
-                if specification.get("rev") != HNS_RS_REVISION:
-                    raise CargoSourcePolicyError(
-                        f"{relative_path}:{rendered_location}: expected exact "
-                        f"Git revision {HNS_RS_REVISION}"
-                    )
-                if specification.get("version") != HNS_RS_CRATES_IO_VERSION:
-                    raise CargoSourcePolicyError(
-                        f"{relative_path}:{rendered_location}: expected "
-                        f"crates.io version {HNS_RS_CRATES_IO_VERSION!r}"
-                    )
-                if "branch" in specification or "tag" in specification:
-                    raise CargoSourcePolicyError(
-                        f"{relative_path}:{rendered_location}: branch and tag "
-                        "selectors are not allowed"
-                    )
-                package_override = specification.get("package")
-                if package_override not in (None, dependency):
-                    raise CargoSourcePolicyError(
-                        f"{relative_path}:{rendered_location}: dependency "
-                        "renaming is not allowed"
+                        f"exact crates.io requirement "
+                        f"{HNS_RS_CRATES_IO_REQUIREMENT!r} with no source override"
                     )
                 root_declarations[dependency] += 1
                 continue
@@ -247,23 +295,38 @@ def validate_manifests(root: Path, manifests: list[Path]) -> None:
 
 def validate_lockfile(root: Path) -> None:
     document = load_toml(root / LOCKFILE)
+    checksums = load_hns_rs_checksums(root)
     counts: dict[str, int] = {
         package: 0 for package in LOCKED_HNS_RS_PACKAGES
     }
 
     for package in document.get("package", []):
         source = package.get("source")
-        if not isinstance(source, str) or not source.startswith("git+"):
-            continue
         name = package.get("name", "<unknown>")
-        if name not in LOCKED_HNS_RS_PACKAGES:
+        if isinstance(source, str) and source.startswith("git+"):
             raise CargoSourcePolicyError(
                 f"{LOCKFILE}: locked Cargo Git package {name!r} is not allowed"
             )
-        if source != HNS_RS_LOCK_SOURCE:
+        if name not in HNS_RS_PUBLIC_PACKAGES:
+            continue
+        if name not in LOCKED_HNS_RS_PACKAGES:
             raise CargoSourcePolicyError(
-                f"{LOCKFILE}: {name} must lock to "
-                f"{HNS_RS_LOCK_SOURCE!r}, found {source!r}"
+                f"{LOCKFILE}: unexpected hns-rs package {name!r} entered the closure"
+            )
+        if package.get("version") != HNS_RS_CRATES_IO_VERSION:
+            raise CargoSourcePolicyError(
+                f"{LOCKFILE}: {name} must lock to version "
+                f"{HNS_RS_CRATES_IO_VERSION}, found {package.get('version')!r}"
+            )
+        if source != HNS_RS_REGISTRY_SOURCE:
+            raise CargoSourcePolicyError(
+                f"{LOCKFILE}: {name} must use {HNS_RS_REGISTRY_SOURCE!r}, "
+                f"found {source!r}"
+            )
+        if package.get("checksum") != checksums[name]:
+            raise CargoSourcePolicyError(
+                f"{LOCKFILE}: {name} checksum differs from "
+                f"{HNS_RS_CHECKSUM_MANIFEST}"
             )
         counts[name] += 1
 
@@ -297,8 +360,10 @@ def main() -> int:
         print(f"Cargo source policy failed: {error}", file=sys.stderr)
         return 1
     print(
-        "Cargo source policy permits only the reviewed hns-rs closure at "
-        f"{HNS_RS_REVISION} and repository-local path dependencies."
+        "Cargo source policy permits only the reviewed exact hns-rs "
+        f"{HNS_RS_CRATES_IO_REQUIREMENT} registry closure and repository-local "
+        f"path dependencies; {len(HNS_RS_PUBLIC_PACKAGES)} archive hashes bind "
+        f"source {HNS_RS_REVISION}."
     )
     return 0
 

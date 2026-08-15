@@ -361,10 +361,12 @@ SQLite, operating-system DNS, or a particular network stack. Callers can execute
 state machines under their native runtime.
 
 The `hns-rs` edge is canonical and immutable rather than a workspace-layout
-assumption. Eleven direct packages inherit a single exact
-`https://github.com/handshake-rs/hns-rs.git` revision from the root manifest;
-Cargo resolves their three additional transitive packages from that same Git
-checkout. All other path dependencies must remain inside this repository.
+assumption. Thirteen direct packages inherit exact crates.io requirement
+`=0.3.0` from the root manifest; Cargo resolves their three additional
+transitive packages from the same registry release. The lockfile and checked-in
+archive-hash manifest bind those packages to the clean `hns-rs` release source
+`d0cde9ded6f8f93f96f16daafc094849c6d484bf`. All other path dependencies must
+remain inside this repository, and Cargo Git dependencies are forbidden.
 Consequently, the dependency direction is independently cloneable
 `hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports
 MeshMine nor requires an adjacent source tree.

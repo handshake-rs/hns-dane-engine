@@ -14,11 +14,15 @@ from verify_cargo_source_policy import (  # noqa: E402
     CargoSourcePolicyError,
     DIRECT_HNS_RS_PACKAGES,
     EXPECTED_CONSUMERS,
+    HNS_RS_CHECKSUM_MANIFEST,
+    HNS_RS_CRATES_IO_REQUIREMENT,
     HNS_RS_CRATES_IO_VERSION,
-    HNS_RS_GIT_URL,
-    HNS_RS_LOCK_SOURCE,
+    HNS_RS_PUBLIC_PACKAGES,
+    HNS_RS_REGISTRY_SOURCE,
+    HNS_RS_REPOSITORY,
     HNS_RS_REVISION,
     LOCKED_HNS_RS_PACKAGES,
+    load_hns_rs_checksums,
     verify_repository,
 )
 
@@ -32,9 +36,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
         root.mkdir()
 
         dependencies = "\n".join(
-            f'{package} = {{ version = "{HNS_RS_CRATES_IO_VERSION}", '
-            f'git = "{HNS_RS_GIT_URL}", '
-            f'rev = "{HNS_RS_REVISION}" }}'
+            f'{package} = {{ version = "{HNS_RS_CRATES_IO_REQUIREMENT}" }}'
             for package in sorted(DIRECT_HNS_RS_PACKAGES)
         )
         (root / "Cargo.toml").write_text(
@@ -59,11 +61,16 @@ class CargoSourcePolicyTests(unittest.TestCase):
             manifest.write_text(f"{text}\n", encoding="utf-8")
             manifests.append(relative_path)
 
+        checksum_manifest = root / HNS_RS_CHECKSUM_MANIFEST
+        checksum_manifest.parent.mkdir(parents=True, exist_ok=True)
+        checksum_manifest.write_bytes((ROOT / HNS_RS_CHECKSUM_MANIFEST).read_bytes())
+        checksums = load_hns_rs_checksums(root)
         locked_packages = "\n".join(
             "[[package]]\n"
             f'name = "{package}"\n'
             f'version = "{HNS_RS_CRATES_IO_VERSION}"\n'
-            f'source = "{HNS_RS_LOCK_SOURCE}"\n'
+            f'source = "{HNS_RS_REGISTRY_SOURCE}"\n'
+            f'checksum = "{checksums[package]}"\n'
             for package in sorted(LOCKED_HNS_RS_PACKAGES)
         )
         (root / "Cargo.lock").write_text(
@@ -76,7 +83,9 @@ class CargoSourcePolicyTests(unittest.TestCase):
         verify_repository(root, manifests)
 
     def test_reviewed_package_sets_are_explicit(self) -> None:
-        self.assertEqual(len(DIRECT_HNS_RS_PACKAGES), 11)
+        self.assertEqual(len(HNS_RS_PUBLIC_PACKAGES), 19)
+        self.assertEqual(len(DIRECT_HNS_RS_PACKAGES), 13)
+        self.assertEqual(len(LOCKED_HNS_RS_PACKAGES), 16)
         self.assertEqual(
             LOCKED_HNS_RS_PACKAGES - DIRECT_HNS_RS_PACKAGES,
             {
@@ -85,39 +94,61 @@ class CargoSourcePolicyTests(unittest.TestCase):
                 "hns-transaction",
             },
         )
+        self.assertEqual(
+            set(HNS_RS_PUBLIC_PACKAGES) - LOCKED_HNS_RS_PACKAGES,
+            {
+                "hns-marketplace-protocol",
+                "hns-script",
+                "hns-swap",
+            },
+        )
+        self.assertEqual(len(load_hns_rs_checksums(ROOT)), 19)
+        self.assertEqual(
+            HNS_RS_REPOSITORY,
+            "https://github.com/handshake-rs/hns-rs.git",
+        )
+        self.assertEqual(
+            HNS_RS_REVISION,
+            "d0cde9ded6f8f93f96f16daafc094849c6d484bf",
+        )
 
-    def test_accepts_exact_standalone_source_boundary(self) -> None:
+    def test_accepts_exact_registry_source_boundary(self) -> None:
         temporary, root, manifests = self.create_fixture()
         with temporary:
             self.verify_fixture(root, manifests)
 
-    def test_rejects_unpinned_manifest_dependency(self) -> None:
+    def test_rejects_compatible_but_not_exact_requirement(self) -> None:
         temporary, root, manifests = self.create_fixture()
         with temporary:
             manifest = root / "Cargo.toml"
             manifest.write_text(
                 manifest.read_text(encoding="utf-8").replace(
-                    f', rev = "{HNS_RS_REVISION}"', "", 1
+                    HNS_RS_CRATES_IO_REQUIREMENT,
+                    HNS_RS_CRATES_IO_VERSION,
+                    1,
                 ),
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(
-                CargoSourcePolicyError, "expected exact Git revision"
+                CargoSourcePolicyError, "expected exact crates.io requirement"
             ):
                 self.verify_fixture(root, manifests)
 
-    def test_rejects_missing_crates_io_version(self) -> None:
+    def test_rejects_manifest_git_override(self) -> None:
         temporary, root, manifests = self.create_fixture()
         with temporary:
             manifest = root / "Cargo.toml"
             manifest.write_text(
                 manifest.read_text(encoding="utf-8").replace(
-                    f'version = "{HNS_RS_CRATES_IO_VERSION}", ', "", 1
+                    f'hns-covenants = {{ version = "{HNS_RS_CRATES_IO_REQUIREMENT}" }}',
+                    f'hns-covenants = {{ version = "{HNS_RS_CRATES_IO_REQUIREMENT}", '
+                    f'git = "{HNS_RS_REPOSITORY}" }}',
+                    1,
                 ),
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(
-                CargoSourcePolicyError, "expected crates.io version"
+                CargoSourcePolicyError, "with no source override"
             ):
                 self.verify_fixture(root, manifests)
 
@@ -127,31 +158,15 @@ class CargoSourcePolicyTests(unittest.TestCase):
             manifest = root / "Cargo.toml"
             manifest.write_text(
                 manifest.read_text(encoding="utf-8").replace(
-                    f'rev = "{HNS_RS_REVISION}"',
-                    f'rev = "{HNS_RS_REVISION}", branch = "main"',
+                    f'hns-covenants = {{ version = "{HNS_RS_CRATES_IO_REQUIREMENT}" }}',
+                    f'hns-covenants = {{ version = "{HNS_RS_CRATES_IO_REQUIREMENT}", '
+                    'branch = "main" }',
                     1,
                 ),
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(
-                CargoSourcePolicyError, "branch and tag selectors"
-            ):
-                self.verify_fixture(root, manifests)
-
-    def test_rejects_noncanonical_manifest_url(self) -> None:
-        temporary, root, manifests = self.create_fixture()
-        with temporary:
-            manifest = root / "Cargo.toml"
-            manifest.write_text(
-                manifest.read_text(encoding="utf-8").replace(
-                    HNS_RS_GIT_URL,
-                    "https://example.invalid/hns-rs.git",
-                    1,
-                ),
-                encoding="utf-8",
-            )
-            with self.assertRaisesRegex(
-                CargoSourcePolicyError, "expected canonical Git URL"
+                CargoSourcePolicyError, "with no source override"
             ):
                 self.verify_fixture(root, manifests)
 
@@ -168,28 +183,23 @@ class CargoSourcePolicyTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(
-                CargoSourcePolicyError, "Cargo Git dependency"
+                CargoSourcePolicyError, "renaming is not allowed"
             ):
                 self.verify_fixture(root, manifests)
 
-    def test_rejects_direct_consumer_git_declaration(self) -> None:
+    def test_rejects_direct_consumer_source_declaration(self) -> None:
         temporary, root, manifests = self.create_fixture()
         with temporary:
-            relative_path = Path(
-                "crates/hns-light-chain/Cargo.toml"
-            )
+            relative_path = Path("crates/hns-light-chain/Cargo.toml")
             manifest = root / relative_path
             manifest.write_text(
                 manifest.read_text(encoding="utf-8").replace(
                     "hns-covenants.workspace = true",
-                    f'hns-covenants = {{ git = "{HNS_RS_GIT_URL}", '
-                    f'rev = "{HNS_RS_REVISION}" }}',
+                    f'hns-covenants = {{ version = "{HNS_RS_CRATES_IO_REQUIREMENT}" }}',
                 ),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(
-                CargoSourcePolicyError, "must inherit"
-            ):
+            with self.assertRaisesRegex(CargoSourcePolicyError, "must inherit"):
                 self.verify_fixture(root, manifests)
 
     def test_rejects_unreviewed_consumer(self) -> None:
@@ -224,30 +234,63 @@ class CargoSourcePolicyTests(unittest.TestCase):
             ):
                 self.verify_fixture(root, manifests)
 
-    def test_rejects_wrong_locked_revision(self) -> None:
+    def test_rejects_wrong_locked_version(self) -> None:
         temporary, root, manifests = self.create_fixture()
         with temporary:
             lockfile = root / "Cargo.lock"
             lockfile.write_text(
                 lockfile.read_text(encoding="utf-8").replace(
-                    HNS_RS_REVISION, "0" * 40, 1
+                    f'version = "{HNS_RS_CRATES_IO_VERSION}"',
+                    'version = "9.9.9"',
+                    1,
                 ),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(
-                CargoSourcePolicyError, "must lock to"
-            ):
+            with self.assertRaisesRegex(CargoSourcePolicyError, "must lock to version"):
+                self.verify_fixture(root, manifests)
+
+    def test_rejects_wrong_locked_registry(self) -> None:
+        temporary, root, manifests = self.create_fixture()
+        with temporary:
+            lockfile = root / "Cargo.lock"
+            lockfile.write_text(
+                lockfile.read_text(encoding="utf-8").replace(
+                    HNS_RS_REGISTRY_SOURCE,
+                    "registry+https://example.invalid/index",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(CargoSourcePolicyError, "must use"):
+                self.verify_fixture(root, manifests)
+
+    def test_rejects_wrong_locked_checksum(self) -> None:
+        temporary, root, manifests = self.create_fixture()
+        with temporary:
+            lockfile = root / "Cargo.lock"
+            checksum = next(iter(load_hns_rs_checksums(root).values()))
+            lockfile.write_text(
+                lockfile.read_text(encoding="utf-8").replace(
+                    checksum,
+                    "0" * 64,
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(CargoSourcePolicyError, "checksum differs"):
                 self.verify_fixture(root, manifests)
 
     def test_rejects_missing_transitive_package(self) -> None:
         temporary, root, manifests = self.create_fixture()
         with temporary:
             lockfile = root / "Cargo.lock"
+            checksums = load_hns_rs_checksums(root)
             marker = (
                 "[[package]]\n"
                 'name = "hns-mining"\n'
                 f'version = "{HNS_RS_CRATES_IO_VERSION}"\n'
-                f'source = "{HNS_RS_LOCK_SOURCE}"\n'
+                f'source = "{HNS_RS_REGISTRY_SOURCE}"\n'
+                f'checksum = "{checksums["hns-mining"]}"\n'
             )
             lockfile.write_text(
                 lockfile.read_text(encoding="utf-8").replace(marker, ""),
@@ -259,6 +302,25 @@ class CargoSourcePolicyTests(unittest.TestCase):
             ):
                 self.verify_fixture(root, manifests)
 
+    def test_rejects_unexpected_protocol_package(self) -> None:
+        temporary, root, manifests = self.create_fixture()
+        with temporary:
+            lockfile = root / "Cargo.lock"
+            checksums = load_hns_rs_checksums(root)
+            lockfile.write_text(
+                lockfile.read_text(encoding="utf-8")
+                + "\n[[package]]\n"
+                + 'name = "hns-script"\n'
+                + f'version = "{HNS_RS_CRATES_IO_VERSION}"\n'
+                + f'source = "{HNS_RS_REGISTRY_SOURCE}"\n'
+                + f'checksum = "{checksums["hns-script"]}"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                CargoSourcePolicyError, "unexpected hns-rs package"
+            ):
+                self.verify_fixture(root, manifests)
+
     def test_rejects_unreviewed_git_package(self) -> None:
         temporary, root, manifests = self.create_fixture()
         with temporary:
@@ -266,13 +328,29 @@ class CargoSourcePolicyTests(unittest.TestCase):
             lockfile.write_text(
                 lockfile.read_text(encoding="utf-8")
                 + "\n[[package]]\n"
-                + 'name = "hns-unreviewed"\n'
-                + f'version = "{HNS_RS_CRATES_IO_VERSION}"\n'
-                + f'source = "{HNS_RS_LOCK_SOURCE}"\n',
+                + 'name = "unreviewed"\n'
+                + 'version = "1.0.0"\n'
+                + 'source = "git+https://example.invalid/repository#'
+                + "0" * 40
+                + '"\n',
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(
-                CargoSourcePolicyError, "is not allowed"
+                CargoSourcePolicyError, "locked Cargo Git package"
+            ):
+                self.verify_fixture(root, manifests)
+
+    def test_rejects_incomplete_archive_hash_manifest(self) -> None:
+        temporary, root, manifests = self.create_fixture()
+        with temporary:
+            checksum_manifest = root / HNS_RS_CHECKSUM_MANIFEST
+            lines = checksum_manifest.read_text(encoding="utf-8").splitlines()
+            checksum_manifest.write_text(
+                "\n".join(lines[:-1]) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                CargoSourcePolicyError, "expected 19 archive hashes"
             ):
                 self.verify_fixture(root, manifests)
 

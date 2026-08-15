@@ -6,15 +6,19 @@ Compatibility was inspected against these immutable inputs:
 
 | Input | Commit | License | Relevant paths |
 | --- | --- | --- | --- |
-| handshake-rs/hns-rs | `b24b66c382de53330ec21dd3137e056a2bea3e2d` | MIT OR Apache-2.0 | Eleven direct workspace dependencies and the locked fourteen-package closure; final dated 0.2.0 release source including generic nonzero HNSR circuit-profile admission |
+| handshake-rs/hns-rs | `d0cde9ded6f8f93f96f16daafc094849c6d484bf` | MIT OR Apache-2.0 | Thirteen exact crates.io `=0.3.0` workspace dependencies and their sixteen-package locked closure; all nineteen published archive hashes retained in `release/hns-rs-0.3.0-crates.sha256`, including HRM, durable HNSA/HNSR, and external rollback-journal contracts |
 | handshake-org/hsd | `698e252ebc7b5c1dd0a9587e342fdd153d020ae4` | MIT | `test/dns-test.js`, `test/resource-test.js` |
 | Denuo-Web/hns-dane-browser | `a71f9ea8dd2e697df6059e8840907f96e6eea2c9` | PolyForm Noncommercial 1.0.0 | `rust/crates/hns-core/src/dns.rs`, `fixtures/experimental-dns-relay/manifest.json` |
 
 The `hns-rs` input is executable source, not only a compatibility reference.
-The root manifest and `Cargo.lock` pin its exact canonical Git revision.
-`scripts/verify_cargo_source_policy.py` independently verifies that the direct
-and transitive package sets, URL, revision, consumer locations, and lock
-sources match the reviewed graph. MeshMine is not a dependency.
+The root manifest requires exact crates.io `=0.3.0`; `Cargo.lock` pins the
+registry checksums of the exact sixteen-package engine closure.
+`scripts/verify_cargo_source_policy.py` independently verifies the direct and
+transitive package sets, consumer locations, versions, registry sources,
+archive checksums, and absence of Cargo Git dependencies. Execute-mode release
+verification downloads all nineteen upstream packages, rejects a yanked API
+record, and checks the downloaded hashes, clean VCS source revision, and exact
+`crates/<package>` source path. MeshMine is not a dependency.
 
 The browser source has a license incompatible with copying it into this dual-licensed workspace.
 No source was copied. The local DNS vectors are independently generated protocol fixtures. The

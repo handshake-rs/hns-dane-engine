@@ -63,21 +63,26 @@ routine gate.
 
 ## Upstream protocol gate
 
-This source consumes `hns-rs` `0.2.0` at final dated release-source revision
-`b24b66c382de53330ec21dd3137e056a2bea3e2d`. Before any engine upload,
-execute mode downloads all 17 protocol packages and requires every
-`.cargo_vcs_info.json` to identify that exact clean source revision. If the
-protocol release is published from a later commit, stop and repin
-the engine manifest, lockfile, release script, validator, and documentation to
-the actual published commit before qualifying the engine release.
+This source consumes `hns-rs` `0.3.0` through thirteen direct packages with
+exact crates.io requirement `=0.3.0`; the lockfile contains the reviewed
+sixteen-package closure.
+Before any engine upload, execute mode reads back all nineteen public 0.3.0
+packages from the crates.io API and archive endpoint. It requires non-yanked
+status, the exact checksums in
+[`../release/hns-rs-0.3.0-crates.sha256`](../release/hns-rs-0.3.0-crates.sha256),
+and clean `.cargo_vcs_info.json` provenance at source revision
+`d0cde9ded6f8f93f96f16daafc094849c6d484bf` with each package's expected
+`crates/<name>` path. Any mismatch stops the release before an engine upload.
 
-The pinned protocol source passed exact CI run
-[`31398600728`](https://github.com/handshake-rs/hns-rs/actions/runs/31398600728),
+The protocol source passed exact CI run
+[`31863271873`](https://github.com/handshake-rs/hns-rs/actions/runs/31863271873),
 CodeQL run
-[`31398598588`](https://github.com/handshake-rs/hns-rs/actions/runs/31398598588),
-and the 17-package credential-free release preflight in
-[`31399004538`](https://github.com/handshake-rs/hns-rs/actions/runs/31399004538).
-This is upstream dependency evidence and does not satisfy any engine gate.
+[`31863271863`](https://github.com/handshake-rs/hns-rs/actions/runs/31863271863),
+and the nineteen-package credential-free release preflight in
+[`31863520941`](https://github.com/handshake-rs/hns-rs/actions/runs/31863520941).
+All nineteen 0.3.0 packages are published and non-yanked, exact archive
+readback passed, and source tag `v0.3.0` exists. This is upstream dependency
+evidence and does not satisfy any engine gate.
 
 The exact dated engine source at
 `2b23bd55d14d36fe60073606869d75b4796c54f7` passed the complete locked CI gate
@@ -106,9 +111,9 @@ Those runs are retained historical evidence and did not replace the manual
    version, `CHANGELOG.md`, and `release/CRATE-CHANGELOG.md`. Before an upload,
    replace `Unreleased` with the release date in both changelog authorities,
    then repin `scripts/verify_cargo_source_policy.py` together with the root
-   manifest, lockfile, release script, release validator, and protocol
-   documentation if the final `hns-rs` source changed. Synchronize the package
-   copies:
+   manifest, lockfile, `release/hns-rs-<version>-crates.sha256`, release script,
+   release validator, and protocol documentation if the final `hns-rs` release
+   changed. Synchronize the package copies:
 
    ```bash
    ./scripts/sync-release-files.sh

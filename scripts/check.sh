@@ -3,7 +3,9 @@ set -eu
 
 RUST_TOOLCHAIN="1.89.0"
 
-python3 -m unittest -v tests/test_cargo_source_policy.py
+python3 -m unittest -v \
+    tests/test_cargo_source_policy.py \
+    tests/test_release_validator.py
 python3 scripts/verify_cargo_source_policy.py
 cargo +"$RUST_TOOLCHAIN" metadata --locked --offline --format-version 1 >/dev/null
 cargo +"$RUST_TOOLCHAIN" deny --locked check --config deny.toml

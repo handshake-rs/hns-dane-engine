@@ -200,16 +200,19 @@ degradation, revocation, stop, policy/runtime invalidation, or expiry does.
 Same-origin navigation or namespace-decision replacement must synchronously revoke or replace the
 exact publication; the engine deliberately does not retain an unbounded per-origin navigation map.
 
-The repository is a standalone Cargo checkout. Its eleven direct `hns-rs`
-packages inherit one canonical Git source pinned to commit
-`b24b66c382de53330ec21dd3137e056a2bea3e2d` and declare compatible crates.io
-version `0.2.0`; the lockfile binds those packages and the three-package
-transitive closure to the same revision. No sibling `hns-rs` checkout is
-required. Cargo preserves the version requirements when packaging and removes
-the Git selectors. A tested repository policy rejects unreviewed Git
-dependencies, noncanonical URLs, mutable selectors, incompatible registry
-versions, lockfile drift, `hns-rs` dependency aliases, and path dependencies that
-escape this repository. See `docs/supply-chain.md`.
+The repository is a standalone Cargo checkout. Its thirteen direct `hns-rs`
+packages use exact crates.io requirement `=0.3.0`; the lockfile binds their
+sixteen-package closure to registry checksums independently read back from
+release source `d0cde9ded6f8f93f96f16daafc094849c6d484bf`. No sibling
+`hns-rs` checkout or Cargo Git source is required. `hns-hrm` and
+`hns-rollback-journal` are direct facade dependencies reserved for a later
+broker tranche; this migration leaves the existing `hsa1` HNSA-v2 path
+unchanged. A checked-in manifest pins all nineteen upstream 0.3.0 archives,
+including the three packages outside the engine's locked closure. A tested
+repository policy rejects Git dependencies, non-exact protocol requirements,
+unreviewed registry sources or checksums, dependency aliases, lockfile drift,
+and path dependencies that escape this repository. See
+`docs/supply-chain.md`.
 
 ## Build
 
@@ -226,7 +229,16 @@ compatibility inputs, exact coverage, and remaining work.
 
 ## Qualification status
 
-The exact dated 0.2.0 source candidate at
+The current 0.2.1 dependency source consumes the published, non-yanked
+`hns-rs` 0.3.0 cohort from exact release-source commit
+`d0cde9ded6f8f93f96f16daafc094849c6d484bf`. That upstream source passed CI
+run `31863271873`, CodeQL run `31863271863`, and the 19-package release
+preflight in run `31863520941`; all nineteen downloaded archives were
+independently matched to their crates.io checksums and clean VCS source. The
+engine migration is a successor source and must pass its own exact-commit CI,
+CodeQL, and release preflight before publication.
+
+Historically, the exact dated 0.2.0 source candidate at
 `2b23bd55d14d36fe60073606869d75b4796c54f7` passed the complete locked
 `scripts/check.sh` source gate in GitHub Actions
 [`31400455158`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31400455158),
@@ -235,7 +247,7 @@ the Actions, C/C++, Python, and Rust CodeQL matrices in
 and the separately dispatched credential-free publish preflight for all 19
 public crates in
 [`31401229842`](https://github.com/handshake-rs/hns-dane-engine/actions/runs/31401229842).
-That source pins the final protocol revision
+That historical source pinned protocol revision
 `b24b66c382de53330ec21dd3137e056a2bea3e2d`, whose own exact CI, CodeQL, and
 17-package preflight also passed. The qualification and preflight workflows
 performed no upload or tag operation. Their evidence is commit-scoped; any

@@ -16,10 +16,12 @@ import verify_cargo_source_policy
 
 REPOSITORY = "https://github.com/handshake-rs/hns-dane-engine"
 PROTOCOL_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-PROTOCOL_REVISION = "b24b66c382de53330ec21dd3137e056a2bea3e2d"
-PROTOCOL_VERSION = "=0.2.0"
+PROTOCOL_REVISION = "d0cde9ded6f8f93f96f16daafc094849c6d484bf"
+PROTOCOL_VERSION = "=0.3.0"
 PROTOCOL_PUBLIC_PACKAGES = (
     "hns-encoding",
+    "hns-rollback-journal",
+    "hns-hrm",
     "hns-primitives",
     "hns-covenants",
     "hns-dns-relay-protocol",
@@ -43,10 +45,12 @@ PROTOCOL_DIRECT_PACKAGES = {
     "hns-encoding",
     "hns-header-consensus",
     "hns-hnsr-protocol",
+    "hns-hrm",
     "hns-odoh-protocol",
     "hns-p2p-experimental",
     "hns-p2p-wire",
     "hns-primitives",
+    "hns-rollback-journal",
     "hns-service-authority",
     "hns-urkel-proof",
 }
@@ -84,6 +88,19 @@ PACKAGE_FIXTURES = {
 
 def fail(message: str) -> None:
     raise SystemExit(f"error: {message}")
+
+
+def shell_function_body(script: str, name: str, successor: str) -> str:
+    start = f"{name}() {{\n"
+    end = f"\n}}\n\n{successor}() {{"
+    if script.count(start) != 1:
+        fail(f"scripts/publish.sh must define {name} exactly once")
+    remainder = script.split(start, 1)[1]
+    if remainder.count(end) != 1:
+        fail(
+            f"scripts/publish.sh must place {name} immediately before {successor}"
+        )
+    return remainder.split(end, 1)[0]
 
 
 def cargo_metadata(repo: Path, toolchain: str) -> dict:
@@ -177,6 +194,7 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         "expected_commit",
         PROTOCOL_REVISION,
         f"`hns-rs` `{PROTOCOL_VERSION.removeprefix('=')}`",
+        str(verify_cargo_source_policy.HNS_RS_CHECKSUM_MANIFEST),
     )
     for required in required_text:
         if required not in document:
@@ -242,6 +260,9 @@ def verify_publish_script_safety(repo: Path) -> None:
         "require_clean_archive_vcs=yes",
         "--confirm-publish VERSION",
         "sha256sum",
+        "protocol_checksum_manifest",
+        "protocol_api_checksum",
+        "protocol_vcs_path",
         '*\\"dirty\\":true*',
         'python3 -c \'import json, sys; print(json.load(sys.stdin)["git"]["sha1"])\'',
     )
@@ -254,6 +275,8 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"protocol_revision={PROTOCOL_REVISION}",
         f"protocol_version={PROTOCOL_VERSION.removeprefix('=')}",
         f"protocol_crates='{' '.join(PROTOCOL_PUBLIC_PACKAGES)}'",
+        "protocol_checksum_manifest="
+        f"{verify_cargo_source_policy.HNS_RS_CHECKSUM_MANIFEST}",
     }
     missing_lines = required_script_lines - set(script.splitlines())
     if missing_lines:
@@ -261,6 +284,130 @@ def verify_publish_script_safety(repo: Path) -> None:
             "scripts/publish.sh protocol source differs from the workspace: "
             f"missing={sorted(missing_lines)}"
         )
+
+    protocol_verify = shell_function_body(
+        script,
+        "verify_protocol_packages_published",
+        "verify_new_upload",
+    )
+    protocol_evidence = (
+        (
+            "checksum-manifest lookup",
+            """        protocol_expected_checksum=$(awk \\
+            -v filename="$protocol_filename" \\
+            '$2 == filename { print $1 }' \\
+            "$protocol_checksum_manifest")""",
+        ),
+        (
+            "API checksum extraction",
+            """        protocol_api_checksum=$(python3 -c \\
+            'import json, sys; print(json.load(sys.stdin)["version"]["checksum"])' \\
+            <"$protocol_metadata")""",
+        ),
+        (
+            "API yanked extraction",
+            """        protocol_api_yanked=$(python3 -c \\
+            'import json, sys; print(str(json.load(sys.stdin)["version"]["yanked"]).lower())' \\
+            <"$protocol_metadata")""",
+        ),
+        (
+            "download checksum extraction",
+            """        protocol_download_checksum=$(sha256sum "$protocol_archive" | awk '{print $1}')""",
+        ),
+        (
+            "VCS SHA extraction",
+            """        protocol_vcs_sha=$(tar -xOf \\
+            "$protocol_archive" \\
+            "$package-$protocol_version/.cargo_vcs_info.json" |
+            python3 -c 'import json, sys; print(json.load(sys.stdin)["git"]["sha1"])')""",
+        ),
+        (
+            "VCS dirty extraction",
+            """        protocol_vcs_dirty=$(tar -xOf \\
+            "$protocol_archive" \\
+            "$package-$protocol_version/.cargo_vcs_info.json" |
+            python3 -c 'import json, sys; print(str(json.load(sys.stdin)["git"].get("dirty", False)).lower())')""",
+        ),
+        (
+            "VCS path extraction",
+            """        protocol_vcs_path=$(tar -xOf \\
+            "$protocol_archive" \\
+            "$package-$protocol_version/.cargo_vcs_info.json" |
+            python3 -c 'import json, sys; print(json.load(sys.stdin).get("path_in_vcs", ""))')""",
+        ),
+    )
+    protocol_predicates = (
+        (
+            "API checksum predicate",
+            """        if [ "$protocol_api_checksum" != "$protocol_expected_checksum" ]
+        then
+            echo "error: crates.io API checksum for $package $protocol_version differs from $protocol_checksum_manifest" >&2
+            exit 1
+        fi""",
+        ),
+        (
+            "non-yanked predicate",
+            """        if [ "$protocol_api_yanked" != "false" ]
+        then
+            echo "error: required protocol package $package $protocol_version is yanked" >&2
+            exit 1
+        fi""",
+        ),
+        (
+            "download checksum predicate",
+            """        if [ "$protocol_download_checksum" != "$protocol_expected_checksum" ]
+        then
+            echo "error: downloaded $package $protocol_version differs from $protocol_checksum_manifest" >&2
+            exit 1
+        fi""",
+        ),
+        (
+            "VCS SHA predicate",
+            """        if [ "$protocol_vcs_sha" != "$protocol_revision" ]
+        then
+            echo "error: required protocol package $package $protocol_version identifies source $protocol_vcs_sha, expected $protocol_revision" >&2
+            exit 1
+        fi""",
+        ),
+        (
+            "clean-VCS predicate",
+            """        if [ "$protocol_vcs_dirty" = "true" ]
+        then
+            echo "error: required protocol package $package $protocol_version records a dirty source tree" >&2
+            exit 1
+        fi""",
+        ),
+        (
+            "VCS path predicate",
+            """        if [ "$protocol_vcs_path" != "crates/$package" ]
+        then
+            echo "error: required protocol package $package $protocol_version identifies path $protocol_vcs_path, expected crates/$package" >&2
+            exit 1
+        fi""",
+        ),
+    )
+    protocol_guards = (
+        *protocol_evidence[:3],
+        *protocol_predicates[:2],
+        protocol_evidence[3],
+        protocol_predicates[2],
+        protocol_evidence[4],
+        protocol_predicates[3],
+        protocol_evidence[5],
+        protocol_predicates[4],
+        protocol_evidence[6],
+        protocol_predicates[5],
+    )
+    protocol_guard_positions: list[int] = []
+    for description, fragment in protocol_guards:
+        if protocol_verify.count(fragment) != 1:
+            fail(
+                "scripts/publish.sh protocol "
+                f"{description} must remain wired exactly once"
+            )
+        protocol_guard_positions.append(protocol_verify.index(fragment))
+    if protocol_guard_positions != sorted(protocol_guard_positions):
+        fail("scripts/publish.sh protocol evidence and predicates are out of order")
 
     try:
         execute = script.split("    --execute)", 1)[1]
@@ -289,6 +436,8 @@ def verify_publish_script_safety(repo: Path) -> None:
     mapping = script.split("package_with_local_dependencies()", 1)[1].split(
         "package_version()", 1
     )[0]
+    if 'git="$protocol_repository"' in mapping:
+        fail("published hns-rs packages must not be replaced by Git during packaging")
     mapped_packages: set[str] = set()
     pending_label = ""
     for line in mapping.splitlines():
@@ -315,12 +464,20 @@ def verify_publish_script_safety(repo: Path) -> None:
 
 
 def verify_protocol_source(repo: Path) -> None:
-    if verify_cargo_source_policy.HNS_RS_GIT_URL != PROTOCOL_REPOSITORY:
+    if verify_cargo_source_policy.HNS_RS_REPOSITORY != PROTOCOL_REPOSITORY:
         fail("release and Cargo source-policy hns-rs repositories differ")
     if verify_cargo_source_policy.HNS_RS_REVISION != PROTOCOL_REVISION:
         fail("release and Cargo source-policy hns-rs revisions differ")
-    if verify_cargo_source_policy.HNS_RS_CRATES_IO_VERSION != PROTOCOL_VERSION.removeprefix("="):
+    if (
+        verify_cargo_source_policy.HNS_RS_CRATES_IO_REQUIREMENT
+        != PROTOCOL_VERSION
+    ):
         fail("release and Cargo source-policy hns-rs versions differ")
+    if (
+        tuple(verify_cargo_source_policy.HNS_RS_PUBLIC_PACKAGES)
+        != PROTOCOL_PUBLIC_PACKAGES
+    ):
+        fail("release and Cargo source-policy hns-rs package inventories differ")
     try:
         verify_cargo_source_policy.verify_repository(repo)
     except verify_cargo_source_policy.CargoSourcePolicyError as error:
@@ -332,32 +489,37 @@ def verify_protocol_source(repo: Path) -> None:
         dependency = dependencies.get(package)
         if not isinstance(dependency, dict):
             fail(f"workspace protocol dependency {package} is not an exact table")
-        if dependency.get("version") != PROTOCOL_VERSION.removeprefix("="):
-            fail(f"workspace protocol dependency {package} has the wrong version")
-        if dependency.get("git") != PROTOCOL_REPOSITORY:
-            fail(f"workspace protocol dependency {package} has the wrong repository")
-        if dependency.get("rev") != PROTOCOL_REVISION:
-            fail(f"workspace protocol dependency {package} has the wrong revision")
-        for forbidden in ("branch", "tag"):
-            if forbidden in dependency:
-                fail(f"workspace protocol dependency {package} uses {forbidden}")
+        if dependency != {"version": PROTOCOL_VERSION}:
+            fail(
+                f"workspace protocol dependency {package} must use only exact "
+                f"registry requirement {PROTOCOL_VERSION}"
+            )
 
     lock = tomllib.loads((repo / "Cargo.lock").read_text(encoding="utf-8"))
-    expected_lock_source = (
-        f"git+{PROTOCOL_REPOSITORY}?rev={PROTOCOL_REVISION}#{PROTOCOL_REVISION}"
-    )
+    checksums = verify_cargo_source_policy.load_hns_rs_checksums(repo)
     observed_protocol_dependencies: set[str] = set()
     for package in lock["package"]:
         name = package["name"]
-        if name not in PROTOCOL_PUBLIC_PACKAGES:
+        if name not in verify_cargo_source_policy.LOCKED_HNS_RS_PACKAGES:
             continue
         observed_protocol_dependencies.add(name)
-        if package.get("source") != expected_lock_source:
+        if package.get("version") != PROTOCOL_VERSION.removeprefix("="):
+            fail(f"Cargo.lock has the wrong version for protocol package {name}")
+        if (
+            package.get("source")
+            != verify_cargo_source_policy.HNS_RS_REGISTRY_SOURCE
+        ):
             fail(f"Cargo.lock has an unreviewed source for protocol package {name}")
-    if not PROTOCOL_DIRECT_PACKAGES.issubset(observed_protocol_dependencies):
+        if package.get("checksum") != checksums[name]:
+            fail(f"Cargo.lock has an unreviewed checksum for protocol package {name}")
+    if (
+        observed_protocol_dependencies
+        != verify_cargo_source_policy.LOCKED_HNS_RS_PACKAGES
+    ):
         fail(
-            "Cargo.lock omits direct protocol packages: "
-            f"{sorted(PROTOCOL_DIRECT_PACKAGES - observed_protocol_dependencies)}"
+            "Cargo.lock protocol closure differs from source policy: "
+            f"observed={sorted(observed_protocol_dependencies)}, "
+            f"expected={sorted(verify_cargo_source_policy.LOCKED_HNS_RS_PACKAGES)}"
         )
 
 

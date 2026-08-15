@@ -21,12 +21,14 @@ hns-dns-wire.workspace = true
 hns-gateway.workspace = true
 hns-header-consensus.workspace = true
 hns-hnsr-protocol.workspace = true
+hns-hrm.workspace = true
 hns-light-chain.workspace = true
 hns-namespace-resolution.workspace = true
 hns-p2p-transport.workspace = true
 hns-p2p-wire.workspace = true
 hns-resolver.workspace = true
 hns-resolution-policy.workspace = true
+hns-rollback-journal.workspace = true
 hns-service-authority.workspace = true
 hns-transport.workspace = true
 

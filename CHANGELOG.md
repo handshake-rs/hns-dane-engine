@@ -5,6 +5,18 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.1 - Unreleased
 
+- Migrated the complete engine protocol cohort from the dated `hns-rs` 0.2
+  Git source to exact crates.io `=0.3.0` packages: thirteen direct workspace
+  declarations and their sixteen-package locked closure now use registry
+  checksums only. Added `hns-hrm` and `hns-rollback-journal` as dormant direct
+  facade inputs for a later authority-broker tranche without changing runtime
+  behavior or the existing `hsa1`-backed HNSA-v2 route semantics. The release
+  gate pins all nineteen non-yanked upstream archives in
+  `release/hns-rs-0.3.0-crates.sha256` and verifies their crates.io API and
+  download checksums, clean VCS source
+  `d0cde9ded6f8f93f96f16daafc094849c6d484bf`, and package paths before any
+  engine upload. This dependency migration does not itself qualify or enable
+  the future HRM/HNSA broker.
 - Split the release runner's crates.io cadence between new crate names and new
   versions of existing names (605 seconds and 65 seconds respectively), with
   fail-closed registry classification. Resume verification now rebuilds through

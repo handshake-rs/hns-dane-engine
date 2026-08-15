@@ -17,9 +17,10 @@ require_clean_archive_vcs=no
 package_mode='publish-dry-run'
 release_manifest=release/public-crates.txt
 protocol_repository=https://github.com/handshake-rs/hns-rs.git
-protocol_revision=b24b66c382de53330ec21dd3137e056a2bea3e2d
-protocol_version=0.2.0
-protocol_crates='hns-encoding hns-primitives hns-covenants hns-dns-relay-protocol hns-header-consensus hns-service-authority hns-odoh-protocol hns-p2p-experimental hns-urkel-proof hns-transaction hns-chat-protocol hns-hnsr-protocol hns-script hns-mining hns-swap hns-marketplace-protocol hns-p2p-wire'
+protocol_revision=d0cde9ded6f8f93f96f16daafc094849c6d484bf
+protocol_version=0.3.0
+protocol_crates='hns-encoding hns-rollback-journal hns-hrm hns-primitives hns-covenants hns-dns-relay-protocol hns-header-consensus hns-service-authority hns-odoh-protocol hns-p2p-experimental hns-urkel-proof hns-transaction hns-chat-protocol hns-hnsr-protocol hns-script hns-mining hns-swap hns-marketplace-protocol hns-p2p-wire'
+protocol_checksum_manifest=release/hns-rs-0.3.0-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -108,26 +109,10 @@ package_with_local_dependencies() {
             run_package_operation "$package"
             ;;
         hns-light-chain)
-            run_package_operation "$package" \
-                --config "patch.crates-io.hns-covenants.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-covenants.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-encoding.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-encoding.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-header-consensus.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-header-consensus.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-primitives.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-primitives.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-urkel-proof.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-urkel-proof.rev=\"$protocol_revision\""
+            run_package_operation "$package"
             ;;
         hns-light-p2p)
-            run_package_operation "$package" \
-                --config "patch.crates-io.hns-header-consensus.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-header-consensus.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-p2p-wire.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-p2p-wire.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-primitives.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-primitives.rev=\"$protocol_revision\""
+            run_package_operation "$package"
             ;;
         hns-dane|hns-dnssec|hns-cache)
             run_package_operation "$package" \
@@ -139,37 +124,19 @@ package_with_local_dependencies() {
             ;;
         hns-light-sync)
             run_package_operation "$package" \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"' \
-                --config "patch.crates-io.hns-header-consensus.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-header-consensus.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-p2p-wire.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-p2p-wire.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-primitives.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-primitives.rev=\"$protocol_revision\""
+                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"'
             ;;
         hns-transport)
             run_package_operation "$package" \
                 --config 'patch.crates-io.hns-dns-wire.path="crates/hns-dns-wire"' \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"' \
-                --config "patch.crates-io.hns-covenants.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-covenants.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-header-consensus.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-header-consensus.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-primitives.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-primitives.rev=\"$protocol_revision\""
+                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"'
             ;;
         hns-resolver)
             run_package_operation "$package" \
                 --config 'patch.crates-io.hns-dns-wire.path="crates/hns-dns-wire"' \
                 --config 'patch.crates-io.hns-dnssec.path="crates/hns-dnssec"' \
                 --config 'patch.crates-io.hns-icann-dane.path="crates/hns-icann-dane"' \
-                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"' \
-                --config "patch.crates-io.hns-covenants.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-covenants.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-header-consensus.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-header-consensus.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-primitives.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-primitives.rev=\"$protocol_revision\""
+                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"'
             ;;
         hns-browser-observability)
             run_package_operation "$package" \
@@ -184,15 +151,7 @@ package_with_local_dependencies() {
                 --config 'patch.crates-io.hns-gateway.path="crates/hns-gateway"' \
                 --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"' \
                 --config 'patch.crates-io.hns-resolution-policy.path="crates/hns-resolution-policy"' \
-                --config 'patch.crates-io.hns-transport.path="crates/hns-transport"' \
-                --config "patch.crates-io.hns-dns-relay-protocol.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-dns-relay-protocol.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-odoh-protocol.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-odoh-protocol.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-p2p-experimental.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-p2p-experimental.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-primitives.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-primitives.rev=\"$protocol_revision\""
+                --config 'patch.crates-io.hns-transport.path="crates/hns-transport"'
             ;;
         hns-dane-engine)
             run_package_operation "$package" \
@@ -208,15 +167,7 @@ package_with_local_dependencies() {
                 --config 'patch.crates-io.hns-p2p-transport.path="crates/hns-p2p-transport"' \
                 --config 'patch.crates-io.hns-resolution-policy.path="crates/hns-resolution-policy"' \
                 --config 'patch.crates-io.hns-resolver.path="crates/hns-resolver"' \
-                --config 'patch.crates-io.hns-transport.path="crates/hns-transport"' \
-                --config "patch.crates-io.hns-header-consensus.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-header-consensus.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-hnsr-protocol.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-hnsr-protocol.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-p2p-wire.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-p2p-wire.rev=\"$protocol_revision\"" \
-                --config "patch.crates-io.hns-service-authority.git=\"$protocol_repository\"" \
-                --config "patch.crates-io.hns-service-authority.rev=\"$protocol_revision\""
+                --config 'patch.crates-io.hns-transport.path="crates/hns-transport"'
             ;;
         hns-dane-engine-ffi|hns-loopback-proxy)
             run_package_operation "$package" \
@@ -513,6 +464,17 @@ verify_protocol_packages_published() {
     ensure_release_tmp
     for package in $protocol_crates
     do
+        protocol_filename="$package-$protocol_version.crate"
+        protocol_expected_checksum=$(awk \
+            -v filename="$protocol_filename" \
+            '$2 == filename { print $1 }' \
+            "$protocol_checksum_manifest")
+        if [ -z "$protocol_expected_checksum" ]
+        then
+            echo "error: $protocol_checksum_manifest has no checksum for $protocol_filename" >&2
+            exit 1
+        fi
+
         status=$(published_package_status "$package" "$protocol_version")
         if [ "$status" != "200" ]
         then
@@ -520,7 +482,32 @@ verify_protocol_packages_published() {
             exit 1
         fi
 
-        protocol_archive="$release_tmp/$package-$protocol_version.crate"
+        protocol_metadata="$release_tmp/$package-$protocol_version.json"
+        curl \
+            --fail \
+            --silent \
+            --show-error \
+            --user-agent "hns-dane-engine-release/$protocol_version (https://github.com/handshake-rs/hns-dane-engine)" \
+            --output "$protocol_metadata" \
+            "https://crates.io/api/v1/crates/$package/$protocol_version"
+        protocol_api_checksum=$(python3 -c \
+            'import json, sys; print(json.load(sys.stdin)["version"]["checksum"])' \
+            <"$protocol_metadata")
+        protocol_api_yanked=$(python3 -c \
+            'import json, sys; print(str(json.load(sys.stdin)["version"]["yanked"]).lower())' \
+            <"$protocol_metadata")
+        if [ "$protocol_api_checksum" != "$protocol_expected_checksum" ]
+        then
+            echo "error: crates.io API checksum for $package $protocol_version differs from $protocol_checksum_manifest" >&2
+            exit 1
+        fi
+        if [ "$protocol_api_yanked" != "false" ]
+        then
+            echo "error: required protocol package $package $protocol_version is yanked" >&2
+            exit 1
+        fi
+
+        protocol_archive="$release_tmp/$protocol_filename"
         curl \
             --fail \
             --location \
@@ -529,6 +516,12 @@ verify_protocol_packages_published() {
             --user-agent "hns-dane-engine-release/$protocol_version (https://github.com/handshake-rs/hns-dane-engine)" \
             --output "$protocol_archive" \
             "https://crates.io/api/v1/crates/$package/$protocol_version/download"
+        protocol_download_checksum=$(sha256sum "$protocol_archive" | awk '{print $1}')
+        if [ "$protocol_download_checksum" != "$protocol_expected_checksum" ]
+        then
+            echo "error: downloaded $package $protocol_version differs from $protocol_checksum_manifest" >&2
+            exit 1
+        fi
         protocol_vcs_sha=$(tar -xOf \
             "$protocol_archive" \
             "$package-$protocol_version/.cargo_vcs_info.json" |
@@ -547,8 +540,17 @@ verify_protocol_packages_published() {
             echo "error: required protocol package $package $protocol_version records a dirty source tree" >&2
             exit 1
         fi
+        protocol_vcs_path=$(tar -xOf \
+            "$protocol_archive" \
+            "$package-$protocol_version/.cargo_vcs_info.json" |
+            python3 -c 'import json, sys; print(json.load(sys.stdin).get("path_in_vcs", ""))')
+        if [ "$protocol_vcs_path" != "crates/$package" ]
+        then
+            echo "error: required protocol package $package $protocol_version identifies path $protocol_vcs_path, expected crates/$package" >&2
+            exit 1
+        fi
     done
-    echo "verified all 17 hns-rs $protocol_version archives at source $protocol_revision"
+    echo "verified all 19 non-yanked hns-rs $protocol_version archives and checksums at source $protocol_revision"
 }
 
 verify_new_upload() {
