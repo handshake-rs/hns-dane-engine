@@ -25,6 +25,7 @@ use hns_header_consensus::{
     DifficultyPoint, Header, HeaderError, HeaderValidationContext, Network, expected_next_bits,
     validate_header,
 };
+use hns_primitives::MerkleRoot;
 use hns_primitives::{BlockHash, BlockTime, Chainwork, Height, NameHash, TreeRoot};
 use hns_urkel_proof::{HsdUrkelProof, UrkelError};
 use thiserror::Error;
@@ -52,6 +53,7 @@ pub struct HeaderEntry {
     height: Height,
     hash: BlockHash,
     tree_root: TreeRoot,
+    merkle_root: MerkleRoot,
     time: BlockTime,
     bits: hns_primitives::CompactTarget,
     chainwork: Chainwork,
@@ -74,6 +76,12 @@ impl HeaderEntry {
     #[must_use]
     pub const fn tree_root(self) -> TreeRoot {
         self.tree_root
+    }
+
+    /// Transaction Merkle root committed by the validated header.
+    #[must_use]
+    pub const fn merkle_root(self) -> MerkleRoot {
+        self.merkle_root
     }
 
     /// Header timestamp.
@@ -718,6 +726,7 @@ fn entry_from_header(height: Height, header: &Header, chainwork: Chainwork) -> H
         height,
         hash: header.block_hash(),
         tree_root: header.tree_root,
+        merkle_root: header.merkle_root,
         time: header.time,
         bits: header.bits,
         chainwork,

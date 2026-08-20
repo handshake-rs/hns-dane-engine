@@ -2,8 +2,9 @@
 //!
 //! The state machine is runtime independent: socket adapters exchange
 //! `hns-p2p-wire` frames and provide an explicit clock. Only standard HSD
-//! version/verack, ping/pong, headers, and name-proof traffic is authoritative
-//! here. Experimental HIP sessions remain separate.
+//! version/verack, ping/pong, headers, name-proof, and wallet-filter traffic is
+//! admitted here. Chain and wallet evidence remains authoritative only after
+//! local verification. Experimental HIP sessions remain separate.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -15,10 +16,11 @@
 
 use hns_header_consensus::Header;
 use hns_p2p_wire::{
-    Frame, GetProofPacket, LocatorPacket, NetworkMagic, Packet, PacketType, ProofPacket,
-    RejectPacket, SERVICE_NETWORK, VersionPacket, WireError,
+    Frame, GetProofPacket, Inventory, LocatorPacket, NetworkMagic, Packet, PacketType, ProofPacket,
+    RejectPacket, SERVICE_BLOOM, SERVICE_NETWORK, VersionPacket, WireError,
 };
 use hns_primitives::{BlockHash, NameHash, TreeRoot};
+use hns_transaction::Transaction;
 use thiserror::Error;
 
 /// Default complete version/verack deadline.
@@ -50,6 +52,18 @@ impl PeerConfig {
         Self {
             network,
             required_services: SERVICE_NETWORK,
+            handshake_timeout_seconds: DEFAULT_HANDSHAKE_TIMEOUT_SECONDS,
+            request_timeout_seconds: DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            max_clock_skew_seconds: DEFAULT_MAX_CLOCK_SKEW_SECONDS,
+        }
+    }
+
+    /// Secure defaults for a wallet peer that must support HSD bloom filters.
+    #[must_use]
+    pub const fn for_wallet_network(network: NetworkMagic) -> Self {
+        Self {
+            network,
+            required_services: SERVICE_NETWORK | SERVICE_BLOOM,
             handshake_timeout_seconds: DEFAULT_HANDSHAKE_TIMEOUT_SECONDS,
             request_timeout_seconds: DEFAULT_REQUEST_TIMEOUT_SECONDS,
             max_clock_skew_seconds: DEFAULT_MAX_CLOCK_SKEW_SECONDS,
@@ -98,6 +112,27 @@ pub struct PeerMetadata {
     pub height: u32,
 }
 
+/// Standard wallet traffic admitted after version/verack.
+///
+/// Every variant is still untrusted peer input. The wallet coordinator must
+/// correlate requested inventory and verify filtered blocks and transactions
+/// against its locally validated header chain before changing wallet state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WalletPeerEvent {
+    /// Newly announced transaction or block inventory.
+    Inventory(Vec<Inventory>),
+    /// The peer requested data previously announced by this wallet.
+    DataRequest(Vec<Inventory>),
+    /// Requested inventory that the peer could not provide.
+    NotFound(Vec<Inventory>),
+    /// Untrusted transaction bytes decoded by the shared canonical codec.
+    Transaction(Transaction),
+    /// Raw HSD MerkleBlock payload awaiting local partial-tree verification.
+    MerkleBlock(Vec<u8>),
+    /// Remote minimum transaction fee rate.
+    FeeFilter(i64),
+}
+
 /// Response-bearing request category.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -144,6 +179,8 @@ pub enum PeerEvent {
     Pong([u8; 8]),
     /// Peer rejected a request.
     Rejected(RejectPacket),
+    /// Standard wallet traffic awaiting correlation and local verification.
+    Wallet(WalletPeerEvent),
     /// Ordinary packet was safely outside the light-client flow.
     Ignored(PacketType),
 }
@@ -305,6 +342,37 @@ impl PeerSession {
         Ok(frame)
     }
 
+    /// Build one standard wallet packet after the peer has advertised bloom
+    /// support and completed version/verack.
+    ///
+    /// This deliberately admits only the client side of HSD's BIP37 flow and
+    /// direct transaction propagation. Callers should construct filter
+    /// payloads with the strict wallet codec rather than passing arbitrary
+    /// bytes from an external source.
+    pub fn wallet_frame(&self, packet: &Packet) -> Result<Frame, PeerError> {
+        self.require_ready()?;
+        if self
+            .metadata
+            .as_ref()
+            .is_none_or(|metadata| metadata.services & SERVICE_BLOOM == 0)
+        {
+            return Err(PeerError::MissingBloomService);
+        }
+        if !matches!(
+            packet,
+            Packet::Inv(_)
+                | Packet::GetData(_)
+                | Packet::Tx(_)
+                | Packet::Mempool
+                | Packet::FilterLoad(_)
+                | Packet::FilterAdd(_)
+                | Packet::FilterClear
+        ) {
+            return Err(PeerError::UnsupportedWalletPacket(packet.packet_type()));
+        }
+        Ok(Frame::from_packet(packet)?)
+    }
+
     /// Build one ping; only one may be outstanding.
     pub fn ping(&mut self, nonce: [u8; 8], now: u64) -> Result<Frame, PeerError> {
         self.require_ready()?;
@@ -419,6 +487,20 @@ impl PeerSession {
                 Ok(PeerEvent::Proof(proof))
             }
             Packet::Reject(reject) => Ok(PeerEvent::Rejected(reject)),
+            Packet::Inv(inventory) => Ok(PeerEvent::Wallet(WalletPeerEvent::Inventory(inventory))),
+            Packet::GetData(inventory) => {
+                Ok(PeerEvent::Wallet(WalletPeerEvent::DataRequest(inventory)))
+            }
+            Packet::NotFound(inventory) => {
+                Ok(PeerEvent::Wallet(WalletPeerEvent::NotFound(inventory)))
+            }
+            Packet::Tx(transaction) => {
+                Ok(PeerEvent::Wallet(WalletPeerEvent::Transaction(transaction)))
+            }
+            Packet::MerkleBlock(payload) => {
+                Ok(PeerEvent::Wallet(WalletPeerEvent::MerkleBlock(payload)))
+            }
+            Packet::FeeFilter(rate) => Ok(PeerEvent::Wallet(WalletPeerEvent::FeeFilter(rate))),
             packet => Ok(PeerEvent::Ignored(packet.packet_type())),
         }
     }
@@ -468,6 +550,9 @@ pub enum PeerError {
     /// Remote omitted a required standard service.
     #[error("remote peer omitted a required service")]
     MissingService,
+    /// Wallet traffic requires a peer that advertised standard bloom service.
+    #[error("remote peer omitted the standard bloom-filter service")]
+    MissingBloomService,
     /// Remote nonce identifies a self-connection.
     #[error("remote version nonce matches local nonce")]
     SelfConnection,
@@ -510,6 +595,9 @@ pub enum PeerError {
     /// Zero ping nonce is not admitted.
     #[error("ping nonce must be nonzero")]
     ZeroPingNonce,
+    /// Packet is not part of the admitted client-side wallet flow.
+    #[error("unsupported outbound wallet packet: {0:?}")]
+    UnsupportedWalletPacket(PacketType),
     /// Internal handshake metadata invariant failed.
     #[error("peer session internal invariant failed")]
     InternalInvariant,
@@ -523,7 +611,7 @@ pub enum PeerError {
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-    use hns_p2p_wire::{NetAddress, Packet};
+    use hns_p2p_wire::{InventoryKind, NetAddress, Packet};
 
     use super::*;
 
@@ -553,6 +641,30 @@ mod tests {
         .unwrap();
         assert!(matches!(local.decode_packet().unwrap(), Packet::Version(_)));
         let remote = Frame::from_packet(&Packet::Version(version([2; 8], now))).unwrap();
+        assert!(matches!(
+            session.handle_frame(&remote, now).unwrap(),
+            PeerEvent::Send(_)
+        ));
+        let verack = Frame::from_packet(&Packet::Verack).unwrap();
+        assert!(matches!(
+            session.handle_frame(&verack, now).unwrap(),
+            PeerEvent::Ready(_)
+        ));
+        session
+    }
+
+    fn ready_wallet(now: u64) -> PeerSession {
+        let mut local_version = version([3; 8], now);
+        local_version.services = 0;
+        let (mut session, _) = PeerSession::start(
+            PeerConfig::for_wallet_network(NetworkMagic::Regtest),
+            &local_version,
+            now,
+        )
+        .unwrap();
+        let mut remote_version = version([4; 8], now);
+        remote_version.services |= SERVICE_BLOOM;
+        let remote = Frame::from_packet(&Packet::Version(remote_version)).unwrap();
         assert!(matches!(
             session.handle_frame(&remote, now).unwrap(),
             PeerEvent::Send(_)
@@ -729,5 +841,45 @@ mod tests {
             Err(PeerError::HandshakeTimeout)
         ));
         assert_eq!(incomplete.state(), PeerState::Closed);
+    }
+
+    #[test]
+    fn admits_only_standard_wallet_flow_for_bloom_peers() {
+        let now = 1_700_000_000;
+        let mut session = ready_wallet(now);
+        let filter = Packet::FilterLoad(vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            session
+                .wallet_frame(&filter)
+                .unwrap()
+                .decode_packet()
+                .unwrap(),
+            filter
+        );
+        assert!(matches!(
+            session.wallet_frame(&Packet::Ping([7; 8])),
+            Err(PeerError::UnsupportedWalletPacket(PacketType::Ping))
+        ));
+
+        let inventory = vec![Inventory {
+            kind: InventoryKind::FilteredBlock,
+            hash: [9; 32],
+        }];
+        let announced = Frame::from_packet(&Packet::Inv(inventory.clone())).unwrap();
+        assert_eq!(
+            session.handle_frame(&announced, now).unwrap(),
+            PeerEvent::Wallet(WalletPeerEvent::Inventory(inventory))
+        );
+        let merkle = Frame::from_packet(&Packet::MerkleBlock(vec![8; 64])).unwrap();
+        assert_eq!(
+            session.handle_frame(&merkle, now).unwrap(),
+            PeerEvent::Wallet(WalletPeerEvent::MerkleBlock(vec![8; 64]))
+        );
+
+        let header_only = ready(now);
+        assert!(matches!(
+            header_only.wallet_frame(&Packet::FilterClear),
+            Err(PeerError::MissingBloomService)
+        ));
     }
 }

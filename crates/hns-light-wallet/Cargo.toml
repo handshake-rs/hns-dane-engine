@@ -1,6 +1,6 @@
 [package]
-name = "hns-light-p2p"
-description = "Bounded standard Handshake light-client peer session"
+name = "hns-light-wallet"
+description = "Locally verified Handshake filtered-block evidence for embedded wallets"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,14 +10,20 @@ publish.workspace = true
 keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
-documentation = "https://docs.rs/hns-light-p2p"
+documentation = "https://docs.rs/hns-light-wallet"
 
 [dependencies]
+blake2 = "0.10.6"
+hns-encoding.workspace = true
 hns-header-consensus.workspace = true
+hns-light-chain.workspace = true
 hns-p2p-wire.workspace = true
 hns-primitives.workspace = true
 hns-transaction.workspace = true
 thiserror = "2.0.19"
+
+[dev-dependencies]
+hex = "0.4.3"
 
 [lints]
 workspace = true

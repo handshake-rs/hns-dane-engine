@@ -1238,6 +1238,7 @@ dependencies = [
  "hns-header-consensus",
  "hns-p2p-wire",
  "hns-primitives",
+ "hns-transaction",
  "thiserror",
 ]
 
@@ -1249,6 +1250,21 @@ dependencies = [
  "hns-light-chain",
  "hns-p2p-wire",
  "hns-primitives",
+ "thiserror",
+]
+
+[[package]]
+name = "hns-light-wallet"
+version = "0.2.1"
+dependencies = [
+ "blake2",
+ "hex",
+ "hns-encoding",
+ "hns-header-consensus",
+ "hns-light-chain",
+ "hns-p2p-wire",
+ "hns-primitives",
+ "hns-transaction",
  "thiserror",
 ]
 

@@ -25,6 +25,7 @@ members = [
     "crates/hns-light-chain",
     "crates/hns-light-p2p",
     "crates/hns-light-sync",
+    "crates/hns-light-wallet",
     "crates/hns-loopback-proxy",
     "crates/hns-namespace-resolution",
     "crates/hns-p2p-transport",
@@ -75,6 +76,7 @@ hns-icann-dane = { version = "0.2.1", path = "crates/hns-icann-dane" }
 hns-light-chain = { version = "0.2.1", path = "crates/hns-light-chain" }
 hns-light-p2p = { version = "0.2.1", path = "crates/hns-light-p2p" }
 hns-light-sync = { version = "0.2.1", path = "crates/hns-light-sync" }
+hns-light-wallet = { version = "0.2.1", path = "crates/hns-light-wallet" }
 hns-loopback-proxy = { version = "0.2.1", path = "crates/hns-loopback-proxy" }
 hns-namespace-resolution = { version = "0.2.1", path = "crates/hns-namespace-resolution" }
 hns-odoh-protocol = { version = "=0.3.0" }
@@ -91,6 +93,7 @@ hns-urkel = { package = "hns-browser-urkel", version = "0.2.1", path = "crates/h
 hns-resolution-policy = { version = "0.2.1", path = "crates/hns-resolution-policy" }
 hns-resolver = { version = "0.2.1", path = "crates/hns-resolver" }
 hns-service-authority = { version = "=0.3.0" }
+hns-transaction = { version = "=0.3.0" }
 hns-transport = { version = "0.2.1", path = "crates/hns-transport" }
 hns-urkel-proof = { version = "=0.3.0" }
 

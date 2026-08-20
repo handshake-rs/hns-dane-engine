@@ -3,8 +3,11 @@
 Bounded standard Handshake light-client peer state machine.
 
 The crate handles version/verack admission, correlated finite requests,
-standard packet validation, deadlines, and peer failure policy without owning
-sockets, async executors, peer discovery, or persistence.
+standard packet validation, deadlines, peer failure policy, and the standard
+HSD bloom-filter / filtered-block / transaction packet surface without owning
+sockets, async executors, peer discovery, or persistence. Wallet packets remain
+untrusted until `hns-light-wallet` binds their evidence to the locally
+validated header chain.
 
 Published releases can be added with:
 
