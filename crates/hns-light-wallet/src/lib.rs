@@ -2,10 +2,11 @@
 //!
 //! Peers provide bloom-filter matches, MerkleBlock payloads, and transactions.
 //! This crate treats all of them as untrusted until the partial Merkle tree is
-//! bound to a consensus-validated [`hns_light_chain::HeaderEntry`] and every
-//! advertised transaction hash is exactly correlated. The wallet therefore
-//! persists headers and its own coins, names, and boards rather than a pruned
-//! global transaction or name index.
+//! bound to a consensus-validated [`hns_light_chain::HeaderEntry`] or an
+//! authenticated archived [`WalletHeaderAnchor`], and every advertised
+//! transaction hash is exactly correlated. The wallet therefore persists
+//! headers and its own coins, names, and boards rather than a pruned global
+//! transaction or name index.
 
 #![forbid(unsafe_code)]
 #![allow(
@@ -26,7 +27,7 @@ use hns_encoding::{DecodeError, Decoder, Encoder};
 use hns_header_consensus::{HEADER_SIZE, Header, HeaderError};
 use hns_light_chain::HeaderEntry;
 use hns_p2p_wire::{Inventory, InventoryKind, MAX_INVENTORY_ITEMS, Packet};
-use hns_primitives::{BlockHash, MerkleRoot, TransactionHash};
+use hns_primitives::{BlockHash, BlockTime, Height, MerkleRoot, TransactionHash, TreeRoot};
 use hns_transaction::{Transaction, TransactionError};
 use thiserror::Error;
 
@@ -47,6 +48,87 @@ pub const MAX_MERKLE_BLOCK_PAYLOAD_BYTES: usize =
 const LN_2: f64 = std::f64::consts::LN_2;
 const LN_2_SQUARED: f64 = LN_2 * LN_2;
 const BLOOM_TWEAK_MULTIPLIER: u32 = 0xfba4_c795;
+
+/// Minimal locally validated header fields needed by wallet block evidence.
+///
+/// Unlike a full [`HeaderEntry`], this anchor can be reconstructed from the
+/// wallet's authenticated raw-header archive without inventing historical
+/// chainwork. Construction is intentionally explicit: callers must supply a
+/// header already admitted by their local header authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WalletHeaderAnchor {
+    height: Height,
+    hash: BlockHash,
+    previous_block: BlockHash,
+    tree_root: TreeRoot,
+    merkle_root: MerkleRoot,
+    time: BlockTime,
+}
+
+impl WalletHeaderAnchor {
+    /// Reconstruct a wallet-evidence anchor from one authenticated archived
+    /// header and its locally bound height.
+    #[must_use]
+    pub fn from_validated_header(height: Height, header: &Header) -> Self {
+        Self {
+            height,
+            hash: header.block_hash(),
+            previous_block: header.previous_block,
+            tree_root: header.tree_root,
+            merkle_root: header.merkle_root,
+            time: header.time,
+        }
+    }
+
+    /// Locally bound height.
+    #[must_use]
+    pub const fn height(self) -> Height {
+        self.height
+    }
+
+    /// Consensus block hash.
+    #[must_use]
+    pub const fn hash(self) -> BlockHash {
+        self.hash
+    }
+
+    /// Previous block hash.
+    #[must_use]
+    pub const fn previous_block(self) -> BlockHash {
+        self.previous_block
+    }
+
+    /// Header Urkel root.
+    #[must_use]
+    pub const fn tree_root(self) -> TreeRoot {
+        self.tree_root
+    }
+
+    /// Header transaction Merkle root.
+    #[must_use]
+    pub const fn merkle_root(self) -> MerkleRoot {
+        self.merkle_root
+    }
+
+    /// Header timestamp.
+    #[must_use]
+    pub const fn time(self) -> BlockTime {
+        self.time
+    }
+}
+
+impl From<HeaderEntry> for WalletHeaderAnchor {
+    fn from(entry: HeaderEntry) -> Self {
+        Self {
+            height: entry.height(),
+            hash: entry.hash(),
+            previous_block: entry.previous_block(),
+            tree_root: entry.tree_root(),
+            merkle_root: entry.merkle_root(),
+            time: entry.time(),
+        }
+    }
+}
 
 /// HSD bloom-filter automatic outpoint update mode.
 #[repr(u8)]
@@ -285,7 +367,7 @@ impl MatchedTransaction {
 /// Partial-Merkle evidence bound to one locally consensus-validated header.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WalletBlockEvidence {
-    header: HeaderEntry,
+    header: WalletHeaderAnchor,
     total_transactions: u32,
     matches: Vec<MatchedTransaction>,
 }
@@ -296,6 +378,15 @@ impl WalletBlockEvidence {
         input: &[u8],
         header: HeaderEntry,
     ) -> Result<Self, WalletEvidenceError> {
+        Self::decode_for_anchor(input, header.into())
+    }
+
+    /// Decode and verify a complete HSD MerkleBlock against one authenticated
+    /// raw-header archive anchor.
+    pub fn decode_for_anchor(
+        input: &[u8],
+        header: WalletHeaderAnchor,
+    ) -> Result<Self, WalletEvidenceError> {
         let decoded = decode_partial_merkle(input, header.hash(), header.merkle_root())?;
         Ok(Self {
             header,
@@ -304,9 +395,9 @@ impl WalletBlockEvidence {
         })
     }
 
-    /// Validated local header entry that anchors this evidence.
+    /// Authenticated local header anchor for this evidence.
     #[must_use]
-    pub const fn header(&self) -> HeaderEntry {
+    pub const fn header(&self) -> WalletHeaderAnchor {
         self.header
     }
 
@@ -400,6 +491,81 @@ impl VerifiedWalletBlock {
     #[must_use]
     pub fn transactions(&self) -> &[Transaction] {
         &self.transactions
+    }
+
+    /// Merge independently verified views of the same block.
+    ///
+    /// Identical Bloom filters should produce identical honest views. Taking
+    /// the conflict-checked union prevents one omitting peer from hiding a
+    /// transaction supplied with valid Merkle evidence by another peer; the
+    /// wallet's exact watch-set relevance filter still decides what persists.
+    pub fn merge_peer_views(blocks: &[Self]) -> Result<Self, WalletEvidenceError> {
+        let first = blocks.first().ok_or(WalletEvidenceError::EmptyPeerViews)?;
+        let header = first.evidence.header;
+        let total_transactions = first.evidence.total_transactions;
+        let mut matches = BTreeMap::<u32, MatchedTransaction>::new();
+        let mut positions = BTreeMap::<TransactionHash, u32>::new();
+        let mut transactions = BTreeMap::<TransactionHash, Transaction>::new();
+        for block in blocks {
+            if block.evidence.header != header
+                || block.evidence.total_transactions != total_transactions
+            {
+                return Err(WalletEvidenceError::PeerViewHeaderMismatch);
+            }
+            if block.transactions.len() != block.evidence.matches.len() {
+                return Err(WalletEvidenceError::PeerViewTransactionMismatch);
+            }
+            let mut block_transactions = BTreeMap::new();
+            for transaction in &block.transactions {
+                let hash = transaction.transaction_hash()?;
+                if block_transactions
+                    .insert(hash, transaction.clone())
+                    .is_some()
+                {
+                    return Err(WalletEvidenceError::PeerViewTransactionMismatch);
+                }
+            }
+            for matched in &block.evidence.matches {
+                let transaction = block_transactions
+                    .remove(&matched.hash)
+                    .ok_or(WalletEvidenceError::PeerViewTransactionMismatch)?;
+                if positions
+                    .insert(matched.hash, matched.index)
+                    .is_some_and(|position| position != matched.index)
+                    || matches
+                        .insert(matched.index, *matched)
+                        .is_some_and(|existing| existing.hash != matched.hash)
+                    || transactions
+                        .insert(matched.hash, transaction.clone())
+                        .is_some_and(|existing| existing != transaction)
+                {
+                    return Err(WalletEvidenceError::PeerViewConflict);
+                }
+            }
+            if !block_transactions.is_empty() {
+                return Err(WalletEvidenceError::PeerViewTransactionMismatch);
+            }
+        }
+        let matches = matches.into_values().collect::<Vec<_>>();
+        let mut merged_transactions = Vec::with_capacity(matches.len());
+        for matched in &matches {
+            merged_transactions.push(
+                transactions
+                    .remove(&matched.hash)
+                    .ok_or(WalletEvidenceError::PeerViewTransactionMismatch)?,
+            );
+        }
+        if !transactions.is_empty() {
+            return Err(WalletEvidenceError::PeerViewTransactionMismatch);
+        }
+        Ok(Self {
+            evidence: WalletBlockEvidence {
+                header,
+                total_transactions,
+                matches,
+            },
+            transactions: merged_transactions,
+        })
     }
 }
 
@@ -675,6 +841,18 @@ pub enum WalletEvidenceError {
     /// One packet cannot exceed the shared standard inventory bound.
     #[error("filtered-block request exceeds the standard inventory bound")]
     TooManyBlockRequests,
+    /// A multi-peer union requires at least one independently verified view.
+    #[error("no verified peer block views were supplied")]
+    EmptyPeerViews,
+    /// Peer views refer to different headers or transaction totals.
+    #[error("verified peer block views disagree on the block anchor")]
+    PeerViewHeaderMismatch,
+    /// A verified peer view's matched hashes and transactions are inconsistent.
+    #[error("verified peer block view has inconsistent transaction correlation")]
+    PeerViewTransactionMismatch,
+    /// Verified views assign different hashes or bytes to one block position.
+    #[error("verified peer block views contain a conflicting transaction claim")]
+    PeerViewConflict,
     /// MerkleBlock exceeds the strict maximum canonical payload.
     #[error("MerkleBlock payload exceeds the local allocation bound")]
     MerkleBlockTooLarge,
@@ -803,7 +981,7 @@ mod tests {
 
         let evidence =
             WalletBlockEvidence::decode_for_header(&encoder.into_bytes(), entry).unwrap();
-        assert_eq!(evidence.header(), entry);
+        assert_eq!(evidence.header(), entry.into());
         assert_eq!(evidence.total_transactions(), 1);
         assert!(evidence.matches().is_empty());
         assert!(evidence.collect().unwrap().finish().is_ok());
@@ -841,7 +1019,7 @@ mod tests {
         )
         .unwrap();
         let evidence = WalletBlockEvidence {
-            header: chain.tip(),
+            header: chain.tip().into(),
             total_transactions: 1,
             matches: decoded.matches,
         };
@@ -853,6 +1031,77 @@ mod tests {
         ));
         let complete = collector.finish().unwrap();
         assert_eq!(complete.transactions().len(), 1);
+    }
+
+    #[test]
+    fn merges_conflict_checked_independent_peer_views() {
+        let chain = hns_light_chain::LightChain::from_genesis(
+            Network::Regtest,
+            BlockTime::new(1_700_000_000),
+            hns_light_chain::ChainLimits::default(),
+        )
+        .unwrap();
+        let header = WalletHeaderAnchor::from(chain.tip());
+        let first_transaction = Transaction {
+            version: 0,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            locktime: 0,
+        };
+        let second_transaction = Transaction {
+            version: 0,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            locktime: 1,
+        };
+        let first_hash = first_transaction.transaction_hash().unwrap();
+        let second_hash = second_transaction.transaction_hash().unwrap();
+        let first_view = VerifiedWalletBlock {
+            evidence: WalletBlockEvidence {
+                header,
+                total_transactions: 2,
+                matches: vec![MatchedTransaction {
+                    index: 0,
+                    hash: first_hash,
+                }],
+            },
+            transactions: vec![first_transaction.clone()],
+        };
+        let second_view = VerifiedWalletBlock {
+            evidence: WalletBlockEvidence {
+                header,
+                total_transactions: 2,
+                matches: vec![MatchedTransaction {
+                    index: 1,
+                    hash: second_hash,
+                }],
+            },
+            transactions: vec![second_transaction.clone()],
+        };
+
+        let merged =
+            VerifiedWalletBlock::merge_peer_views(&[first_view.clone(), second_view]).unwrap();
+        assert_eq!(merged.evidence().matches().len(), 2);
+        assert_eq!(
+            merged.transactions(),
+            &[first_transaction, second_transaction.clone()]
+        );
+
+        let conflicting_view = VerifiedWalletBlock {
+            evidence: WalletBlockEvidence {
+                header,
+                total_transactions: 2,
+                matches: vec![MatchedTransaction {
+                    index: 0,
+                    hash: second_hash,
+                }],
+            },
+            transactions: vec![second_transaction],
+        };
+        assert!(matches!(
+            VerifiedWalletBlock::merge_peer_views(&[first_view, conflicting_view]),
+            Err(WalletEvidenceError::PeerViewConflict)
+        ));
     }
 
     #[test]
