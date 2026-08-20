@@ -15,6 +15,7 @@
 
 mod hnsa_route;
 mod hnsr_transport;
+mod hrm_hnsa_broker;
 mod private_transport;
 
 mod authority_sealed {
@@ -36,6 +37,15 @@ pub use hnsr_transport::{
     HnsrRequesterRuntime, HnsrRuntimeExport, HnsrTransportAuthorityContext, HnsrTransportBinding,
     HnsrTransportError, HnsrTransportRevocationReason, HnsrTransportRole, HnsrTransportState,
     HnsrTransportStatus, MAX_HNSR_RUNTIME_SNAPSHOT_BYTES,
+};
+pub use hrm_hnsa_broker::{
+    AuthorityLeaseKey, AuthorityLeaseWitness, CurrentCommittedNamedService,
+    DEFAULT_HRM_HNSA_AUTHORITY_ENTRIES, DEFAULT_HRM_HNSA_LIVE_SUBJECTS, FencedLeaseGuard,
+    FencingToken, HrmHnsaAuthorityBackend, HrmHnsaAuthorityBroker, HrmHnsaAuthorityBrokerConfig,
+    HrmHnsaAuthorityBrokerConfigError, HrmHnsaAuthorityBrokerError, MAX_HRM_HNSA_LIVE_SUBJECTS,
+    NamedServiceAuthorityExpectation, NamedServiceAuthoritySnapshot,
+    NamedServiceAuthorityStorageState, NamedServiceIdentity, NamedServicePolicy, ResolvedManifest,
+    RollbackProtectionClass, StorageNamespaceId, ValidationLimits,
 };
 
 pub use private_transport::{

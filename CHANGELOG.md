@@ -8,15 +8,27 @@ file. The public crates use a shared version and follow Semantic Versioning.
 - Migrated the complete engine protocol cohort from the dated `hns-rs` 0.2
   Git source to exact crates.io `=0.3.0` packages: thirteen direct workspace
   declarations and their sixteen-package locked closure now use registry
-  checksums only. Added `hns-hrm` and `hns-rollback-journal` as dormant direct
-  facade inputs for a later authority-broker tranche without changing runtime
-  behavior or the existing `hsa1`-backed HNSA-v2 route semantics. The release
+  checksums only. Added `hns-hrm`, `hns-service-authority`, and
+  `hns-rollback-journal` as direct facade inputs without changing the existing
+  `hsa1`-backed HNSA-v2 route semantics. The release
   gate pins all nineteen non-yanked upstream archives in
   `release/hns-rs-0.3.0-crates.sha256` and verifies their crates.io API and
   download checksums, clean VCS source
   `d0cde9ded6f8f93f96f16daafc094849c6d484bf`, and package paths before any
   engine upload. This dependency migration does not itself qualify or enable
-  the future HRM/HNSA broker.
+  an installed product.
+- Added a bounded synchronous native `HrmHnsaAuthorityBroker` for canonical
+  HRM/HNSA service authority. It holds a subject-wide fenced lease while it
+  restores and reconfirms authenticated aggregate state, advances trusted time
+  durably before retrieval, validates and observes the current HRM/HNSA state,
+  applies exact fenced CAS updates, and exposes the exact active service or
+  withdrawal only through a lease-scoped callback with panic containment and a
+  release-boundary check. Its public backend contract requires real
+  cross-process fencing, an authenticated snapshot, a non-evictable initialized
+  marker, an independently protected rollback floor, authenticated current HNS
+  state and HRM retrieval, durable acknowledgement, and ambiguous-write
+  reconciliation. No platform backend, bridge, or product release gate is
+  enabled by this tranche.
 - Split the release runner's crates.io cadence between new crate names and new
   versions of existing names (605 seconds and 65 seconds respectively), with
   fail-closed registry classification. Resume verification now rebuilds through

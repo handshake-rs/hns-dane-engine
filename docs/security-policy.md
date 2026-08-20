@@ -285,6 +285,30 @@ Schema-1 and schema-2 blobs decode that new permission as false; schema-1 role m
 exact legacy role selection, and every current-schema blob retains its exact requester, relay, and
 output bits, so an upgrade cannot override a stored opt-out.
 
+Canonical HRM/HNSA service authority is exposed only through
+`HrmHnsaAuthorityBroker::with_current_named_service`. The lease key covers the
+complete subject within one nonzero storage namespace and network. The backend
+must return a real non-cloneable cross-process guard with a nonzero monotonic
+fencing token; authenticate the complete subject snapshot; distinguish a never
+initialized subject from missing initialized state with an external
+non-evictable marker; enforce a minimum revision in a rollback domain
+independent of the replayable snapshot; and atomically compare the namespace,
+fence, exact prior revision, and complete fingerprint when persisting the next
+snapshot, marker, and floor. A same-domain checksum or pointwise lease check is
+not adequate.
+
+All fallible current-chain and manifest retrieval starts after the operation's
+trusted time has been durably acknowledged, including calls that later fail to
+retrieve or validate. Restored state is reconfirmed under the current fence
+before use. The exact committed active service or withdrawal is rebound to its
+revision and time and exists only inside a callback while the owned lease is
+held. The broker checks currentness before and after the callback and at the
+release boundary, and it contains unwinds long enough to run that boundary
+check. A post-use check cannot undo an irreversible external side effect, so
+the initial supported consumers must be read-only; a future mutation path must
+use a separately fenced prepare/promote protocol rather than treating this
+callback as signing or publication authority.
+
 HNSA named-route selection treats identity, name state, application policy,
 time, and prior replacement state as separate authorities. The application
 supplies the expected name, service, `HNS_WEB_V1` or `HNS_CHAT_V1`, and exact

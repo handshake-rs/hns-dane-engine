@@ -31,6 +31,14 @@
   service-profile, authenticated-connection, generation, acknowledgement,
   disconnect, trusted-time, and rollback-floor handling, while endpoint,
   rendezvous, and plaintext roles remain unavailable;
+- a bounded synchronous native HRM/HNSA authority broker that holds one real
+  subject-wide fenced lease across authenticated restore/reconfirmation,
+  durable trusted-time advancement, current HNS-state and HRM retrieval,
+  canonical manifest and named-service validation, exact fenced CAS, current
+  authority binding, and dependent callback use; its security-critical backend
+  contract requires a non-evictable initialized marker, independently protected
+  rollback floor, authenticated snapshot, trusted time, and outcome-ambiguous
+  write reconciliation;
 - bounded, conflict-safe HNSA named-route selection from a non-forgeable
   current HNS resource: one canonical `hsa1` character-string, caller-selected
   name and service, the reviewed HNS Web or Chat profile, signed service
@@ -204,10 +212,10 @@ The repository is a standalone Cargo checkout. Its thirteen direct `hns-rs`
 packages use exact crates.io requirement `=0.3.0`; the lockfile binds their
 sixteen-package closure to registry checksums independently read back from
 release source `d0cde9ded6f8f93f96f16daafc094849c6d484bf`. No sibling
-`hns-rs` checkout or Cargo Git source is required. `hns-hrm` and
-`hns-rollback-journal` are direct facade dependencies reserved for a later
-broker tranche; this migration leaves the existing `hsa1` HNSA-v2 path
-unchanged. A checked-in manifest pins all nineteen upstream 0.3.0 archives,
+`hns-rs` checkout or Cargo Git source is required. `hns-hrm`,
+`hns-service-authority`, and `hns-rollback-journal` now back the native
+`HrmHnsaAuthorityBroker`; the existing `hsa1` HNSA-v2 path remains unchanged.
+A checked-in manifest pins all nineteen upstream 0.3.0 archives,
 including the three packages outside the engine's locked closure. A tested
 repository policy rejects Git dependencies, non-exact protocol requirements,
 unreviewed registry sources or checksums, dependency aliases, lockfile drift,
@@ -263,17 +271,19 @@ identities and hardened archive validation; it used the earlier protocol pin
 and did not run the separate 19-crate preflight. See the
 [`release guide`](docs/releasing.md) for the exact publication procedure.
 
-The provider-authority, loopback-publication, and shared platform-adapter Rust
-source is a production-continuation boundary, not a qualified installed
-product. Mobile and Chromium shells now consume the shared request, validating-DoH,
+The provider-authority, HRM/HNSA broker, loopback-publication, and shared
+platform-adapter Rust source is a production-continuation boundary, not a
+qualified installed product. Mobile and Chromium shells now consume the shared request, validating-DoH,
 origin-transport, listener/HTTP/TLS, and local-CA building blocks, but that
 source-level integration has no installed-product or live-network qualification
-evidence and does not establish provider availability. The HNSA selector and
-HNSR requester/opaque-relay cores are implemented, but exposing them to a
-mobile shell still requires a reviewed mobile-safe authority boundary that
-preserves the non-forgeable verified resource, the single runtime/requester
-authority, authenticated rollback-resistant state and floors, and trusted-time
-checks across the platform bridge. The source-only
+evidence and does not establish provider availability. The native HRM/HNSA
+broker fixes the lease, persistence, retrieval, validation, and dependent-use
+ordering, but no platform yet implements its trusted backend contract. The
+legacy HNSA selector and HNSR requester/opaque-relay cores are implemented, but
+exposing either path to a mobile shell still requires a reviewed mobile-safe
+authority boundary that preserves the non-forgeable HNS authority, the single
+runtime/requester authority, authenticated rollback-resistant state and floors,
+and trusted-time checks across the platform bridge. The source-only
 provider-authority consumer ABI can retain and inspect a context moved from
 trusted Rust, but cannot create one from C. Pure-C authority minting, a native
 Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,

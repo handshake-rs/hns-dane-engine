@@ -18,10 +18,29 @@ and the credential-free release preflight in
 [`31863520941`](https://github.com/handshake-rs/hns-rs/actions/runs/31863520941).
 All nineteen packages were subsequently read back from crates.io and the
 `v0.3.0` source tag exists. This is upstream dependency evidence, not
-qualification of the successor engine source. The migration adds dormant
-facade dependencies on `hns-hrm` and `hns-rollback-journal`; it does not change
-broker behavior or the legacy `hnsa_route` v2 runtime path. The successor must
-pass its own exact-commit engine gates before publication.
+qualification of the successor engine source. Those facade dependencies now
+back the synchronous `HrmHnsaAuthorityBroker`; the legacy `hnsa_route` v2
+runtime path remains unchanged. The successor must pass its own exact-commit
+engine gates before publication.
+
+Focused native HRM/HNSA broker evidence on 2026-08-20 covers six deterministic
+tests: active authority ordering, withdrawal, durable time advancement before a
+failed retrieval, lease-loss result suppression and missing-initialized-state
+rejection, unwind release-boundary checking, and configuration/live-subject
+bounds. The exact local commands are:
+
+```text
+cargo +1.89.0 test --locked -p hns-dane-engine hrm_hnsa_broker::tests --no-fail-fast
+  6 passed; 0 failed
+
+cargo +1.89.0 clippy --locked -p hns-dane-engine --all-targets -- -D warnings
+  passed
+```
+
+This is source evidence for the broker's ordering and state-machine
+composition. It does not qualify any real platform lease, storage, trusted
+clock, current-chain/HRM retrieval backend, bridge, installed browser, or live
+network behavior.
 
 ## Historical 0.2.0 engine evidence
 
@@ -437,6 +456,11 @@ products:
 
 Still absent or unevidenced:
 
+- real Android, Apple, and Chromium implementations of the canonical HRM/HNSA
+  broker backend: cross-process lease and fencing, authenticated aggregate,
+  non-evictable initialized marker, independent rollback floor, trusted time,
+  authenticated current-chain/HRM retrieval, atomic CAS and ambiguous-write
+  reconciliation, plus restart and installed-product evidence;
 - socket dialing and peer discovery, competing-fork download/reorganization before the current
   base, durable restart state, and checkpoint bootstrap (current sync selects bounded extensions
   from one shared validated base);

@@ -194,6 +194,31 @@ signed binding, and never restores proxy sessions, HPKE query contexts, or
 in-flight work. Response completion must fall within request start
 and deadline. Native storage must add atomic authenticated rollback protection.
 No ODoH provider role is implemented by this lifecycle.
+
+The facade's canonical HRM/HNSA path begins at
+`HrmHnsaAuthorityBroker::with_current_named_service`. Its durable ownership
+scope is `(storage namespace, network magic, HNS subject)` rather than one
+service or one page. One invocation acquires an owned fenced lease, obtains one
+trusted time, restores or reconfirms the complete subject aggregate against an
+external floor, and delegates the remaining transition algebra to
+`hns-service-authority`. That state machine durably commits the time observation
+before the backend is allowed to begin current-name/manifest retrieval, then
+validates the deterministic HRM envelope and exact named-service identity,
+persists the resulting complete snapshot with a revision/fingerprint/fence CAS,
+and rebinds the selected active service or withdrawal to that exact revision
+and time. The dependent callback and its release-boundary check run before the
+owned lease is released; no current authority object can escape the callback.
+
+The broker is platform-independent coordination, not its own persistence or
+retrieval implementation. `HrmHnsaAuthorityBackend` requires real
+cross-process exclusion and fencing, authenticated storage, a non-evictable
+initialized marker, an independently protected minimum revision, trusted time,
+authenticated current Handshake state and hash-matched HRM bytes, atomic durable
+CAS acknowledgement, and exact reconciliation of ambiguous writes. Platform
+page storage, a no-op guard, an unkeyed checksum, or preconstructed manifest
+input cannot satisfy that contract. Android, Apple, and Chromium backends and
+bridge wiring remain separate integration work.
+
 The facade also selects HNSA named HNSR routes without making a directory or
 relay authoritative. A non-forgeable `VerifiedHnsResource` supplies the exact
 network, current height, name hash, name-tree root, and finite chain-currency
@@ -379,7 +404,10 @@ complete locked engine gate, CodeQL, and the separate 19-crate release
 preflight, superseding the intermediate `97cbeb2` source evidence. It has no
 installed-product or live-network qualification evidence, and exact-commit
 source qualification is not inherited by a successor commit.
-Still absent are P2P socket dialing or peer discovery, download/reorganization from a fork
+Still absent are platform implementations of the canonical HRM/HNSA broker's
+lease, authenticated snapshot/initialized-marker/external-floor, trusted-time,
+current-chain retrieval, and durable CAS contracts; their Android, Apple, and
+Chromium bridge wiring; P2P socket dialing or peer discovery, download/reorganization from a fork
 predating the current tip, durable restart checkpoints, authenticated authoritative DoH, a native
 Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,
 complete HNSA route discovery and response-completeness/quorum policy,
