@@ -457,7 +457,12 @@ impl LightChain {
         })
     }
 
-    fn median_time_past(&self) -> BlockTime {
+    /// Consensus median-time-past of the current tip's trailing window.
+    ///
+    /// Wallet transaction and name-action policy uses this exact parent-chain
+    /// clock; wall time and the tip header's raw timestamp are not substitutes.
+    #[must_use]
+    pub fn median_time_past(&self) -> BlockTime {
         let mut times = self
             .history
             .iter()
@@ -1414,6 +1419,24 @@ mod tests {
             ),
             Err(LightChainError::SnapshotChecksumMismatch)
         ));
+    }
+
+    #[test]
+    fn exposes_consensus_median_time_past_for_wallet_policy() {
+        let genesis_time = Network::Regtest.parameters().genesis_time;
+        let now = BlockTime::new(genesis_time.get() + 10_000);
+        let mut chain =
+            LightChain::from_genesis(Network::Regtest, now, ChainLimits::default()).unwrap();
+        assert_eq!(chain.median_time_past(), genesis_time);
+
+        for value in 1_u8..=11 {
+            let header = mine_regtest_header(chain.tip(), TreeRoot::new([value; 32]));
+            chain.append(&header, now).unwrap();
+        }
+        assert_eq!(
+            chain.median_time_past(),
+            BlockTime::new(genesis_time.get() + 6)
+        );
     }
 
     #[test]
