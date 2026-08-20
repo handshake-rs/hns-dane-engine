@@ -13,15 +13,13 @@ readme = "README.md"
 documentation = "https://docs.rs/hns-light-chain"
 
 [dependencies]
+blake2 = "0.10.6"
 hns-covenants.workspace = true
 hns-encoding.workspace = true
 hns-header-consensus.workspace = true
 hns-primitives.workspace = true
 hns-urkel-proof.workspace = true
 thiserror = "2.0.17"
-
-[dev-dependencies]
-blake2 = "0.10.6"
 
 [lints]
 workspace = true

@@ -19,14 +19,17 @@
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use blake2::Blake2b;
+use blake2::digest::{Digest, consts::U32};
 use hns_covenants::{MAX_RESOURCE_SIZE, Resource as CovenantResource, hash_name, validate_name};
-use hns_encoding::{DecodeError, Decoder};
+use hns_encoding::{DecodeError, Decoder, Encoder};
 use hns_header_consensus::{
     DifficultyPoint, Header, HeaderError, HeaderValidationContext, Network, expected_next_bits,
     validate_header,
 };
-use hns_primitives::MerkleRoot;
-use hns_primitives::{BlockHash, BlockTime, Chainwork, Height, NameHash, TreeRoot};
+use hns_primitives::{
+    BlockHash, BlockTime, Chainwork, CompactTarget, Height, MerkleRoot, NameHash, TreeRoot,
+};
 use hns_urkel_proof::{HsdUrkelProof, UrkelError};
 use thiserror::Error;
 
@@ -36,8 +39,15 @@ pub const MEDIAN_TIME_SPAN: usize = 11;
 pub const REQUIRED_DIFFICULTY_HISTORY: usize = 147;
 /// Default maximum headers accepted in one transactional batch.
 pub const DEFAULT_MAX_HEADERS_PER_BATCH: usize = 4_096;
+/// Hard upper bound for a configured atomic header batch.
+pub const MAX_HEADERS_PER_BATCH_LIMIT: usize = 4_096;
 /// Maximum exponential locator entries for a 32-bit height plus genesis.
 pub const MAX_LOCATOR_HASHES: usize = 43;
+/// Maximum encoded authenticated light-chain checkpoint.
+pub const MAX_LIGHT_CHAIN_SNAPSHOT_BYTES: usize = 64 * 1024;
+const LIGHT_CHAIN_SNAPSHOT_MAGIC: &[u8] = b"HNS-LIGHT-CHAIN-SNAPSHOT\0";
+const LIGHT_CHAIN_SNAPSHOT_SCHEMA: u16 = 1;
+const LIGHT_CHAIN_SNAPSHOT_CHECKSUM_DOMAIN: &[u8] = b"HNS-LIGHT-CHAIN-SNAPSHOT-V1\0";
 /// HSD currently assigns resource record tags zero through six.
 const MAX_KNOWN_RESOURCE_KIND: u8 = 6;
 /// Bits assigned in HSD's serialized `NameState` field.
@@ -52,6 +62,7 @@ const MAX_RESOURCE_NAME_JUMPS: usize = 16;
 pub struct HeaderEntry {
     height: Height,
     hash: BlockHash,
+    previous_block: BlockHash,
     tree_root: TreeRoot,
     merkle_root: MerkleRoot,
     time: BlockTime,
@@ -70,6 +81,12 @@ impl HeaderEntry {
     #[must_use]
     pub const fn hash(self) -> BlockHash {
         self.hash
+    }
+
+    /// Previous block hash committed by the validated header.
+    #[must_use]
+    pub const fn previous_block(self) -> BlockHash {
+        self.previous_block
     }
 
     /// Committed Urkel root.
@@ -127,6 +144,26 @@ impl Default for ChainLimits {
     }
 }
 
+impl ChainLimits {
+    fn validate(self) -> Result<Self, LightChainError> {
+        if self.max_headers_per_batch == 0
+            || self.max_headers_per_batch > MAX_HEADERS_PER_BATCH_LIMIT
+        {
+            return Err(LightChainError::InvalidLimit);
+        }
+        Ok(self)
+    }
+}
+
+/// Caller-held rollback floor for an authenticated checkpoint.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ChainSnapshotFloor {
+    /// Lowest acceptable validated height.
+    pub minimum_height: Height,
+    /// Lowest acceptable cumulative proof of work.
+    pub minimum_chainwork: Chainwork,
+}
+
 /// Currency requirements applied before a name proof becomes authoritative.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CurrencyPolicy {
@@ -161,9 +198,7 @@ impl LightChain {
         now: BlockTime,
         limits: ChainLimits,
     ) -> Result<Self, LightChainError> {
-        if limits.max_headers_per_batch == 0 {
-            return Err(LightChainError::InvalidLimit);
-        }
+        let limits = limits.validate()?;
         let parameters = network.parameters();
         let header = parameters.genesis_header();
         let proof = validate_header(
@@ -198,6 +233,92 @@ impl LightChain {
     #[must_use]
     pub const fn tip(&self) -> HeaderEntry {
         self.tip
+    }
+
+    /// Encode the exact consensus lookback window for an authenticated store.
+    ///
+    /// The checksum detects accidental corruption; it does not authenticate or
+    /// rollback-protect the bytes. Callers must persist the blob in their
+    /// wallet-owned authenticated store and retain a monotonic floor.
+    pub fn encode_authenticated_snapshot(&self) -> Result<Vec<u8>, LightChainError> {
+        let mut encoder = Encoder::with_capacity(MAX_LIGHT_CHAIN_SNAPSHOT_BYTES);
+        encoder.put_bytes(LIGHT_CHAIN_SNAPSHOT_MAGIC);
+        encoder.put_u16_le(LIGHT_CHAIN_SNAPSHOT_SCHEMA);
+        encoder.put_u8(self.network.id());
+        encoder.put_u32_le(
+            u32::try_from(self.limits.max_headers_per_batch)
+                .map_err(|_| LightChainError::InvalidSnapshot)?,
+        );
+        encoder.put_u16_le(
+            u16::try_from(self.history.len()).map_err(|_| LightChainError::InvalidSnapshot)?,
+        );
+        for entry in &self.history {
+            encode_header_entry(&mut encoder, *entry);
+        }
+        let mut snapshot_bytes = encoder.into_bytes();
+        let checksum = snapshot_checksum(&snapshot_bytes);
+        snapshot_bytes.extend_from_slice(&checksum);
+        if snapshot_bytes.len() > MAX_LIGHT_CHAIN_SNAPSHOT_BYTES {
+            return Err(LightChainError::SnapshotTooLarge);
+        }
+        Ok(snapshot_bytes)
+    }
+
+    /// Restore a structurally exact checkpoint from an authenticated store.
+    ///
+    /// `expected_network` prevents cross-network reuse and `floor` prevents an
+    /// older otherwise authentic checkpoint from replacing caller-held state.
+    pub fn decode_authenticated_snapshot(
+        input: &[u8],
+        expected_network: Network,
+        floor: ChainSnapshotFloor,
+    ) -> Result<Self, LightChainError> {
+        if input.len() > MAX_LIGHT_CHAIN_SNAPSHOT_BYTES {
+            return Err(LightChainError::SnapshotTooLarge);
+        }
+        let payload_length = input
+            .len()
+            .checked_sub(32)
+            .ok_or(LightChainError::InvalidSnapshot)?;
+        let (payload, encoded_checksum) = input.split_at(payload_length);
+        if encoded_checksum != snapshot_checksum(payload) {
+            return Err(LightChainError::SnapshotChecksumMismatch);
+        }
+        let mut decoder = Decoder::new(payload);
+        if decoder.read_slice(LIGHT_CHAIN_SNAPSHOT_MAGIC.len())? != LIGHT_CHAIN_SNAPSHOT_MAGIC
+            || decoder.read_u16_le()? != LIGHT_CHAIN_SNAPSHOT_SCHEMA
+        {
+            return Err(LightChainError::UnsupportedSnapshot);
+        }
+        let network = decode_network(decoder.read_u8()?)?;
+        if network != expected_network {
+            return Err(LightChainError::SnapshotNetworkMismatch);
+        }
+        let limits = ChainLimits {
+            max_headers_per_batch: usize::try_from(decoder.read_u32_le()?)
+                .map_err(|_| LightChainError::InvalidSnapshot)?,
+        }
+        .validate()?;
+        let count = usize::from(decoder.read_u16_le()?);
+        if count == 0 || count > REQUIRED_DIFFICULTY_HISTORY {
+            return Err(LightChainError::InvalidSnapshot);
+        }
+        let mut history = VecDeque::with_capacity(count);
+        for _ in 0..count {
+            history.push_back(decode_header_entry(&mut decoder)?);
+        }
+        decoder.finish()?;
+        validate_snapshot_history(expected_network, limits, &history, floor)?;
+        let tip = history
+            .back()
+            .copied()
+            .ok_or(LightChainError::InvalidSnapshot)?;
+        Ok(Self {
+            network,
+            limits,
+            history,
+            tip,
+        })
     }
 
     /// Build a standard recent-first exponential block locator ending at genesis.
@@ -725,12 +846,112 @@ fn entry_from_header(height: Height, header: &Header, chainwork: Chainwork) -> H
     HeaderEntry {
         height,
         hash: header.block_hash(),
+        previous_block: header.previous_block,
         tree_root: header.tree_root,
         merkle_root: header.merkle_root,
         time: header.time,
         bits: header.bits,
         chainwork,
     }
+}
+
+fn encode_header_entry(encoder: &mut Encoder, entry: HeaderEntry) {
+    encoder.put_u32_le(entry.height.get());
+    encoder.put_bytes(entry.hash.as_bytes());
+    encoder.put_bytes(entry.previous_block.as_bytes());
+    encoder.put_bytes(entry.tree_root.as_bytes());
+    encoder.put_bytes(entry.merkle_root.as_bytes());
+    encoder.put_u64_le(entry.time.get());
+    encoder.put_u32_le(entry.bits.get());
+    encoder.put_bytes(&entry.chainwork.to_be_bytes());
+}
+
+fn decode_header_entry(decoder: &mut Decoder<'_>) -> Result<HeaderEntry, LightChainError> {
+    Ok(HeaderEntry {
+        height: Height::new(decoder.read_u32_le()?),
+        hash: BlockHash::new(decoder.read_array()?),
+        previous_block: BlockHash::new(decoder.read_array()?),
+        tree_root: TreeRoot::new(decoder.read_array()?),
+        merkle_root: MerkleRoot::new(decoder.read_array()?),
+        time: BlockTime::new(decoder.read_u64_le()?),
+        bits: CompactTarget::new(decoder.read_u32_le()?),
+        chainwork: Chainwork::from_be_bytes(decoder.read_array()?),
+    })
+}
+
+fn validate_snapshot_history(
+    network: Network,
+    limits: ChainLimits,
+    history: &VecDeque<HeaderEntry>,
+    floor: ChainSnapshotFloor,
+) -> Result<(), LightChainError> {
+    let first = history
+        .front()
+        .copied()
+        .ok_or(LightChainError::InvalidSnapshot)?;
+    let tip = history
+        .back()
+        .copied()
+        .ok_or(LightChainError::InvalidSnapshot)?;
+    let expected_length = usize::try_from(u64::from(tip.height.get()) + 1)
+        .map_err(|_| LightChainError::InvalidSnapshot)?
+        .min(REQUIRED_DIFFICULTY_HISTORY);
+    if history.len() != expected_length {
+        return Err(LightChainError::InvalidSnapshot);
+    }
+    if history.iter().any(|entry| {
+        entry.hash == BlockHash::default()
+            || entry.bits.get() == 0
+            || entry.chainwork == Chainwork::ZERO
+    }) {
+        return Err(LightChainError::InvalidSnapshot);
+    }
+    if tip.height < floor.minimum_height || tip.chainwork < floor.minimum_chainwork {
+        return Err(LightChainError::SnapshotRollback);
+    }
+    if first.height.get() == 0 {
+        let expected =
+            LightChain::from_genesis(network, network.parameters().genesis_time, limits)?;
+        if first != expected.tip {
+            return Err(LightChainError::InvalidSnapshot);
+        }
+    }
+    let linear = history.iter().copied().collect::<Vec<_>>();
+    for pair in linear.windows(2) {
+        validate_snapshot_pair(pair)?;
+    }
+    Ok(())
+}
+
+fn validate_snapshot_pair(pair: &[HeaderEntry]) -> Result<(), LightChainError> {
+    let [previous, next] = pair else {
+        return Err(LightChainError::InvalidSnapshot);
+    };
+    if previous.height.get().checked_add(1) != Some(next.height.get())
+        || next.previous_block != previous.hash
+        || next.chainwork <= previous.chainwork
+        || next.bits.get() == 0
+    {
+        return Err(LightChainError::InvalidSnapshot);
+    }
+    Ok(())
+}
+
+fn decode_network(id: u8) -> Result<Network, LightChainError> {
+    match id {
+        0 => Ok(Network::Mainnet),
+        1 => Ok(Network::Testnet),
+        2 => Ok(Network::Regtest),
+        3 => Ok(Network::Simnet),
+        _ => Err(LightChainError::InvalidSnapshot),
+    }
+}
+
+fn snapshot_checksum(payload: &[u8]) -> [u8; 32] {
+    let mut hasher = Blake2b::<U32>::new();
+    hasher.update(LIGHT_CHAIN_SNAPSHOT_CHECKSUM_DOMAIN);
+    hasher.update(payload);
+    hasher.finalize().into()
 }
 
 struct ResourceReader<'a> {
@@ -879,12 +1100,30 @@ pub enum LightChainError {
     /// Strict name-state decoding failed.
     #[error("name-state decoding failure: {0}")]
     NameStateDecode(#[from] DecodeError),
-    /// A configured bound is zero.
-    #[error("chain limit must be nonzero")]
+    /// A configured bound is zero or exceeds the hard operational maximum.
+    #[error("chain limit is zero or excessive")]
     InvalidLimit,
     /// The header batch is empty or exceeds its bound.
     #[error("header batch exceeds its configured bound")]
     HeaderBatchLimit,
+    /// Authenticated checkpoint framing or structural invariants are invalid.
+    #[error("invalid authenticated light-chain checkpoint")]
+    InvalidSnapshot,
+    /// Checkpoint exceeds the fixed allocation bound.
+    #[error("light-chain checkpoint exceeds its size bound")]
+    SnapshotTooLarge,
+    /// Checkpoint checksum differs from its payload.
+    #[error("light-chain checkpoint checksum mismatch")]
+    SnapshotChecksumMismatch,
+    /// Checkpoint schema or magic is unsupported.
+    #[error("unsupported light-chain checkpoint schema")]
+    UnsupportedSnapshot,
+    /// Checkpoint belongs to another Handshake network.
+    #[error("light-chain checkpoint network mismatch")]
+    SnapshotNetworkMismatch,
+    /// Checkpoint falls below the caller-held height or chainwork floor.
+    #[error("light-chain checkpoint rollback detected")]
+    SnapshotRollback,
     /// The next height cannot be represented.
     #[error("header height overflow")]
     HeightOverflow,
@@ -1132,6 +1371,49 @@ mod tests {
             Some(Network::Regtest.parameters().genesis_hash)
         );
         assert!(locator.len() <= MAX_LOCATOR_HASHES);
+
+        let snapshot = chain.encode_authenticated_snapshot().unwrap();
+        let floor = ChainSnapshotFloor {
+            minimum_height: chain.tip().height(),
+            minimum_chainwork: chain.tip().chainwork(),
+        };
+        let mut restored =
+            LightChain::decode_authenticated_snapshot(&snapshot, Network::Regtest, floor).unwrap();
+        assert_eq!(restored.tip(), chain.tip());
+        assert_eq!(restored.history, chain.history);
+        let next = mine_regtest_header(restored.tip(), TreeRoot::new([161; 32]));
+        restored.append(&next, now).unwrap();
+        assert_eq!(restored.tip().height(), Height::new(161));
+
+        assert!(matches!(
+            LightChain::decode_authenticated_snapshot(
+                &snapshot,
+                Network::Mainnet,
+                ChainSnapshotFloor::default()
+            ),
+            Err(LightChainError::SnapshotNetworkMismatch)
+        ));
+        assert!(matches!(
+            LightChain::decode_authenticated_snapshot(
+                &snapshot,
+                Network::Regtest,
+                ChainSnapshotFloor {
+                    minimum_height: Height::new(161),
+                    minimum_chainwork: Chainwork::ZERO,
+                }
+            ),
+            Err(LightChainError::SnapshotRollback)
+        ));
+        let mut corrupted = snapshot;
+        corrupted[LIGHT_CHAIN_SNAPSHOT_MAGIC.len()] ^= 1;
+        assert!(matches!(
+            LightChain::decode_authenticated_snapshot(
+                &corrupted,
+                Network::Regtest,
+                ChainSnapshotFloor::default()
+            ),
+            Err(LightChainError::SnapshotChecksumMismatch)
+        ));
     }
 
     #[test]

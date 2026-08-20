@@ -4,8 +4,9 @@ Locally validated Handshake header-chain and Urkel name-resource anchors.
 
 The crate gates headers by network consensus, chainwork, difficulty, median
 time, and currency policy, then verifies exact committed Urkel name proofs and
-HNS resource data. Storage, peer discovery, and competing-fork download remain
-adapter responsibilities.
+HNS resource data. Its bounded consensus window has an exact checkpoint codec
+for a wallet-owned authenticated store; peer discovery, the full birthday-to-
+tip scan archive, and competing-fork download remain adapter responsibilities.
 
 Published releases can be added with:
 

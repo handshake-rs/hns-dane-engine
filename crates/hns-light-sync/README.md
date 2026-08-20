@@ -4,8 +4,10 @@ Bounded multi-peer Handshake light-header synchronization.
 
 Each round validates peer responses independently, chooses a unique
 greatest-chainwork result, requires configurable agreement, and rejects
-equal-work divergent tips. Durable checkpoints and deep reorganization
-recovery remain storage-adapter responsibilities.
+equal-work divergent tips. A completed round returns the exact accepted header
+batch so the wallet can persist its scan archive before continuing. Durable
+archive layout and deep reorganization recovery remain storage-adapter
+responsibilities.
 
 Published releases can be added with:
 

@@ -166,6 +166,18 @@ pub struct SyncStatus {
     pub round_active: bool,
 }
 
+/// Completed agreement round plus the exact newly accepted header batch.
+///
+/// Storage adapters persist `accepted_headers` before starting another round;
+/// the consensus engine itself retains only its small retarget lookback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeaderRoundOutcome {
+    /// Resulting synchronization status.
+    pub status: SyncStatus,
+    /// Exact winning extension, empty only for a no-extension agreement round.
+    pub accepted_headers: Vec<Header>,
+}
+
 /// Bounded multi-peer header synchronizer.
 #[derive(Clone, Debug)]
 pub struct HeaderSync {
@@ -336,6 +348,17 @@ impl HeaderSync {
 
     /// Validate all submitted candidates, select greatest chainwork, and require agreement.
     pub fn finish_round(&mut self, now: u64) -> Result<SyncStatus, SyncError> {
+        self.finish_round_with_headers(now)
+            .map(|outcome| outcome.status)
+    }
+
+    /// Finish a round and return every agreed header needed by durable wallet
+    /// scanning, rather than discarding the winning batch after validation.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "candidate validation, agreement, peer scoring, and atomic winner installation remain one auditable state transition"
+    )]
+    pub fn finish_round_with_headers(&mut self, now: u64) -> Result<HeaderRoundOutcome, SyncError> {
         let Some(round) = self.round.take() else {
             return Err(SyncError::NoActiveRound);
         };
@@ -365,7 +388,7 @@ impl HeaderSync {
                     .is_ok()
             };
             if valid {
-                candidates.push((peer, headers.is_empty(), candidate));
+                candidates.push((peer, headers, candidate));
             } else {
                 self.record_failure(peer);
             }
@@ -406,6 +429,10 @@ impl HeaderSync {
             .iter()
             .position(|(_, _, candidate)| candidate.tip().hash() == best_hash)
             .ok_or(SyncError::NoValidCandidate)?;
+        let accepted_headers = candidates
+            .get(winning_index)
+            .map(|(_, headers, _)| headers.clone())
+            .ok_or(SyncError::NoValidCandidate)?;
         let winner = candidates
             .get(winning_index)
             .map(|(_, _, candidate)| candidate.clone())
@@ -426,8 +453,8 @@ impl HeaderSync {
             && candidates
                 .iter()
                 .filter(|(_, _, candidate)| candidate.tip().hash() == best_hash)
-                .all(|(peer, empty, _)| {
-                    *empty
+                .all(|(peer, headers, _)| {
+                    headers.is_empty()
                         && self.peers.get(peer).is_some_and(|record| {
                             record.advertised_height <= self.chain.tip().height().get()
                         })
@@ -436,7 +463,10 @@ impl HeaderSync {
         } else {
             SyncState::HeaderSyncing
         };
-        Ok(self.status())
+        Ok(HeaderRoundOutcome {
+            status: self.status(),
+            accepted_headers,
+        })
     }
 
     /// Issue a current-chain token only after a no-extension agreement round.
@@ -610,7 +640,9 @@ mod tests {
             sync.submit_headers(request.generation, id, vec![extension.clone()], now)
                 .unwrap();
         }
-        let status = sync.finish_round(now).unwrap();
+        let outcome = sync.finish_round_with_headers(now).unwrap();
+        assert_eq!(outcome.accepted_headers, vec![extension]);
+        let status = outcome.status;
         assert_eq!(status.tip.height(), Height::new(1));
         assert_eq!(status.state, SyncState::HeaderSyncing);
 
