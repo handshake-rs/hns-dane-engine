@@ -309,6 +309,31 @@ the initial supported consumers must be read-only; a future mutation path must
 use a separately fenced prepare/promote protocol rather than treating this
 callback as signing or publication authority.
 
+Canonical HRM/HNSA-backed HNSR consumption is exposed through
+`HrmHnsaHnsrRequesterBroker::with_current_named_route`. Authority and requester
+snapshots are distinct durable lineages with distinct namespace IDs, fencing
+tokens, initialized markers, and independently protected revision floors. The
+broker acquires the subject authority lease first and the one whole multi-origin
+requester lease second before loading either latest snapshot, and holds both
+through authority and requester commits, exact bindings, the dependent
+callback, unwind containment, and release checks. A per-origin requester lock
+or partition is invalid because every requester write replaces the whole
+aggregate.
+
+Both state machines consume the same trusted time. Authority time is durable
+before current-chain/HRM retrieval; requester time and any pending transition
+are durable before the backend can begin complete raw route retrieval. The
+backend may not supply decoded, preloaded, paginated, or knowingly incomplete
+route input. Canonical decoding bounds the returned batch and permanently
+reduces both endpoint-delegation and route high-water/conflict dimensions
+before one current route can be bound. Lease loss, fence replacement, missing
+initialized state, rollback below either external floor, ambiguous/unreconciled
+CAS, withdrawal, incomplete authority, malformed route input, or callback panic
+cannot release a successful result. The callback must complete the
+profile-defined endpoint-authenticated inner session before treating
+application bytes as authenticated; that consumer and every real platform
+backend remain unqualified integration work.
+
 HNSA named-route selection treats identity, name state, application policy,
 time, and prior replacement state as separate authorities. The application
 supplies the expected name, service, `HNS_WEB_V1` or `HNS_CHAT_V1`, and exact

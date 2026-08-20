@@ -51,6 +51,24 @@ outcome-ambiguous-write reconciliation. No such Android, Apple, or Chromium
 backend or bridge is supplied by this tranche, so it does not enable a product
 release gate.
 
+`HrmHnsaHnsrRequesterBroker` composes that authority core with the permanent
+HNSR named-route requester state machine. It acquires the exact
+authority-subject lease first and the distinct whole-requester-aggregate lease
+second, holds both while obtaining one trusted time, commits current HRM/HNSA
+authority, restores or reconfirms the authenticated multi-origin requester
+snapshot, durably advances requester time before route I/O, retrieves one
+complete raw response batch, performs the canonical two-dimensional
+endpoint/route reduction and fenced CAS, and binds the selected route to both
+settled revisions. Only a lease-scoped callback can borrow that route.
+
+Its extended backend contract requires a separate real requester fence,
+authenticated whole-aggregate storage, non-evictable initialized marker,
+independently protected requester revision floor, exact CAS reconciliation, and
+invocation-time complete raw-batch retrieval. The source contains no production
+Android, Apple, or Chromium implementation of those services and does not yet
+establish the profile-authenticated inner session. Platform availability and
+release gates therefore remain false.
+
 The legacy `hsa1` HNSA selector and HNSR requester/opaque-relay cores described
 here are also implemented, but no reviewed mobile-safe authority boundary
 currently exposes either authority path across a platform bridge. Such a

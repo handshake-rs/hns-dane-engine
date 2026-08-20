@@ -348,37 +348,26 @@ impl<B: HrmHnsaAuthorityBackend> HrmHnsaAuthorityBroker<B> {
             &'authority CurrentCommittedNamedService<'authority>,
         ) -> Result<T, O>,
     {
-        identity
-            .validate()
-            .map_err(NamedServiceAuthorityError::from)
-            .map_err(HrmHnsaAuthorityBrokerError::Authority)?;
-        policy
-            .validate()
-            .map_err(NamedServiceAuthorityError::from)
-            .map_err(HrmHnsaAuthorityBrokerError::Authority)?;
-
-        let key = AuthorityLeaseKey::new(
-            self.config.storage_namespace_id(),
-            identity.network_magic,
-            identity.name_hash,
-        );
-        if !self.states.contains_key(&key)
-            && self.states.len() >= self.config.maximum_live_subjects()
-        {
-            return Err(HrmHnsaAuthorityBrokerError::SubjectCapacity);
-        }
+        let key = self.validate_and_admit(identity, policy)?;
 
         let held = HeldAuthorityLease::acquire(key, |requested| {
             self.backend.acquire_authority_lease(requested)
         })
         .map_err(map_lease_acquire)?;
-        let backend = &self.backend;
-        let states = &mut self.states;
-        let config = self.config;
         let mut panic_payload: Option<Box<dyn Any + Send>> = None;
         let scoped = held.run(|lease| {
             let attempted = catch_unwind(AssertUnwindSafe(|| {
-                run_scoped(config, backend, states, lease, identity, policy, operation)
+                let trusted_now = self
+                    .backend
+                    .trusted_time()
+                    .map_err(HrmHnsaAuthorityBrokerError::Backend)?;
+                self.with_current_named_service_under_lease(
+                    lease,
+                    trusted_now,
+                    identity,
+                    policy,
+                    |_, current| operation(current),
+                )
             }));
             match attempted {
                 Ok(result) => result.map(Some),
@@ -403,6 +392,63 @@ impl<B: HrmHnsaAuthorityBackend> HrmHnsaAuthorityBroker<B> {
             Err(LeaseScopeError::Lease(error)) => Err(HrmHnsaAuthorityBrokerError::Lease(error)),
         }
     }
+
+    pub(crate) fn with_current_named_service_under_lease<T, O, F>(
+        &mut self,
+        lease: &AuthorityLeaseWitness<'_>,
+        trusted_now: u64,
+        identity: &NamedServiceIdentity,
+        policy: &NamedServicePolicy,
+        operation: F,
+    ) -> Result<T, HrmHnsaAuthorityBrokerError<B::Error, O>>
+    where
+        F: for<'authority> FnOnce(
+            &'authority B,
+            &'authority CurrentCommittedNamedService<'authority>,
+        ) -> Result<T, O>,
+    {
+        let key = self.validate_and_admit(identity, policy)?;
+        if lease.key() != &key {
+            return Err(HrmHnsaAuthorityBrokerError::Lease(LeaseError::KeyMismatch));
+        }
+        run_scoped(
+            self.config,
+            &self.backend,
+            &mut self.states,
+            lease,
+            trusted_now,
+            identity,
+            policy,
+            operation,
+        )
+    }
+
+    fn validate_and_admit<O>(
+        &self,
+        identity: &NamedServiceIdentity,
+        policy: &NamedServicePolicy,
+    ) -> Result<AuthorityLeaseKey, HrmHnsaAuthorityBrokerError<B::Error, O>> {
+        identity
+            .validate()
+            .map_err(NamedServiceAuthorityError::from)
+            .map_err(HrmHnsaAuthorityBrokerError::Authority)?;
+        policy
+            .validate()
+            .map_err(NamedServiceAuthorityError::from)
+            .map_err(HrmHnsaAuthorityBrokerError::Authority)?;
+
+        let key = AuthorityLeaseKey::new(
+            self.config.storage_namespace_id(),
+            identity.network_magic,
+            identity.name_hash,
+        );
+        if !self.states.contains_key(&key)
+            && self.states.len() >= self.config.maximum_live_subjects()
+        {
+            return Err(HrmHnsaAuthorityBrokerError::SubjectCapacity);
+        }
+        Ok(key)
+    }
 }
 
 impl<B> fmt::Debug for HrmHnsaAuthorityBroker<B> {
@@ -425,20 +471,21 @@ fn run_scoped<B, T, O, F>(
     backend: &B,
     states: &mut BTreeMap<AuthorityLeaseKey, NamedServiceAuthorityState>,
     lease: &AuthorityLeaseWitness<'_>,
+    trusted_now: u64,
     identity: &NamedServiceIdentity,
     policy: &NamedServicePolicy,
     operation: F,
 ) -> Result<T, HrmHnsaAuthorityBrokerError<B::Error, O>>
 where
     B: HrmHnsaAuthorityBackend,
-    F: for<'authority> FnOnce(&'authority CurrentCommittedNamedService<'authority>) -> Result<T, O>,
+    F: for<'authority> FnOnce(
+        &'authority B,
+        &'authority CurrentCommittedNamedService<'authority>,
+    ) -> Result<T, O>,
 {
     lease
         .ensure_held()
         .map_err(HrmHnsaAuthorityBrokerError::Lease)?;
-    let trusted_now = backend
-        .trusted_time()
-        .map_err(HrmHnsaAuthorityBrokerError::Backend)?;
     let key = *lease.key();
 
     if let Entry::Vacant(entry) = states.entry(key) {
@@ -498,7 +545,7 @@ where
     current
         .ensure_lease_held()
         .map_err(HrmHnsaAuthorityBrokerError::Authority)?;
-    let result = operation(&current).map_err(HrmHnsaAuthorityBrokerError::Operation);
+    let result = operation(backend, &current).map_err(HrmHnsaAuthorityBrokerError::Operation);
     current
         .ensure_lease_held()
         .map_err(HrmHnsaAuthorityBrokerError::Authority)?;

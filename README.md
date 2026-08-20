@@ -39,6 +39,12 @@
   contract requires a non-evictable initialized marker, independently protected
   rollback floor, authenticated snapshot, trusted time, and outcome-ambiguous
   write reconciliation;
+- a dual-fenced `HrmHnsaHnsrRequesterBroker` that acquires the authority
+  subject before the one whole multi-origin requester aggregate, selects one
+  trusted operation time, commits both authenticated lineages, starts complete
+  raw HNSR route retrieval only after requester time is durable, reduces both
+  endpoint-delegation and route high-water/conflict dimensions, and exposes the
+  exact current route only inside a callback while both leases remain held;
 - bounded, conflict-safe HNSA named-route selection from a non-forgeable
   current HNS resource: one canonical `hsa1` character-string, caller-selected
   name and service, the reviewed HNS Web or Chat profile, signed service
@@ -142,6 +148,11 @@ admits only the node profile, so named profiles must use opaque HNSA selection.
 Directory lookup, complete-response and quorum policy, rollback-resistant
 platform storage, relay I/O, and the endpoint-authenticated inner session
 remain platform work.
+The canonical HRM/HNSA route path additionally provides a shared native
+dual-lease requester broker, but it deliberately accepts route bytes only from
+its trusted backend's invocation-time complete-batch retrieval boundary. No
+Android, Apple, or Chromium implementation of that backend, no platform bridge,
+and no profile-authenticated inner-session consumer is qualified yet.
 Authenticated authoritative DoH and live HIP-76/77 or HNSR network execution
 therefore remain unavailable rather than silently falling back.
 

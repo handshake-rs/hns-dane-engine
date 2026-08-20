@@ -19,9 +19,10 @@ and the credential-free release preflight in
 All nineteen packages were subsequently read back from crates.io and the
 `v0.3.0` source tag exists. This is upstream dependency evidence, not
 qualification of the successor engine source. Those facade dependencies now
-back the synchronous `HrmHnsaAuthorityBroker`; the legacy `hnsa_route` v2
-runtime path remains unchanged. The successor must pass its own exact-commit
-engine gates before publication.
+back the synchronous `HrmHnsaAuthorityBroker` and its dual-fenced
+`HrmHnsaHnsrRequesterBroker` composition; the legacy `hnsa_route` v2 runtime
+path remains unchanged. The successor must pass its own exact-commit engine
+gates before publication.
 
 Focused native HRM/HNSA broker evidence on 2026-08-20 covers six deterministic
 tests: active authority ordering, withdrawal, durable time advancement before a
@@ -41,6 +42,31 @@ This is source evidence for the broker's ordering and state-machine
 composition. It does not qualify any real platform lease, storage, trusted
 clock, current-chain/HRM retrieval backend, bridge, installed browser, or live
 network behavior.
+
+Focused combined HRM/HNSA/HNSR requester evidence on 2026-08-20 adds six
+deterministic tests: authority-then-requester acquisition and both durable
+lineages before callback release; complete raw-batch product reduction; exact
+pending requester-CAS retry before route retrieval; withdrawal with both time
+high-waters advanced and no callback; requester lease-loss result suppression;
+missing initialized requester-state rejection; and unwind checks across both
+release boundaries. The exact local commands are:
+
+```text
+cargo +1.89.0 test --locked -p hns-dane-engine hrm_hnsa_hnsr_broker -- --nocapture
+  6 passed; 0 failed
+
+cargo +1.89.0 test --locked -p hns-dane-engine --lib
+  55 passed; 0 failed
+
+cargo +1.89.0 clippy --locked -p hns-dane-engine --all-targets -- -D warnings
+  passed
+```
+
+The immediately preceding dependency-only repair at `d57dac7` passed engine CI
+run `32345889360` and CodeQL run `32345889367`. Those remote results establish
+that the patched `h2` lock selection clears the current advisory gate; they do
+not qualify this later combined-broker source. This source still requires its
+own exact-commit remote gates after it is committed.
 
 ## Historical 0.2.0 engine evidence
 
@@ -457,10 +483,12 @@ products:
 Still absent or unevidenced:
 
 - real Android, Apple, and Chromium implementations of the canonical HRM/HNSA
-  broker backend: cross-process lease and fencing, authenticated aggregate,
-  non-evictable initialized marker, independent rollback floor, trusted time,
-  authenticated current-chain/HRM retrieval, atomic CAS and ambiguous-write
-  reconciliation, plus restart and installed-product evidence;
+  and combined HNSA/HNSR broker backend: ordered cross-process authority and
+  requester leases and fencing, authenticated subject and whole-requester
+  aggregates, non-evictable initialized markers, independent rollback floors,
+  trusted time, authenticated current-chain/HRM retrieval, complete raw route
+  retrieval, atomic CAS and ambiguous-write reconciliation, plus restart and
+  installed-product evidence;
 - socket dialing and peer discovery, competing-fork download/reorganization before the current
   base, durable restart state, and checkpoint bootstrap (current sync selects bounded extensions
   from one shared validated base);
@@ -472,10 +500,11 @@ Still absent or unevidenced:
   lifecycle, and HNSR requester/opaque-relay state machines, plus HSD draft-PR
   cross-language execution (the requester consumes and enforces an already
   authenticated `NegotiatedRegistry`);
-- complete HNSA directory discovery and response-completeness/quorum policy,
-  authenticated rollback-resistant platform persistence of
-  `HnsaNamedRouteState` with resource/profile generation and trusted-time state,
-  HNSA live routing and endpoint-authenticated inner sessions, and HNSR
+- live HNSA route discovery and any response-completeness/quorum policy beyond
+  the combined backend's required exact complete-batch contract, authenticated
+  rollback-resistant platform persistence for both legacy
+  `HnsaNamedRouteState` and the canonical permanent requester aggregate, HNSA
+  live routing and endpoint-authenticated inner sessions, and HNSR
   endpoint/rendezvous roles;
 - a reviewed mobile-safe HNSA/HNSR authority boundary that carries the
   non-forgeable verified resource, the single runtime/requester authority,

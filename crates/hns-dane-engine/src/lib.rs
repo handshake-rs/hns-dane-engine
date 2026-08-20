@@ -16,6 +16,7 @@
 mod hnsa_route;
 mod hnsr_transport;
 mod hrm_hnsa_broker;
+mod hrm_hnsa_hnsr_broker;
 mod private_transport;
 
 mod authority_sealed {
@@ -46,6 +47,14 @@ pub use hrm_hnsa_broker::{
     NamedServiceAuthorityExpectation, NamedServiceAuthoritySnapshot,
     NamedServiceAuthorityStorageState, NamedServiceIdentity, NamedServicePolicy, ResolvedManifest,
     RollbackProtectionClass, StorageNamespaceId, ValidationLimits,
+};
+pub use hrm_hnsa_hnsr_broker::{
+    CurrentNamedRouteV3, DEFAULT_HRM_HNSA_HNSR_REQUESTER_ENTRIES, HnsrProtocolError,
+    HrmHnsaHnsrRequesterBackend, HrmHnsaHnsrRequesterBroker, HrmHnsaHnsrRequesterBrokerConfig,
+    HrmHnsaHnsrRequesterBrokerConfigError, HrmHnsaHnsrRequesterBrokerError, HrmNamedRoutePolicy,
+    MAX_HRM_HNSA_HNSR_REQUESTER_ENTRIES, NamedRouteV3OperationLeaseWitness,
+    NamedRouteV3RequesterExpectation, NamedRouteV3RequesterLeaseKey, NamedRouteV3RequesterSnapshot,
+    NamedRouteV3RequesterStorageState,
 };
 
 pub use private_transport::{

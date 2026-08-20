@@ -29,6 +29,17 @@ file. The public crates use a shared version and follow Semantic Versioning.
   state and HRM retrieval, durable acknowledgement, and ambiguous-write
   reconciliation. No platform backend, bridge, or product release gate is
   enabled by this tranche.
+- Added `HrmHnsaHnsrRequesterBroker`, a shared dual-fenced composition for
+  canonical HRM/HNSA-backed HNSR route consumption. It acquires authority then
+  the distinct whole-requester lease, uses one trusted operation time across
+  both durable state machines, commits requester time before invoking complete
+  raw-batch retrieval, performs canonical endpoint/route product reduction and
+  exact requester CAS, and keeps the bound route and dependent callback inside
+  both lease scopes with panic containment. Six deterministic tests cover
+  ordering, complete-batch selection, pending-CAS retry, withdrawal, lease
+  loss, missing initialized state, and dual release checks. No real platform
+  backend, bridge, inner-session consumer, availability flag, publication, or
+  release follows from this source tranche.
 - Split the release runner's crates.io cadence between new crate names and new
   versions of existing names (605 seconds and 65 seconds respectively), with
   fail-closed registry classification. Resume verification now rebuilds through

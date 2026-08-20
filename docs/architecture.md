@@ -219,6 +219,32 @@ page storage, a no-op guard, an unkeyed checksum, or preconstructed manifest
 input cannot satisfy that contract. Android, Apple, and Chromium backends and
 bridge wiring remain separate integration work.
 
+The canonical HRM/HNSA-backed named-route path enters through
+`HrmHnsaHnsrRequesterBroker::with_current_named_route`. It composes the
+authority broker with `hns-hnsr-protocol`'s permanent requester state and
+ordered operation leases. The immutable configuration pins one network and two
+distinct storage namespaces: the subject-wide authority lineage and the one
+whole multi-origin requester lineage. Each operation validates the
+application-selected identity and policy, acquires authority first and
+requester second, rechecks authority, then chooses one trusted time `T` while
+both owned guards are held. The authority transition uses `T`; only its exact
+committed active service can enter the requester transition. The requester
+reconfirms its latest authenticated aggregate and independent revision floor,
+durably commits `T`, and only then invokes complete raw route retrieval.
+
+The canonical requester decoder bounds the response, reduces every fully valid
+candidate across independent endpoint-delegation and route sequence/conflict
+dimensions, persists the complete aggregate with an exact requester-fence CAS,
+and binds one selected route to both the current authority and requester
+revisions. The dependent callback and unwind containment remain inside the
+composite scope, and both leases are checked at release. The backend must
+provide the second real cross-process fence, authenticated requester storage,
+non-evictable initialized marker, independent rollback floor, durable CAS and
+ambiguous-write reconciliation, and invocation-time complete response
+acquisition. The broker does not implement route transport, platform storage,
+or the profile-authenticated inner session. No platform bridge or product
+availability follows from the shared core alone.
+
 The facade also selects HNSA named HNSR routes without making a directory or
 relay authoritative. A non-forgeable `VerifiedHnsResource` supplies the exact
 network, current height, name hash, name-tree root, and finite chain-currency
