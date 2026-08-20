@@ -208,6 +208,24 @@ impl HeaderSync {
         })
     }
 
+    /// Resume synchronization from a chain restored out of the caller's
+    /// authenticated wallet store.
+    ///
+    /// Peer scores and an in-flight round are deliberately connection-local:
+    /// reopening starts in `HeaderSyncing` and requires fresh peer agreement
+    /// before current-chain evidence can be issued.
+    pub fn from_chain(chain: LightChain, config: SyncConfig) -> Result<Self, SyncError> {
+        let config = config.validate()?;
+        Ok(Self {
+            config,
+            chain,
+            state: SyncState::HeaderSyncing,
+            generation: 1,
+            peers: HashMap::with_capacity(config.max_peers),
+            round: None,
+        })
+    }
+
     /// Current validated chain.
     #[must_use]
     pub const fn chain(&self) -> &LightChain {
@@ -803,6 +821,53 @@ mod tests {
         }
         assert_eq!(
             sync.finish_round(now + 2).unwrap().state,
+            SyncState::HeaderCurrent
+        );
+    }
+
+    #[test]
+    fn authenticated_chain_resume_requires_fresh_peer_agreement() {
+        let now = Network::Regtest.parameters().genesis_time.get() + 100;
+        let mut original = test_sync(1, 3, now);
+        original.add_peer(peer(1), 1).unwrap();
+        let request = original.begin_round(&[peer(1)], now).unwrap();
+        let extension = mine(original.chain().tip(), 1);
+        original
+            .submit_headers(request.generation, peer(1), vec![extension], now)
+            .unwrap();
+        original.finish_round(now).unwrap();
+
+        let snapshot = original
+            .chain()
+            .encode_authenticated_snapshot()
+            .unwrap();
+        let restored_chain = LightChain::decode_authenticated_snapshot(
+            &snapshot,
+            Network::Regtest,
+            hns_light_chain::ChainSnapshotFloor::default(),
+        )
+        .unwrap();
+        let mut resumed = HeaderSync::from_chain(restored_chain, config(1, 3)).unwrap();
+
+        assert_eq!(resumed.chain().tip(), original.chain().tip());
+        assert_eq!(resumed.status().state, SyncState::HeaderSyncing);
+        assert!(matches!(
+            resumed.require_current(CurrencyPolicy {
+                now: BlockTime::new(now),
+                maximum_tip_age_seconds: 3_600,
+                minimum_height: Height::new(1),
+                minimum_chainwork: Chainwork::ZERO,
+            }),
+            Err(SyncError::NotCurrent)
+        ));
+
+        resumed.add_peer(peer(2), 1).unwrap();
+        let request = resumed.begin_round(&[peer(2)], now + 1).unwrap();
+        resumed
+            .submit_headers(request.generation, peer(2), Vec::new(), now + 1)
+            .unwrap();
+        assert_eq!(
+            resumed.finish_round(now + 1).unwrap().state,
             SyncState::HeaderCurrent
         );
     }
