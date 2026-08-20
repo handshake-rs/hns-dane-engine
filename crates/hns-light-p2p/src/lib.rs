@@ -14,10 +14,16 @@
     reason = "HNS, P2P, HSD, and HIP are protocol names"
 )]
 
+use std::collections::VecDeque;
+use std::io::{Read, Write};
+use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::time::Duration;
+
 use hns_header_consensus::Header;
 use hns_p2p_wire::{
-    Frame, GetProofPacket, Inventory, LocatorPacket, NetworkMagic, Packet, PacketType, ProofPacket,
-    RejectPacket, SERVICE_BLOOM, SERVICE_NETWORK, VersionPacket, WireError,
+    Frame, FrameDecoder, GetProofPacket, Inventory, LocatorPacket, NetAddress, NetworkMagic,
+    Packet, PacketType, ProofPacket, RejectPacket, SERVICE_BLOOM, SERVICE_NETWORK, VersionPacket,
+    WireError,
 };
 use hns_primitives::{BlockHash, NameHash, TreeRoot};
 use hns_transaction::Transaction;
@@ -29,6 +35,10 @@ pub const DEFAULT_HANDSHAKE_TIMEOUT_SECONDS: u64 = 10;
 pub const DEFAULT_REQUEST_TIMEOUT_SECONDS: u64 = 15;
 /// Default maximum peer wall-clock skew.
 pub const DEFAULT_MAX_CLOCK_SKEW_SECONDS: u64 = 2 * 60 * 60;
+/// Bounded stack read used by the standard stream adapter.
+pub const PEER_READ_BUFFER_SIZE: usize = 8 * 1_024;
+/// Maximum decoded frames retained between caller polls.
+pub const MAX_PENDING_PEER_FRAMES: usize = 1_024;
 
 /// Standard-peer session bounds and admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,6 +185,8 @@ pub enum PeerEvent {
     Headers(Vec<Header>),
     /// Correlated exact-root/key Urkel proof.
     Proof(ProofPacket),
+    /// Bounded standard peer addresses supplied for discovery.
+    Addresses(Vec<NetAddress>),
     /// Matching pong arrived.
     Pong([u8; 8]),
     /// Peer rejected a request.
@@ -214,6 +226,19 @@ pub struct PeerSession {
     pending_headers: Option<Pending>,
     pending_proof: Option<PendingProof>,
     pending_ping: Option<PendingPing>,
+}
+
+/// One standard peer session bound to a blocking byte stream.
+///
+/// The stream may be a native [`TcpStream`] or a deterministic test/host
+/// adapter. All bytes pass through the bounded shared frame decoder and the
+/// same [`PeerSession`] correlation rules before being exposed as events.
+#[derive(Debug)]
+pub struct PeerConnection<T> {
+    transport: T,
+    session: PeerSession,
+    decoder: FrameDecoder,
+    pending: VecDeque<Frame>,
 }
 
 impl PeerSession {
@@ -373,6 +398,12 @@ impl PeerSession {
         Ok(Frame::from_packet(packet)?)
     }
 
+    /// Build a standard peer-discovery request after version/verack.
+    pub fn address_request(&self) -> Result<Frame, PeerError> {
+        self.require_ready()?;
+        Ok(Frame::from_packet(&Packet::GetAddr)?)
+    }
+
     /// Build one ping; only one may be outstanding.
     pub fn ping(&mut self, nonce: [u8; 8], now: u64) -> Result<Frame, PeerError> {
         self.require_ready()?;
@@ -486,6 +517,7 @@ impl PeerSession {
                 }
                 Ok(PeerEvent::Proof(proof))
             }
+            Packet::Addr(addresses) => Ok(PeerEvent::Addresses(addresses)),
             Packet::Reject(reject) => Ok(PeerEvent::Rejected(reject)),
             Packet::Inv(inventory) => Ok(PeerEvent::Wallet(WalletPeerEvent::Inventory(inventory))),
             Packet::GetData(inventory) => {
@@ -519,6 +551,243 @@ impl PeerSession {
     }
 }
 
+impl<T: Read + Write> PeerConnection<T> {
+    /// Start a standard session and immediately write the local version frame.
+    pub fn start(
+        transport: T,
+        config: PeerConfig,
+        local_version: &VersionPacket,
+        now: u64,
+    ) -> Result<Self, PeerError> {
+        let (session, version) = PeerSession::start(config, local_version, now)?;
+        let decoder = FrameDecoder::new(session.network());
+        let mut connection = Self {
+            transport,
+            session,
+            decoder,
+            pending: VecDeque::new(),
+        };
+        connection.send_frame(&version)?;
+        Ok(connection)
+    }
+
+    /// Immutable admitted session state.
+    #[must_use]
+    pub const fn session(&self) -> &PeerSession {
+        &self.session
+    }
+
+    /// Mutable admitted session state for explicit request construction.
+    #[must_use]
+    pub const fn session_mut(&mut self) -> &mut PeerSession {
+        &mut self.session
+    }
+
+    /// Underlying host stream.
+    #[must_use]
+    pub const fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Mutable underlying host stream.
+    #[must_use]
+    pub const fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
+
+    /// Consume the peer and return its host stream.
+    pub fn into_inner(self) -> T {
+        self.transport
+    }
+
+    /// Complete version/verack while sampling the caller's monotonic Unix
+    /// clock before every admitted frame.
+    pub fn complete_handshake(
+        &mut self,
+        mut now_unix: impl FnMut() -> u64,
+    ) -> Result<PeerMetadata, PeerError> {
+        if self.session.state() == PeerState::Ready {
+            return self
+                .session
+                .metadata()
+                .cloned()
+                .ok_or(PeerError::InternalInvariant);
+        }
+        loop {
+            match self.receive_event(now_unix())? {
+                PeerEvent::Ready(metadata) => return Ok(metadata),
+                PeerEvent::Ignored(_) | PeerEvent::Addresses(_) => {}
+                PeerEvent::Send(_)
+                | PeerEvent::Headers(_)
+                | PeerEvent::Proof(_)
+                | PeerEvent::Pong(_)
+                | PeerEvent::Rejected(_)
+                | PeerEvent::Wallet(_) => return Err(PeerError::UnexpectedHandshakeEvent),
+            }
+        }
+    }
+
+    /// Write one already-admitted frame completely.
+    pub fn send_frame(&mut self, frame: &Frame) -> Result<(), PeerError> {
+        let encoded = frame.encode(self.session.network())?;
+        self.transport
+            .write_all(&encoded)
+            .map_err(|error| peer_io_error(&error))?;
+        self.transport
+            .flush()
+            .map_err(|error| peer_io_error(&error))
+    }
+
+    /// Send one same-locator header request and arm exact response correlation.
+    pub fn request_headers(
+        &mut self,
+        locator: Vec<BlockHash>,
+        stop: BlockHash,
+        now: u64,
+    ) -> Result<(), PeerError> {
+        let frame = self.session.request_headers(locator, stop, now)?;
+        self.send_frame(&frame)
+    }
+
+    /// Send one exact-root/key name proof request.
+    pub fn request_proof(
+        &mut self,
+        root: TreeRoot,
+        key: NameHash,
+        now: u64,
+    ) -> Result<(), PeerError> {
+        let frame = self.session.request_proof(root, key, now)?;
+        self.send_frame(&frame)
+    }
+
+    /// Send one admitted BIP37, inventory, mempool, or transaction packet.
+    pub fn send_wallet_packet(&mut self, packet: &Packet) -> Result<(), PeerError> {
+        let frame = self.session.wallet_frame(packet)?;
+        self.send_frame(&frame)
+    }
+
+    /// Request bounded standard peer addresses.
+    pub fn request_addresses(&mut self) -> Result<(), PeerError> {
+        let frame = self.session.address_request()?;
+        self.send_frame(&frame)
+    }
+
+    /// Send one correlated liveness ping.
+    pub fn ping(&mut self, nonce: [u8; 8], now: u64) -> Result<(), PeerError> {
+        let frame = self.session.ping(nonce, now)?;
+        self.send_frame(&frame)
+    }
+
+    /// Read and admit the next non-automatic peer event. Ping responses and
+    /// the local verack are written internally before this method returns.
+    pub fn receive_event(&mut self, now: u64) -> Result<PeerEvent, PeerError> {
+        loop {
+            let frame = self.receive_frame()?;
+            match self.session.handle_frame(&frame, now)? {
+                PeerEvent::Send(response) => self.send_frame(&response)?,
+                event => return Ok(event),
+            }
+        }
+    }
+
+    /// Revoke requests and close the logical session without assuming that a
+    /// host adapter has a transport-level shutdown primitive.
+    pub fn close(&mut self) {
+        self.session.close();
+        self.pending.clear();
+    }
+
+    fn receive_frame(&mut self) -> Result<Frame, PeerError> {
+        if let Some(frame) = self.pending.pop_front() {
+            return Ok(frame);
+        }
+        let mut input = [0_u8; PEER_READ_BUFFER_SIZE];
+        loop {
+            let read = self
+                .transport
+                .read(&mut input)
+                .map_err(|error| peer_io_error(&error))?;
+            if read == 0 {
+                return Err(PeerError::ConnectionClosed);
+            }
+            let bytes = input.get(..read).ok_or(PeerError::InternalInvariant)?;
+            let frames = self.decoder.push(bytes)?;
+            if self.pending.len().saturating_add(frames.len()) > MAX_PENDING_PEER_FRAMES {
+                return Err(PeerError::FrameQueueLimit);
+            }
+            self.pending.extend(frames);
+            if let Some(frame) = self.pending.pop_front() {
+                return Ok(frame);
+            }
+        }
+    }
+}
+
+impl PeerConnection<TcpStream> {
+    /// Connect a native socket, install bounded I/O timeouts, and send the
+    /// standard local version frame.
+    pub fn connect(
+        address: SocketAddr,
+        config: PeerConfig,
+        local_version: &VersionPacket,
+        now: u64,
+        connect_timeout: Duration,
+    ) -> Result<Self, PeerError> {
+        if connect_timeout.is_zero() || connect_timeout > Duration::from_secs(300) {
+            return Err(PeerError::InvalidConnectTimeout);
+        }
+        let stream = TcpStream::connect_timeout(&address, connect_timeout)
+            .map_err(|error| peer_io_error(&error))?;
+        let io_timeout = Duration::from_secs(
+            config
+                .handshake_timeout_seconds
+                .max(config.request_timeout_seconds),
+        );
+        stream
+            .set_read_timeout(Some(io_timeout))
+            .map_err(|error| peer_io_error(&error))?;
+        stream
+            .set_write_timeout(Some(io_timeout))
+            .map_err(|error| peer_io_error(&error))?;
+        stream
+            .set_nodelay(true)
+            .map_err(|error| peer_io_error(&error))?;
+        Self::start(stream, config, local_version, now)
+    }
+
+    /// Close both directions of the native socket and revoke session state.
+    pub fn shutdown(&mut self) -> Result<(), PeerError> {
+        self.close();
+        self.transport
+            .shutdown(Shutdown::Both)
+            .map_err(|error| peer_io_error(&error))
+    }
+}
+
+/// Construct the standard version packet for a non-serving light wallet.
+#[must_use]
+pub fn light_wallet_version(
+    remote: SocketAddr,
+    nonce: [u8; 8],
+    height: u32,
+    now: u64,
+) -> VersionPacket {
+    VersionPacket {
+        version: hns_p2p_wire::PROTOCOL_VERSION,
+        services: 0,
+        time: now,
+        remote: NetAddress::from_socket_addr(remote, now, 0),
+        nonce,
+        agent: concat!("/hns-light-wallet:", env!("CARGO_PKG_VERSION"), "/").to_owned(),
+        height,
+        no_relay: false,
+    }
+}
+
+fn peer_io_error(error: &std::io::Error) -> PeerError {
+    PeerError::Io(error.kind())
+}
+
 /// Standard peer handshake, correlation, or deadline failure.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -526,9 +795,21 @@ pub enum PeerError {
     /// Canonical shared wire codec failed.
     #[error("standard Handshake wire failure: {0}")]
     Wire(#[from] WireError),
+    /// Host stream read, write, flush, or connection failed.
+    #[error("standard Handshake peer I/O failed: {0:?}")]
+    Io(std::io::ErrorKind),
+    /// The host stream ended before the session completed.
+    #[error("standard Handshake peer closed the connection")]
+    ConnectionClosed,
+    /// One host read decoded more queued frames than the bounded adapter admits.
+    #[error("standard Handshake peer frame queue exceeded its bound")]
+    FrameQueueLimit,
     /// Session configuration is zero, excessive, or omits NETWORK service.
     #[error("invalid light-peer configuration")]
     InvalidConfig,
+    /// Native connection timeout is zero or exceeds the five-minute bound.
+    #[error("invalid native peer connection timeout")]
+    InvalidConnectTimeout,
     /// Local version has a zero nonce, obsolete version, or implausible timestamp.
     #[error("invalid local version packet")]
     InvalidLocalVersion,
@@ -601,6 +882,9 @@ pub enum PeerError {
     /// Internal handshake metadata invariant failed.
     #[error("peer session internal invariant failed")]
     InternalInvariant,
+    /// A response-bearing event appeared while version/verack was incomplete.
+    #[error("unexpected event during standard peer handshake")]
+    UnexpectedHandshakeEvent,
 }
 
 #[cfg(test)]
@@ -609,11 +893,51 @@ pub enum PeerError {
     reason = "tests fail immediately on invalid local peer fixtures"
 )]
 mod tests {
+    use std::collections::VecDeque;
+    use std::io::{Read, Write};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     use hns_p2p_wire::{InventoryKind, NetAddress, Packet};
 
     use super::*;
+
+    #[derive(Debug)]
+    struct ScriptedIo {
+        inbound: VecDeque<u8>,
+        outbound: Vec<u8>,
+        read_chunk: usize,
+    }
+
+    impl ScriptedIo {
+        fn new(inbound: Vec<u8>, read_chunk: usize) -> Self {
+            Self {
+                inbound: inbound.into(),
+                outbound: Vec::new(),
+                read_chunk,
+            }
+        }
+    }
+
+    impl Read for ScriptedIo {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            let length = output.len().min(self.read_chunk).min(self.inbound.len());
+            for byte in output.iter_mut().take(length) {
+                *byte = self.inbound.pop_front().unwrap();
+            }
+            Ok(length)
+        }
+    }
+
+    impl Write for ScriptedIo {
+        fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
+            self.outbound.extend_from_slice(input);
+            Ok(input.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     fn version(nonce: [u8; 8], now: u64) -> VersionPacket {
         VersionPacket {
@@ -881,5 +1205,81 @@ mod tests {
             header_only.wallet_frame(&Packet::FilterClear),
             Err(PeerError::MissingBloomService)
         ));
+    }
+
+    #[test]
+    fn fragmented_stream_adapter_drives_handshake_headers_discovery_and_wallet_frames() {
+        let now = 1_700_000_000;
+        let remote_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 14_038);
+        let mut remote_version = version([8; 8], now);
+        remote_version.services |= SERVICE_BLOOM;
+        let discovered = NetAddress::from_socket_addr(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)), 14_038),
+            now,
+            SERVICE_NETWORK | SERVICE_BLOOM,
+        );
+        let inbound_packets = [
+            Packet::Version(remote_version),
+            Packet::Verack,
+            Packet::Headers(Vec::new()),
+            Packet::Addr(vec![discovered.clone()]),
+            Packet::Ping([9; 8]),
+            Packet::FeeFilter(2_000),
+        ];
+        let mut inbound = Vec::new();
+        for packet in &inbound_packets {
+            inbound.extend(
+                Frame::from_packet(packet)
+                    .unwrap()
+                    .encode(NetworkMagic::Regtest)
+                    .unwrap(),
+            );
+        }
+        let local_version = light_wallet_version(remote_address, [7; 8], 42, now);
+        let mut connection = PeerConnection::start(
+            ScriptedIo::new(inbound, 7),
+            PeerConfig::for_wallet_network(NetworkMagic::Regtest),
+            &local_version,
+            now,
+        )
+        .unwrap();
+        let metadata = connection.complete_handshake(|| now).unwrap();
+        assert_eq!(metadata.height, 100);
+        assert_eq!(connection.session().state(), PeerState::Ready);
+
+        connection
+            .request_headers(vec![BlockHash::new([1; 32])], BlockHash::default(), now)
+            .unwrap();
+        assert_eq!(
+            connection.receive_event(now).unwrap(),
+            PeerEvent::Headers(Vec::new())
+        );
+        connection.request_addresses().unwrap();
+        assert_eq!(
+            connection.receive_event(now).unwrap(),
+            PeerEvent::Addresses(vec![discovered])
+        );
+        connection
+            .send_wallet_packet(&Packet::FilterLoad(vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0]))
+            .unwrap();
+        assert_eq!(
+            connection.receive_event(now).unwrap(),
+            PeerEvent::Wallet(WalletPeerEvent::FeeFilter(2_000))
+        );
+
+        let io = connection.into_inner();
+        let mut decoder = FrameDecoder::new(NetworkMagic::Regtest);
+        let packets = decoder
+            .push(&io.outbound)
+            .unwrap()
+            .into_iter()
+            .map(|frame| frame.decode_packet().unwrap())
+            .collect::<Vec<_>>();
+        assert!(matches!(packets.first(), Some(Packet::Version(_))));
+        assert_eq!(packets.get(1), Some(&Packet::Verack));
+        assert!(matches!(packets.get(2), Some(Packet::GetHeaders(_))));
+        assert_eq!(packets.get(3), Some(&Packet::GetAddr));
+        assert!(matches!(packets.get(4), Some(Packet::FilterLoad(_))));
+        assert_eq!(packets.get(5), Some(&Packet::Pong([9; 8])));
     }
 }
