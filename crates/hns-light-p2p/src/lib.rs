@@ -769,22 +769,27 @@ impl PeerConnection<TcpStream> {
         if connect_timeout.is_zero() || connect_timeout > Duration::from_secs(300) {
             return Err(PeerError::InvalidConnectTimeout);
         }
+        let config = config.validate()?;
         let stream = TcpStream::connect_timeout(&address, connect_timeout)
             .map_err(|error| peer_io_error(&error))?;
-        let io_timeout = Duration::from_secs(
-            config
-                .handshake_timeout_seconds
-                .max(config.request_timeout_seconds),
-        );
-        stream
-            .set_read_timeout(Some(io_timeout))
-            .map_err(|error| peer_io_error(&error))?;
-        stream
-            .set_write_timeout(Some(io_timeout))
-            .map_err(|error| peer_io_error(&error))?;
-        stream
-            .set_nodelay(true)
-            .map_err(|error| peer_io_error(&error))?;
+        configure_native_stream(&stream, config)?;
+        Self::start(stream, config, local_version, now)
+    }
+
+    /// Bind an already accepted native socket to a bounded standard HSD
+    /// session and immediately advertise the local version frame.
+    ///
+    /// This is deliberately only the socket/session adapter. Callers own
+    /// listener lifecycle, admission policy, and every protocol service above
+    /// the standard version/verack exchange.
+    pub fn accept(
+        stream: TcpStream,
+        config: PeerConfig,
+        local_version: &VersionPacket,
+        now: u64,
+    ) -> Result<Self, PeerError> {
+        let config = config.validate()?;
+        configure_native_stream(&stream, config)?;
         Self::start(stream, config, local_version, now)
     }
 
@@ -795,6 +800,23 @@ impl PeerConnection<TcpStream> {
             .shutdown(Shutdown::Both)
             .map_err(|error| peer_io_error(&error))
     }
+}
+
+fn configure_native_stream(stream: &TcpStream, config: PeerConfig) -> Result<(), PeerError> {
+    let io_timeout = Duration::from_secs(
+        config
+            .handshake_timeout_seconds
+            .max(config.request_timeout_seconds),
+    );
+    stream
+        .set_read_timeout(Some(io_timeout))
+        .map_err(|error| peer_io_error(&error))?;
+    stream
+        .set_write_timeout(Some(io_timeout))
+        .map_err(|error| peer_io_error(&error))?;
+    stream
+        .set_nodelay(true)
+        .map_err(|error| peer_io_error(&error))
 }
 
 /// Construct the standard version packet for a non-serving light wallet.
@@ -928,7 +950,8 @@ pub enum PeerError {
 mod tests {
     use std::collections::VecDeque;
     use std::io::{Read, Write};
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+    use std::thread;
 
     use hns_p2p_wire::{InventoryKind, NetAddress, Packet};
 
@@ -1032,6 +1055,38 @@ mod tests {
             PeerEvent::Ready(_)
         ));
         session
+    }
+
+    #[test]
+    fn accepted_native_socket_completes_the_standard_handshake() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let now = 1_700_000_000;
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut connection = PeerConnection::accept(
+                stream,
+                PeerConfig::for_network(NetworkMagic::Regtest),
+                &version([2; 8], now),
+                now,
+            )
+            .unwrap();
+            connection.complete_handshake(|| now).unwrap()
+        });
+
+        let mut client = PeerConnection::connect(
+            address,
+            PeerConfig::for_network(NetworkMagic::Regtest),
+            &version([1; 8], now),
+            now,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        let client_metadata = client.complete_handshake(|| now).unwrap();
+        let server_metadata = server.join().unwrap();
+
+        assert_eq!(client_metadata.services, SERVICE_NETWORK);
+        assert_eq!(server_metadata.services, SERVICE_NETWORK);
     }
 
     #[test]
