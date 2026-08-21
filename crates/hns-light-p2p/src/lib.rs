@@ -193,6 +193,16 @@ pub enum PeerEvent {
     Rejected(RejectPacket),
     /// Standard wallet traffic awaiting correlation and local verification.
     Wallet(WalletPeerEvent),
+    /// One bounded unknown packet preserved for an explicitly opted-in
+    /// experimental protocol. The standard session neither interprets nor
+    /// authorizes this payload; its consumer owns registry negotiation,
+    /// correlation, and all protocol-specific validation.
+    Experimental {
+        /// The unassigned standard packet type that carried `payload`.
+        packet_type: u8,
+        /// Bounded raw packet bytes, already framed for the selected network.
+        payload: Vec<u8>,
+    },
     /// Ordinary packet was safely outside the light-client flow.
     Ignored(PacketType),
 }
@@ -533,6 +543,13 @@ impl PeerSession {
                 Ok(PeerEvent::Wallet(WalletPeerEvent::MerkleBlock(payload)))
             }
             Packet::FeeFilter(rate) => Ok(PeerEvent::Wallet(WalletPeerEvent::FeeFilter(rate))),
+            Packet::Unknown {
+                packet_type,
+                payload,
+            } => Ok(PeerEvent::Experimental {
+                packet_type,
+                payload,
+            }),
             packet => Ok(PeerEvent::Ignored(packet.packet_type())),
         }
     }
@@ -622,7 +639,10 @@ impl<T: Read + Write> PeerConnection<T> {
                 | PeerEvent::Proof(_)
                 | PeerEvent::Pong(_)
                 | PeerEvent::Rejected(_)
-                | PeerEvent::Wallet(_) => return Err(PeerError::UnexpectedHandshakeEvent),
+                | PeerEvent::Wallet(_)
+                | PeerEvent::Experimental { .. } => {
+                    return Err(PeerError::UnexpectedHandshakeEvent);
+                }
             }
         }
     }
@@ -663,6 +683,19 @@ impl<T: Read + Write> PeerConnection<T> {
     /// Send one admitted BIP37, inventory, mempool, or transaction packet.
     pub fn send_wallet_packet(&mut self, packet: &Packet) -> Result<(), PeerError> {
         let frame = self.session.wallet_frame(packet)?;
+        self.send_frame(&frame)
+    }
+
+    /// Send one explicitly selected experimental packet after the standard
+    /// handshake. This does not negotiate or authorize a subprotocol; callers
+    /// must do both before treating any response as useful.
+    pub fn send_experimental_packet(
+        &mut self,
+        packet_type: u8,
+        payload: Vec<u8>,
+    ) -> Result<(), PeerError> {
+        self.session.require_ready()?;
+        let frame = Frame::new(PacketType::Unknown(packet_type), payload)?;
         self.send_frame(&frame)
     }
 
@@ -1204,6 +1237,45 @@ mod tests {
         assert!(matches!(
             header_only.wallet_frame(&Packet::FilterClear),
             Err(PeerError::MissingBloomService)
+        ));
+    }
+
+    #[test]
+    fn preserves_bounded_unknown_packets_only_after_standard_handshake() {
+        let now = 1_700_000_000;
+        let mut session = ready(now);
+        let experimental = Frame::from_packet(&Packet::Unknown {
+            packet_type: 0xf4,
+            payload: vec![1, 2, 3],
+        })
+        .unwrap();
+        assert_eq!(
+            session.handle_frame(&experimental, now).unwrap(),
+            PeerEvent::Experimental {
+                packet_type: 0xf4,
+                payload: vec![1, 2, 3],
+            }
+        );
+    }
+
+    #[test]
+    fn experimental_send_requires_standard_handshake() {
+        let now = 1_700_000_000;
+        let (session, _) = PeerSession::start(
+            PeerConfig::for_network(NetworkMagic::Regtest),
+            &version([1; 8], now),
+            now,
+        )
+        .unwrap();
+        let mut connection = PeerConnection {
+            transport: ScriptedIo::new(Vec::new(), 1),
+            session,
+            decoder: FrameDecoder::new(NetworkMagic::Regtest),
+            pending: VecDeque::new(),
+        };
+        assert!(matches!(
+            connection.send_experimental_packet(0xf4, vec![1]),
+            Err(PeerError::NotReady)
         ));
     }
 
