@@ -902,6 +902,17 @@ fn apply_selected_tls_plan(
             request.tls.tlsa_source = Some(TlsaRecordSource::NativeTlsa);
             request.tls.browser_tls_decision = None;
         }
+        (Namespace::Hns, TlsTrustPolicy::StatelessDane) => {
+            if !records.is_empty() || !stateless_dane.enabled {
+                return Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse));
+            }
+            request.tls.mode = hns_https_mode.domain_trust_mode();
+            request.tls.stateless_dane = stateless_dane.clone();
+            request.tls.dnssec_secure = false;
+            request.tls.tlsa_records.clear();
+            request.tls.tlsa_source = None;
+            request.tls.browser_tls_decision = None;
+        }
         (Namespace::Icann, TlsTrustPolicy::Dane) => {
             let record_count = NonZeroUsize::new(records.len())
                 .ok_or(GatewayError::Resolver(ResolverError::InvalidDnsResponse))?;

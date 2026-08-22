@@ -401,12 +401,6 @@ where
             selected_answer,
         } = prepared;
         validate_prepared_query(query, &decision)?;
-        if self.config.stateless_dane.enabled {
-            // Certificate-carried stateless DANE evidence is not represented
-            // by the canonical dual-root plan. Enabling the legacy mechanism
-            // here would bypass the selected plan's exact TLSA authority.
-            return Err(ResolverError::InvalidDnsResponse.into());
-        }
         let selected = decision
             .selected_namespace()
             .ok_or(ResolverError::NamespaceUnavailable)?;
@@ -459,6 +453,11 @@ where
                 let count =
                     NonZeroUsize::new(records.len()).ok_or(ResolverError::InvalidDnsResponse)?;
                 origin_request.tls.mode = domain_trust_mode_for_namespace(selected);
+                // Keep the plan's exact DNSSEC-authenticated TLSA records.
+                // The transport evaluates certificate evidence only when this
+                // list is empty, so stateless DANE cannot replace ordinary
+                // DANE validation.
+                origin_request.tls.stateless_dane = self.config.stateless_dane.clone();
                 origin_request.tls.dnssec_secure = true;
                 origin_request.tls.tlsa_records = records;
                 origin_request.tls.tlsa_source = Some(TlsaRecordSource::NativeTlsa);
@@ -466,6 +465,21 @@ where
                     (selected == Namespace::Icann).then_some(BrowserTlsDecision::EnforceDane {
                         record_count: count,
                     });
+            }
+            TlsTrustPolicy::StatelessDane => {
+                if selected != Namespace::Hns
+                    || !is_tls_origin_scheme(&origin_request.scheme)
+                    || !plan.tlsa_records().is_empty()
+                    || !self.config.stateless_dane.enabled
+                {
+                    return Err(ResolverError::InvalidDnsResponse.into());
+                }
+                origin_request.tls.mode = DomainTrustMode::HnsStrict;
+                origin_request.tls.stateless_dane = self.config.stateless_dane.clone();
+                origin_request.tls.dnssec_secure = false;
+                origin_request.tls.tlsa_records.clear();
+                origin_request.tls.tlsa_source = None;
+                origin_request.tls.browser_tls_decision = None;
             }
             TlsTrustPolicy::WebPkiAuthenticatedAbsence => {
                 if selected != Namespace::Icann || !is_tls_origin_scheme(&origin_request.scheme) {
@@ -1161,7 +1175,7 @@ mod tests {
         let gateway = Gateway::new(
             GatewayConfig::default(),
             PreparedOnlyResolver {
-                prepared: prepared_ech_resolution(&ech_config),
+                prepared: prepared_ech_resolution(&ech_config, TlsTrustPolicy::Dane),
                 resolve_calls: Arc::new(AtomicUsize::new(0)),
             },
             CapturingTransport::default(),
@@ -1183,7 +1197,7 @@ mod tests {
     }
 
     #[test]
-    fn prepared_namespace_plan_rejects_legacy_stateless_dane_override() {
+    fn prepared_namespace_plan_retains_tlsa_when_stateless_dane_is_enabled() {
         let resolve_calls = Arc::new(AtomicUsize::new(0));
         let gateway = Gateway::new(
             GatewayConfig {
@@ -1194,22 +1208,74 @@ mod tests {
                 ..GatewayConfig::default()
             },
             PreparedOnlyResolver {
-                prepared: prepared_cleartext_resolution(),
+                prepared: prepared_ech_resolution(&VALID_ECH_CONFIG_LIST, TlsTrustPolicy::Dane),
                 resolve_calls: Arc::clone(&resolve_calls),
             },
             CapturingTransport::default(),
         )
         .unwrap();
-        let mut request = request("name", "name");
-        request.origin.scheme = "http".to_owned();
-        request.origin.port = 80;
-
-        assert_eq!(
-            gateway.handle(&request).unwrap_err(),
-            GatewayError::Resolver(ResolverError::InvalidDnsResponse)
-        );
+        gateway.handle(&request("name", "name")).unwrap();
         assert_eq!(resolve_calls.load(Ordering::SeqCst), 0);
-        assert!(gateway.transport().last_request.lock().unwrap().is_none());
+        let captured = gateway
+            .transport()
+            .last_request
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
+        assert!(captured.tls.dnssec_secure);
+        assert_eq!(captured.tls.tlsa_records.len(), 1);
+        assert_eq!(captured.tls.tlsa_source, Some(TlsaRecordSource::NativeTlsa));
+        assert_eq!(
+            captured.tls.stateless_dane,
+            StatelessDaneConfig {
+                enabled: true,
+                accepted_tree_roots: vec![[3; 32]],
+            }
+        );
+    }
+
+    #[test]
+    fn prepared_stateless_dane_plan_requires_certificate_evidence() {
+        let gateway = Gateway::new(
+            GatewayConfig {
+                stateless_dane: StatelessDaneConfig {
+                    enabled: true,
+                    accepted_tree_roots: vec![[4; 32]],
+                },
+                ..GatewayConfig::default()
+            },
+            PreparedOnlyResolver {
+                prepared: prepared_ech_resolution(
+                    &VALID_ECH_CONFIG_LIST,
+                    TlsTrustPolicy::StatelessDane,
+                ),
+                resolve_calls: Arc::new(AtomicUsize::new(0)),
+            },
+            CapturingTransport::default(),
+        )
+        .unwrap();
+
+        gateway.handle(&request("name", "name")).unwrap();
+
+        let captured = gateway
+            .transport()
+            .last_request
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
+        assert_eq!(captured.tls.mode, DomainTrustMode::HnsStrict);
+        assert!(!captured.tls.dnssec_secure);
+        assert!(captured.tls.tlsa_records.is_empty());
+        assert_eq!(captured.tls.tlsa_source, None);
+        assert_eq!(
+            captured.tls.stateless_dane,
+            StatelessDaneConfig {
+                enabled: true,
+                accepted_tree_roots: vec![[4; 32]],
+            }
+        );
     }
 
     #[test]
@@ -3072,7 +3138,10 @@ mod tests {
         }
     }
 
-    fn prepared_ech_resolution(ech_config: &[u8]) -> PreparedNamespaceResolution {
+    fn prepared_ech_resolution(
+        ech_config: &[u8],
+        hns_tls_policy: TlsTrustPolicy,
+    ) -> PreparedNamespaceResolution {
         let host = CanonicalHost::parse("name").unwrap();
         let port = NonZeroU16::new(443).unwrap();
         let query = OriginQuery::new(
@@ -3097,6 +3166,11 @@ mod tests {
         let plan = |namespace, provenance| {
             let mut tlsa_rdata = vec![3, 1, 1];
             tlsa_rdata.extend_from_slice(&[7; 32]);
+            let tls_policy = if namespace == Namespace::Hns {
+                hns_tls_policy
+            } else {
+                TlsTrustPolicy::Dane
+            };
             ValidatedOriginPlan::new(OriginPlanInput {
                 namespace,
                 query: query.clone(),
@@ -3106,8 +3180,12 @@ mod tests {
                 endpoint_target: host.clone(),
                 endpoints: vec![SocketAddr::from(([1, 1, 1, 1], 443))],
                 service: service.clone(),
-                tls_policy: TlsTrustPolicy::Dane,
-                tlsa_records: vec![CanonicalTlsa::new(tlsa_rdata).unwrap()],
+                tls_policy,
+                tlsa_records: if tls_policy == TlsTrustPolicy::Dane {
+                    vec![CanonicalTlsa::new(tlsa_rdata).unwrap()]
+                } else {
+                    Vec::new()
+                },
                 provenance,
                 freshness: Freshness::new(90, 110).unwrap(),
             })
@@ -3129,7 +3207,8 @@ mod tests {
                     chain_state: IcannChainState::Secure,
                 },
             )),
-            SelectionPolicy::new(DefaultPrecedence::PreferIcann, 1),
+            SelectionPolicy::new(DefaultPrecedence::PreferIcann, 1)
+                .with_explicit_pin(Some(Namespace::Hns)),
             100,
         )
         .unwrap();

@@ -727,6 +727,9 @@ pub enum TlsTrustPolicy {
     WebPkiAuthenticatedAbsence = 3,
     /// ICANN delegation is proven insecure, so WebPKI is permitted.
     WebPkiInsecureDelegation = 4,
+    /// HNS TLSA is securely absent; the origin certificate must carry and
+    /// validate stateless HNS/DNSSEC/TLSA evidence before it is trusted.
+    StatelessDane = 5,
 }
 
 impl TlsTrustPolicy {
@@ -1212,6 +1215,7 @@ fn validate_plan_tls(input: &OriginPlanInput) -> Result<(), ValidationError> {
     let invalid_records = match input.tls_policy {
         TlsTrustPolicy::Dane => input.tlsa_records.is_empty(),
         TlsTrustPolicy::Cleartext
+        | TlsTrustPolicy::StatelessDane
         | TlsTrustPolicy::WebPkiAuthenticatedAbsence
         | TlsTrustPolicy::WebPkiInsecureDelegation => !input.tlsa_records.is_empty(),
     };
@@ -1238,7 +1242,7 @@ fn validate_plan_tls(input: &OriginPlanInput) -> Result<(), ValidationError> {
             },
             TlsTrustPolicy::WebPkiInsecureDelegation,
         )
-        | (EvidenceProvenance::Hns { .. }, TlsTrustPolicy::Dane)
+        | (EvidenceProvenance::Hns { .. }, TlsTrustPolicy::Dane | TlsTrustPolicy::StatelessDane)
         | (_, TlsTrustPolicy::Cleartext) => Ok(()),
         _ => Err(ValidationError::InvalidEvidence),
     }
