@@ -232,6 +232,15 @@ pub struct PeerSession {
     state: PeerState,
     local_nonce: [u8; 8],
     handshake_deadline: u64,
+    // HSD may acknowledge our version before it transmits its own version.
+    // Remember that early acknowledgement so receiving the remote version can
+    // complete the handshake immediately after we send our verack.
+    peer_verack_received: bool,
+    // `PeerEvent::Send` is intentionally also used for ready-state ping/pong
+    // traffic. This flag lets the stream adapter emit the one `Ready` event
+    // that follows an early-verack handshake response without mistaking a
+    // later pong for a second handshake completion.
+    ready_after_response: bool,
     metadata: Option<PeerMetadata>,
     pending_headers: Option<Pending>,
     pending_proof: Option<PendingProof>,
@@ -275,6 +284,8 @@ impl PeerSession {
                 state: PeerState::AwaitingVersion,
                 local_nonce: local_version.nonce,
                 handshake_deadline,
+                peer_verack_received: false,
+                ready_after_response: false,
                 metadata: None,
                 pending_headers: None,
                 pending_proof: None,
@@ -321,6 +332,14 @@ impl PeerSession {
         }
         let packet = frame.decode_packet()?;
         match self.state {
+            // Several current HSD peers legally emit their verack as soon as
+            // they receive the local version, before their own version frame.
+            // Preserve the acknowledgement and continue waiting for the
+            // remote version rather than rejecting an otherwise standard peer.
+            PeerState::AwaitingVersion if packet == Packet::Verack => {
+                self.peer_verack_received = true;
+                Ok(PeerEvent::Ignored(PacketType::Verack))
+            }
             PeerState::AwaitingVersion => self.handle_version(packet, now),
             PeerState::AwaitingVerack => {
                 if packet != Packet::Verack {
@@ -484,7 +503,12 @@ impl PeerSession {
             agent: version.agent,
             height: version.height,
         });
-        self.state = PeerState::AwaitingVerack;
+        if self.peer_verack_received {
+            self.state = PeerState::Ready;
+            self.ready_after_response = true;
+        } else {
+            self.state = PeerState::AwaitingVerack;
+        }
         Ok(PeerEvent::Send(Frame::from_packet(&Packet::Verack)?))
     }
 
@@ -565,6 +589,17 @@ impl PeerSession {
     fn request_deadline(&self, now: u64) -> Result<u64, PeerError> {
         now.checked_add(self.config.request_timeout_seconds)
             .ok_or(PeerError::TimeOverflow)
+    }
+
+    fn take_ready_after_response(&mut self) -> Result<Option<PeerMetadata>, PeerError> {
+        if !self.ready_after_response {
+            return Ok(None);
+        }
+        self.ready_after_response = false;
+        self.metadata
+            .clone()
+            .map(Some)
+            .ok_or(PeerError::InternalInvariant)
     }
 }
 
@@ -717,7 +752,12 @@ impl<T: Read + Write> PeerConnection<T> {
         loop {
             let frame = self.receive_frame()?;
             match self.session.handle_frame(&frame, now)? {
-                PeerEvent::Send(response) => self.send_frame(&response)?,
+                PeerEvent::Send(response) => {
+                    self.send_frame(&response)?;
+                    if let Some(metadata) = self.session.take_ready_after_response()? {
+                        return Ok(PeerEvent::Ready(metadata));
+                    }
+                }
                 event => return Ok(event),
             }
         }
@@ -1135,6 +1175,31 @@ mod tests {
     }
 
     #[test]
+    fn admits_hsd_verack_before_remote_version() {
+        let now = 1_700_000_000;
+        let (mut session, _) = PeerSession::start(
+            PeerConfig::for_network(NetworkMagic::Mainnet),
+            &version([6; 8], now),
+            now,
+        )
+        .unwrap();
+        let verack = Frame::from_packet(&Packet::Verack).unwrap();
+        assert_eq!(
+            session.handle_frame(&verack, now).unwrap(),
+            PeerEvent::Ignored(PacketType::Verack)
+        );
+        assert_eq!(session.state(), PeerState::AwaitingVersion);
+
+        let remote = Frame::from_packet(&Packet::Version(version([7; 8], now))).unwrap();
+        assert!(matches!(
+            session.handle_frame(&remote, now).unwrap(),
+            PeerEvent::Send(_)
+        ));
+        assert_eq!(session.state(), PeerState::Ready);
+        assert_eq!(session.metadata().unwrap().height, 100);
+    }
+
+    #[test]
     fn correlates_one_header_request_and_expires_duplicates() {
         let now = 1_700_000_000;
         let mut session = ready(now);
@@ -1346,8 +1411,8 @@ mod tests {
             SERVICE_NETWORK | SERVICE_BLOOM,
         );
         let inbound_packets = [
-            Packet::Version(remote_version),
             Packet::Verack,
+            Packet::Version(remote_version),
             Packet::Headers(Vec::new()),
             Packet::Addr(vec![discovered.clone()]),
             Packet::Ping([9; 8]),
