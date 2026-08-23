@@ -21,6 +21,10 @@ protocol_revision=0e99addca59778b7b7c6fc56291333a97c4c8815
 protocol_version=0.3.1
 protocol_crates='hns-encoding hns-rollback-journal hns-hrm hns-primitives hns-covenants hns-dns-relay-protocol hns-header-consensus hns-service-authority hns-odoh-protocol hns-p2p-experimental hns-urkel-proof hns-transaction hns-chat-protocol hns-hnsr-protocol hns-script hns-mining hns-swap hns-marketplace-protocol hns-p2p-wire'
 protocol_checksum_manifest=release/hns-rs-0.3.1-crates.sha256
+prepublished_engine_version=0.2.2
+prepublished_engine_revision=b7fdf8826c81b77650a0f740d1f05314b74969f9
+prepublished_engine_manifest=release/prepublished-0.2.2-crates.txt
+prepublished_engine_checksum_manifest=release/hns-dane-engine-0.2.2-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -60,6 +64,10 @@ public_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$release_manifest")
+prepublished_engine_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_engine_manifest")
 
 last_public_crate=
 for package in $public_crates
@@ -78,6 +86,23 @@ require_public_crate() {
     done
     echo "error: $requested is not in the public package allowlist" >&2
     exit 2
+}
+
+is_prepublished_engine_package() {
+    package=$1
+    version=$2
+    if [ "$version" != "$prepublished_engine_version" ]
+    then
+        return 1
+    fi
+    for prepublished_package in $prepublished_engine_crates
+    do
+        if [ "$package" = "$prepublished_package" ]
+        then
+            return 0
+        fi
+    done
+    return 1
 }
 
 run_package_operation() {
@@ -190,6 +215,56 @@ package_with_local_dependencies() {
                 --config 'patch.crates-io.hns-resolver.path="crates/hns-resolver"' \
                 --config 'patch.crates-io.hns-transport.path="crates/hns-transport"'
             ;;
+        hns-browser-primitives)
+            run_package_operation "$package"
+            ;;
+        hns-browser-urkel|hns-browser-dnssec|hns-browser-chain)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"'
+            ;;
+        hns-browser-dane)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dnssec.path="crates/hns-browser-dnssec"' \
+                --config 'patch.crates-io.hns-browser-urkel.path="crates/hns-browser-urkel"'
+            ;;
+        hns-browser-p2p)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-urkel.path="crates/hns-browser-urkel"'
+            ;;
+        hns-browser-resolver)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"' \
+                --config 'patch.crates-io.hns-browser-dnssec.path="crates/hns-browser-dnssec"'
+            ;;
+        hns-browser-transport)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"'
+            ;;
+        hns-browser-gateway)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"' \
+                --config 'patch.crates-io.hns-browser-resolver.path="crates/hns-browser-resolver"' \
+                --config 'patch.crates-io.hns-browser-transport.path="crates/hns-browser-transport"' \
+                --config 'patch.crates-io.hns-icann-dane.path="crates/hns-icann-dane"' \
+                --config 'patch.crates-io.hns-namespace-resolution.path="crates/hns-namespace-resolution"'
+            ;;
+        hns-browser-loopback-proxy)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"' \
+                --config 'patch.crates-io.hns-browser-resolver.path="crates/hns-browser-resolver"'
+            ;;
+        hns-browser-sync)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-chain.path="crates/hns-browser-chain"' \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-p2p.path="crates/hns-browser-p2p"' \
+                --config 'patch.crates-io.hns-browser-urkel.path="crates/hns-browser-urkel"'
+            ;;
         *)
             echo "error: missing package dependency mapping for $package" >&2
             exit 1
@@ -260,11 +335,28 @@ verify_common_source_package() {
     do
         verify_archive_entry "$package" "$archive" "$archive_root" "$relative_path"
     done
-    for relative_path in CHANGELOG.md LICENSE-APACHE LICENSE-MIT README.md
+    for relative_path in CHANGELOG.md README.md
     do
         verify_archive_copy "$package" "$archive" "$archive_root" \
             "$relative_path" "crates/$package/$relative_path"
     done
+    case "$package" in
+        hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
+        hns-browser-gateway|hns-browser-loopback-proxy|hns-browser-p2p|\
+        hns-browser-primitives|hns-browser-resolver|hns-browser-sync|\
+        hns-browser-transport|hns-browser-urkel)
+            verify_archive_copy "$package" "$archive" "$archive_root" \
+                LICENSE-POLYFORM-NONCOMMERCIAL \
+                "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"
+            ;;
+        *)
+            for relative_path in LICENSE-APACHE LICENSE-MIT
+            do
+                verify_archive_copy "$package" "$archive" "$archive_root" \
+                    "$relative_path" "crates/$package/$relative_path"
+            done
+            ;;
+    esac
 
     normalized_manifest=$(tar -xOf "$archive" "$archive_root/Cargo.toml")
     # Normalized manifests may retain target paths under [lib], [[test]],
@@ -409,6 +501,107 @@ published_package_status() {
         --output /dev/null \
         --write-out '%{http_code}' \
         "https://crates.io/api/v1/crates/$package/$version"
+}
+
+verify_prepublished_engine_package() {
+    package=$1
+    version=$2
+    if ! is_prepublished_engine_package "$package" "$version"
+    then
+        echo "error: $package $version is not a recorded prepublished engine package" >&2
+        exit 1
+    fi
+
+    expected_filename="$package-$version.crate"
+    expected_checksum=$(awk \
+        -v filename="$expected_filename" \
+        '$2 == filename { print $1 }' \
+        "$prepublished_engine_checksum_manifest")
+    if [ -z "$expected_checksum" ]
+    then
+        echo "error: $prepublished_engine_checksum_manifest has no checksum for $expected_filename" >&2
+        exit 1
+    fi
+
+    ensure_release_tmp
+    status=$(published_package_status "$package" "$version")
+    if [ "$status" != "200" ]
+    then
+        echo "error: recorded prepublished $package $version is unavailable (HTTP $status)" >&2
+        exit 1
+    fi
+
+    metadata="$release_tmp/$package-$version.json"
+    curl \
+        --fail \
+        --silent \
+        --show-error \
+        --user-agent "hns-dane-engine-release/$version (https://github.com/handshake-rs/hns-dane-engine)" \
+        --output "$metadata" \
+        "https://crates.io/api/v1/crates/$package/$version"
+    api_checksum=$(python3 -c \
+        'import json, sys; print(json.load(sys.stdin)["version"]["checksum"])' \
+        <"$metadata")
+    api_yanked=$(python3 -c \
+        'import json, sys; print(str(json.load(sys.stdin)["version"]["yanked"]).lower())' \
+        <"$metadata")
+    if [ "$api_checksum" != "$expected_checksum" ]
+    then
+        echo "error: crates.io API checksum for prepublished $package $version differs from $prepublished_engine_checksum_manifest" >&2
+        exit 1
+    fi
+    if [ "$api_yanked" != "false" ]
+    then
+        echo "error: recorded prepublished $package $version is yanked" >&2
+        exit 1
+    fi
+
+    archive="$release_tmp/$expected_filename"
+    curl \
+        --fail \
+        --location \
+        --silent \
+        --show-error \
+        --user-agent "hns-dane-engine-release/$version (https://github.com/handshake-rs/hns-dane-engine)" \
+        --output "$archive" \
+        "https://crates.io/api/v1/crates/$package/$version/download"
+    archive_checksum=$(sha256sum "$archive" | awk '{print $1}')
+    if [ "$archive_checksum" != "$expected_checksum" ]
+    then
+        echo "error: downloaded prepublished $package $version differs from $prepublished_engine_checksum_manifest" >&2
+        exit 1
+    fi
+
+    vcs_info=$(tar -xOf "$archive" "$package-$version/.cargo_vcs_info.json")
+    compact_vcs_info=$(printf '%s' "$vcs_info" | tr -d '[:space:]')
+    case "$compact_vcs_info" in
+        *\"sha1\":\"$prepublished_engine_revision\"*) ;;
+        *)
+            echo "error: prepublished $package $version does not identify source $prepublished_engine_revision" >&2
+            exit 1
+            ;;
+    esac
+    case "$compact_vcs_info" in
+        *\"dirty\":true*)
+            echo "error: prepublished $package $version records a dirty source tree" >&2
+            exit 1
+            ;;
+    esac
+    prepublished_path=$(printf '%s' "$vcs_info" |
+        python3 -c 'import json, sys; print(json.load(sys.stdin).get("path_in_vcs", ""))')
+    if [ "$prepublished_path" != "crates/$package" ]
+    then
+        echo "error: prepublished $package $version identifies path $prepublished_path, expected crates/$package" >&2
+        exit 1
+    fi
+}
+
+verify_prepublished_engine_packages() {
+    for package in $prepublished_engine_crates
+    do
+        verify_prepublished_engine_package "$package" "$prepublished_engine_version"
+    done
+    echo "verified all recorded prepublished engine $prepublished_engine_version archives and checksums at source $prepublished_engine_revision"
 }
 
 verify_published_package() {
@@ -600,11 +793,23 @@ case "$mode" in
         if [ -n "$requested_package" ]
         then
             require_public_crate "$requested_package"
-            package_with_local_dependencies "$requested_package"
-            verify_source_package "$requested_package"
+            version=$(package_version "$requested_package")
+            if is_prepublished_engine_package "$requested_package" "$version"
+            then
+                verify_prepublished_engine_package "$requested_package" "$version"
+            else
+                package_with_local_dependencies "$requested_package"
+                verify_source_package "$requested_package"
+            fi
         else
+            verify_prepublished_engine_packages
             for package in $public_crates
             do
+                version=$(package_version "$package")
+                if is_prepublished_engine_package "$package" "$version"
+                then
+                    continue
+                fi
                 package_with_local_dependencies "$package"
                 verify_source_package "$package"
             done
@@ -620,11 +825,23 @@ case "$mode" in
         if [ -n "$requested_package" ]
         then
             require_public_crate "$requested_package"
-            package_with_local_dependencies "$requested_package"
-            verify_source_package "$requested_package"
+            version=$(package_version "$requested_package")
+            if is_prepublished_engine_package "$requested_package" "$version"
+            then
+                verify_prepublished_engine_package "$requested_package" "$version"
+            else
+                package_with_local_dependencies "$requested_package"
+                verify_source_package "$requested_package"
+            fi
         else
+            verify_prepublished_engine_packages
             for package in $public_crates
             do
+                version=$(package_version "$package")
+                if is_prepublished_engine_package "$package" "$version"
+                then
+                    continue
+                fi
                 package_with_local_dependencies "$package"
                 verify_source_package "$package"
             done
@@ -656,6 +873,7 @@ case "$mode" in
             --expected-version "$confirmed_version"
         require_clean_archive_vcs=yes
         verify_protocol_packages_published
+        verify_prepublished_engine_packages
         verify_release_source_unchanged
 
         cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
@@ -669,6 +887,11 @@ case "$mode" in
         for package in $public_crates
         do
             version=$(package_version "$package")
+            if is_prepublished_engine_package "$package" "$version"
+            then
+                echo "skipping $package $version: immutable prepublished archive already verified"
+                continue
+            fi
             verify_release_source_unchanged
             status=$(published_package_status "$package" "$version")
             verify_release_source_unchanged

@@ -29,9 +29,22 @@ do
         echo "error: public package directory is missing: crates/$package" >&2
         exit 1
     fi
-    cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
-    cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
-    cp -- release/CRATE-CHANGELOG.md "crates/$package/CHANGELOG.md"
+    case "$package" in
+        hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
+        hns-browser-gateway|hns-browser-loopback-proxy|hns-browser-p2p|\
+        hns-browser-primitives|hns-browser-resolver|hns-browser-sync|\
+        hns-browser-transport|hns-browser-urkel)
+            cp -- LICENSE-POLYFORM-NONCOMMERCIAL \
+                "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"
+            cp -- release/ADAPTER-CRATE-CHANGELOG.md \
+                "crates/$package/CHANGELOG.md"
+            ;;
+        *)
+            cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
+            cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
+            cp -- release/CRATE-CHANGELOG.md "crates/$package/CHANGELOG.md"
+            ;;
+    esac
 done
 
 mkdir -p \

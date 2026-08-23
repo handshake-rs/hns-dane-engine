@@ -97,7 +97,7 @@ and can mint a browser-bridge authorization while that stamp remains admitted in
 security epoch, its chain anchor is still valid, and its exact normalized origin remains bound.
 Unrelated completions do not overwrite that authority; the retained `last_provenance` is diagnostic
 only. The older caller-prerequisite completion path cannot mint this capability.
-The private `hns-browser-transport`, `hns-browser-gateway`, and
+The published, PolyForm-licensed `hns-browser-transport`, `hns-browser-gateway`, and
 `hns-browser-loopback-proxy` packages keep the production browser I/O adapters
 in this repository rather than allowing mobile and Chromium source forks to
 drift. Each requires an explicit platform feature. The mobile contract retains
@@ -318,7 +318,7 @@ diagnostic slot is not completion or provider authority.
 results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
 height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched
 entries before returning them; metrics contain only counts and byte totals.
-`hns-browser-chain` is the unpublished durable adapter used while browser products migrate their
+`hns-browser-chain` is the published durable adapter used while browser products migrate their
 SQLite header state into `hns-light-chain`. It validates proof of work, difficulty transitions,
 checkpoints, chainwork selection, reorg publication, and restart snapshots before exposing a
 canonical tip; persisted or peer-claimed heights alone never authorize name state.
@@ -326,11 +326,11 @@ canonical tip; persisted or peer-claimed heights alone never authorize name stat
 while callers migrate to the engine 0.2 validators. They fail closed on malformed or unauthenticated
 DNSSEC material, require locally matched TLSA for HNS HTTPS, and intentionally expose no HNS-to-
 WebPKI compatibility mode.
-`hns-browser-p2p` is the unpublished socket/session adapter used while products migrate to
+`hns-browser-p2p` is the published socket/session adapter used while products migrate to
 `hns-light-p2p` and `hns-p2p-transport`. It bounds framing, handshakes, requests, advisory traffic,
 relay retries, discovery persistence, and peer penalties. Peer service flags and claimed heights
 remain untrusted inputs until the local chain and proof verifiers accept their results.
-`hns-browser-sync` is the unpublished orchestration adapter shared by the mobile and Chromium
+`hns-browser-sync` is the published orchestration adapter shared by the mobile and Chromium
 products while their callers migrate to `hns-light-sync`. It races a bounded peer set under finite
 deadlines, validates downloaded headers through the local chain, and stores name values only after
 exact-root Urkel verification. Resource persistence is supplied through a narrow sink so sync does
@@ -422,14 +422,15 @@ Consequently, the dependency direction is independently cloneable
 `hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports
 MeshMine nor requires an adjacent source tree.
 
-The shared private adapter layer now contains, and mobile/Chromium shells consume, source for
+The shared published adapter cohort now contains, and mobile/Chromium shells consume, source for
 request-surface wiring, validating ICANN DoH, origin TLS transport, native loopback listener and
-HTTP/TLS handling, local CA and exact-host leaf management, and browser platform bridges. This is
-source composition only: the exact dated source at `2b23bd5` passed the
-complete locked engine gate, CodeQL, and the separate 19-crate release
-preflight, superseding the intermediate `97cbeb2` source evidence. It has no
-installed-product or live-network qualification evidence, and exact-commit
-source qualification is not inherited by a successor commit.
+HTTP/TLS handling, local CA and exact-host leaf management, and browser platform bridges. These
+eleven packages retain their PolyForm Noncommercial license and are published at their existing
+`0.2.2` version so consumers resolve one crates.io source identity. This remains source
+composition only: historical exact dated source at `2b23bd5` passed the complete locked engine
+gate, CodeQL, and the separate 19-crate release preflight, superseding the intermediate `97cbeb2`
+source evidence. The successor adapter-publication commit requires its own exact-commit gates and
+neither source qualification establishes installed-product or live-network behavior.
 Still absent are platform implementations of the canonical HRM/HNSA broker's
 lease, authenticated snapshot/initialized-marker/external-floor, trusted-time,
 current-chain retrieval, and durable CAS contracts; their Android, Apple, and
