@@ -131,8 +131,8 @@ def release_order(repo: Path) -> list[str]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    if len(packages) != 19:
-        fail(f"{path.relative_to(repo)} must contain exactly 19 packages")
+    if len(packages) != 20:
+        fail(f"{path.relative_to(repo)} must contain exactly 20 packages")
     if len(packages) != len(set(packages)):
         fail(f"{path.relative_to(repo)} contains a duplicate package")
     for package in packages:

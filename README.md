@@ -248,7 +248,7 @@ compatibility inputs, exact coverage, and remaining work.
 
 ## Qualification status
 
-The current 0.2.1 dependency source consumes the published, non-yanked
+The current 0.2.2 dependency source consumes the published, non-yanked
 `hns-rs` 0.3.0 cohort from exact release-source commit
 `d0cde9ded6f8f93f96f16daafc094849c6d484bf`. That upstream source passed CI
 run `31863271873`, CodeQL run `31863271863`, and the 19-package release
