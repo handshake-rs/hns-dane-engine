@@ -1,23 +1,23 @@
 # Foundation qualification
 
-## Current 0.2.1 protocol-source migration
+## Current 0.2.2 protocol-source pin
 
 The current source consumes thirteen direct `hns-rs` packages at exact
-crates.io version `=0.3.0`; the lockfile contains the reviewed sixteen-package
+crates.io version `=0.3.1`; the lockfile contains the reviewed sixteen-package
 dependency closure. The archive-checksum authority
-[`../release/hns-rs-0.3.0-crates.sha256`](../release/hns-rs-0.3.0-crates.sha256)
-covers all nineteen published, non-yanked 0.3.0 packages. Exact archive
+[`../release/hns-rs-0.3.1-crates.sha256`](../release/hns-rs-0.3.1-crates.sha256)
+covers all nineteen published, non-yanked 0.3.1 packages. Exact archive
 readback established clean per-package VCS provenance and source paths at
-`d0cde9ded6f8f93f96f16daafc094849c6d484bf`.
+`0e99addca59778b7b7c6fc56291333a97c4c8815`.
 
 That upstream source passed CI run
-[`31863271873`](https://github.com/handshake-rs/hns-rs/actions/runs/31863271873),
+[`32637180489`](https://github.com/handshake-rs/hns-rs/actions/runs/32637180489),
 CodeQL run
-[`31863271863`](https://github.com/handshake-rs/hns-rs/actions/runs/31863271863),
+[`32637186016`](https://github.com/handshake-rs/hns-rs/actions/runs/32637186016),
 and the credential-free release preflight in
-[`31863520941`](https://github.com/handshake-rs/hns-rs/actions/runs/31863520941).
+[`32637182502`](https://github.com/handshake-rs/hns-rs/actions/runs/32637182502).
 All nineteen packages were subsequently read back from crates.io and the
-`v0.3.0` source tag exists. This is upstream dependency evidence, not
+`v0.3.1` source tag exists. This is upstream dependency evidence, not
 qualification of the successor engine source. Those facade dependencies now
 back the synchronous `HrmHnsaAuthorityBroker` and its dual-fenced
 `HrmHnsaHnsrRequesterBroker` composition; the legacy `hnsa_route` v2 runtime
@@ -265,8 +265,8 @@ Recorded foundation coverage and dated source status:
 
 - independently cloneable Cargo resolution with thirteen reviewed direct
   `hns-rs` packages and the exact sixteen-package locked crates.io closure at
-  `=0.3.0`; checksum and clean source/path readback for all nineteen public
-  packages at `d0cde9ded6f8f93f96f16daafc094849c6d484bf`; and rejection of Git
+  `=0.3.1`; checksum and clean source/path readback for all nineteen public
+  packages at `0e99addca59778b7b7c6fc56291333a97c4c8815`; and rejection of Git
   sources, non-exact versions, aliases, unreviewed consumers/packages, lock or
   checksum drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;

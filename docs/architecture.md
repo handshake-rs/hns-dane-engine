@@ -413,10 +413,10 @@ state machines under their native runtime.
 
 The `hns-rs` edge is canonical and immutable rather than a workspace-layout
 assumption. Thirteen direct packages inherit exact crates.io requirement
-`=0.3.0` from the root manifest; Cargo resolves their three additional
+`=0.3.1` from the root manifest; Cargo resolves their three additional
 transitive packages from the same registry release. The lockfile and checked-in
 archive-hash manifest bind those packages to the clean `hns-rs` release source
-`d0cde9ded6f8f93f96f16daafc094849c6d484bf`. All other path dependencies must
+`0e99addca59778b7b7c6fc56291333a97c4c8815`. All other path dependencies must
 remain inside this repository, and Cargo Git dependencies are forbidden.
 Consequently, the dependency direction is independently cloneable
 `hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports
