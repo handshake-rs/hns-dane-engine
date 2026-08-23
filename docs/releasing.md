@@ -28,18 +28,30 @@ The release script processes only these packages, in dependency order:
 18. `hns-dane-engine`
 19. `hns-dane-engine-ffi`
 20. `hns-loopback-proxy`
+21. `hns-browser-primitives`
+22. `hns-browser-urkel`
+23. `hns-browser-dnssec`
+24. `hns-browser-dane`
+25. `hns-browser-chain`
+26. `hns-browser-p2p`
+27. `hns-browser-resolver`
+28. `hns-browser-transport`
+29. `hns-browser-gateway`
+30. `hns-browser-loopback-proxy`
+31. `hns-browser-sync`
 
 [`release/public-crates.txt`](../release/public-crates.txt) is the
 machine-readable authority for this list. The release validator rejects any
 divergence among that file, this document, the workspace publish settings, or
 the internal dependency order. It also rejects any workspace package or lock
 entry that resolves another workspace package through a registry identity
-instead of the canonical repository path. The twelve browser adapter and
-fixture crates outside the list must remain private.
+instead of the canonical repository path. The browser adapters in this list
+are published under their existing PolyForm Noncommercial license; the
+`hns-browser-testkit` fixture crate remains private.
 
 Every dependency between public packages carries both a repository path and
-the shared crates.io version. Private repository-only adapter and test
-dependencies remain path-only. Cargo removes repository-local source selectors
+the shared crates.io version. The private repository-only test dependency
+remains path-only. Cargo removes repository-local source selectors
 when it normalizes a source package. Every public package carries a README,
 exact workspace license copies, and a package changelog linked to the immutable
 shared release notes. Tests that embed the canonical DNS or DANE corpus use
@@ -56,7 +68,7 @@ release contract therefore qualifies the normalized engine library, examples,
 and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
-Routine qualification creates all 20 normalized archives with `cargo package
+Routine qualification creates all 31 normalized archives with `cargo package
 --no-verify` and applies the custom archive inventory checks. The separate
 manual release preflight performs Cargo's real normalized `cargo publish
 --dry-run` for every package, keeping that repeated compilation out of the

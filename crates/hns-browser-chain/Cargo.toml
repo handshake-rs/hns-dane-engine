@@ -4,9 +4,13 @@ description = "Durable validated Handshake header-chain adapter for browser runt
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license-file = "../../LICENSE-POLYFORM-NONCOMMERCIAL"
+license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"
 repository.workspace = true
-publish = false
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-browser-chain"
 
 [dependencies]
 hns-core.workspace = true

@@ -5,6 +5,13 @@ file. The public crates use a shared version and follow Semantic Versioning.
 
 ## 0.2.2 - 2026-08-23
 
+- Added the eleven browser adapter names to the `0.2.2` crates.io cohort at
+  their existing shared version so mobile and Chromium consumers can resolve
+  one registry source graph. Their established PolyForm Noncommercial license
+  is preserved; only `hns-browser-testkit` remains private. The dependency
+  ordered release gate now packages, dry-runs, checksum-verifies, and resumes
+  this 31-package cohort. This publication-only change does not claim an
+  installed product, provider, value, or marketplace qualification.
 - Added the public `hns-light-wallet` evidence crate to the machine-checked
   release inventory and its dependency-ordered publish path. The release
   cohort now publishes every public workspace package, including the filtered

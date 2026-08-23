@@ -128,12 +128,13 @@ availability, wallet/value operations, or a marketplace.
 The `scripts/check.sh` gate runs the default Chromium workspace gate and
 then separately checks the host-target `mobile` feature configurations of
 `hns-browser-gateway`, `hns-browser-loopback-proxy`, and
-`hns-browser-transport`. Those three crates are private adapter packages, not
+`hns-browser-transport`. Those three crates are published PolyForm-licensed
+adapter packages, not
 the public `hns-dane-engine` facade. The facade's direct dependency graph
 includes public `hns-dane` and, through `hns-resolver`, public `hns-dnssec`;
 both link OpenSSL. A complete Android or Apple facade integration therefore
 must provide or cross-build OpenSSL for its target and run a separate
-cross-target qualification. The private adapters deliberately require exactly
+cross-target qualification. The adapters deliberately require exactly
 one platform feature, so a workspace-wide `--all-features` invocation is
 invalid rather than stronger coverage. The gate finishes with the release
 validator, execute-argument guards, and an archive-only inspection of all 19
@@ -467,7 +468,7 @@ Recorded foundation coverage and dated source status:
 Qualified as deterministic dated source at `2b23bd5`, but not as installed
 products:
 
-- private mobile/Chromium adapter packages provide request-surface wiring,
+- published PolyForm-licensed mobile/Chromium adapter packages provide request-surface wiring,
   validating ICANN DoH, origin TLS transport, native loopback listener and
   HTTP/TLS handling, local CA and exact-host leaf management, and browser
   platform bridges;
@@ -476,7 +477,7 @@ products:
   availability. The exact source qualification and 19-crate preflight do not
   establish installed-product behavior;
 - the current mobile shell should pin and consume only the exact mobile-safe
-  private adapter contracts it integrates. The host-target `mobile` feature
+  registry adapter contracts it integrates. The host-target `mobile` feature
   checks do not qualify turnkey linkage of the public facade on Android or
   Apple.
 
@@ -529,7 +530,7 @@ context, inspect its immutable bindings, copy its bounded host, check engine
 currentness, and destroy it, but cannot mint authority from C. Its two focused
 Rust ABI regressions passed in the August 3 continuation. The exact dated
 `2b23bd5` gate passed full workspace tests, doctests, strict all-target Clippy,
-optimized workspace builds, the three private adapters' host-target `mobile`
+optimized workspace builds, the three then-private adapters' host-target `mobile`
 feature configurations, the C-header comparison and smoke compile, and the
 archive-only package inspections in the routine gate. It did not cross-build
 the OpenSSL-linked public facade for Android or Apple. The separate 19-crate

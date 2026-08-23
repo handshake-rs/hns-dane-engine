@@ -4,9 +4,13 @@ description = "Validated Handshake primitives used by browser platform adapters"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license-file = "../../LICENSE-POLYFORM-NONCOMMERCIAL"
+license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"
 repository.workspace = true
-publish = false
+publish.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/hns-browser-primitives"
 
 [dependencies]
 blake2 = "0.10.6"

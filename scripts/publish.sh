@@ -190,6 +190,54 @@ package_with_local_dependencies() {
                 --config 'patch.crates-io.hns-resolver.path="crates/hns-resolver"' \
                 --config 'patch.crates-io.hns-transport.path="crates/hns-transport"'
             ;;
+        hns-browser-primitives)
+            run_package_operation "$package"
+            ;;
+        hns-browser-urkel|hns-browser-dnssec|hns-browser-chain)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"'
+            ;;
+        hns-browser-dane)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dnssec.path="crates/hns-browser-dnssec"' \
+                --config 'patch.crates-io.hns-browser-urkel.path="crates/hns-browser-urkel"'
+            ;;
+        hns-browser-p2p)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-urkel.path="crates/hns-browser-urkel"'
+            ;;
+        hns-browser-resolver)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"' \
+                --config 'patch.crates-io.hns-browser-dnssec.path="crates/hns-browser-dnssec"'
+            ;;
+        hns-browser-transport)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"'
+            ;;
+        hns-browser-gateway)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"' \
+                --config 'patch.crates-io.hns-browser-resolver.path="crates/hns-browser-resolver"' \
+                --config 'patch.crates-io.hns-browser-transport.path="crates/hns-browser-transport"'
+            ;;
+        hns-browser-loopback-proxy)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-dane.path="crates/hns-browser-dane"' \
+                --config 'patch.crates-io.hns-browser-resolver.path="crates/hns-browser-resolver"'
+            ;;
+        hns-browser-sync)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-browser-chain.path="crates/hns-browser-chain"' \
+                --config 'patch.crates-io.hns-browser-primitives.path="crates/hns-browser-primitives"' \
+                --config 'patch.crates-io.hns-browser-p2p.path="crates/hns-browser-p2p"' \
+                --config 'patch.crates-io.hns-browser-urkel.path="crates/hns-browser-urkel"'
+            ;;
         *)
             echo "error: missing package dependency mapping for $package" >&2
             exit 1
@@ -260,11 +308,28 @@ verify_common_source_package() {
     do
         verify_archive_entry "$package" "$archive" "$archive_root" "$relative_path"
     done
-    for relative_path in CHANGELOG.md LICENSE-APACHE LICENSE-MIT README.md
+    for relative_path in CHANGELOG.md README.md
     do
         verify_archive_copy "$package" "$archive" "$archive_root" \
             "$relative_path" "crates/$package/$relative_path"
     done
+    case "$package" in
+        hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
+        hns-browser-gateway|hns-browser-loopback-proxy|hns-browser-p2p|\
+        hns-browser-primitives|hns-browser-resolver|hns-browser-sync|\
+        hns-browser-transport|hns-browser-urkel)
+            verify_archive_copy "$package" "$archive" "$archive_root" \
+                LICENSE-POLYFORM-NONCOMMERCIAL \
+                "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"
+            ;;
+        *)
+            for relative_path in LICENSE-APACHE LICENSE-MIT
+            do
+                verify_archive_copy "$package" "$archive" "$archive_root" \
+                    "$relative_path" "crates/$package/$relative_path"
+            done
+            ;;
+    esac
 
     normalized_manifest=$(tar -xOf "$archive" "$archive_root/Cargo.toml")
     # Normalized manifests may retain target paths under [lib], [[test]],

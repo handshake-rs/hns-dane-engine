@@ -19,3 +19,14 @@ hns-p2p-transport
 hns-dane-engine
 hns-dane-engine-ffi
 hns-loopback-proxy
+hns-browser-primitives
+hns-browser-urkel
+hns-browser-dnssec
+hns-browser-dane
+hns-browser-chain
+hns-browser-p2p
+hns-browser-resolver
+hns-browser-transport
+hns-browser-gateway
+hns-browser-loopback-proxy
+hns-browser-sync

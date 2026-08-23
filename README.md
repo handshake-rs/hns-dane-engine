@@ -116,13 +116,15 @@ graph includes public `hns-dane` and, through `hns-resolver`, public
 `hns-dnssec`; both cryptographic implementations link OpenSSL. An Android or
 Apple host that links the full facade must provide or cross-build OpenSSL for
 the exact target and qualify that complete target linkage. The repository's
-current `mobile` CI configurations exercise only the private
+current `mobile` CI configurations exercise only the published,
+PolyForm-licensed
 `hns-browser-gateway`, `hns-browser-loopback-proxy`, and
 `hns-browser-transport` adapter crates on the Ubuntu host target; they are not
 Android/Apple cross-build evidence for the facade. Until that qualification
-exists, a mobile shell should pin and consume the exact mobile-safe private
+exists, a mobile shell should pin and consume the exact mobile-safe registry
 adapter contracts it integrates rather than treat `hns-dane-engine` as a
-turnkey mobile library.
+turnkey mobile library. Publishing those contracts preserves their existing
+license and source identity; it does not establish installed-product behavior.
 
 The policy transport order is direct delegated-authoritative UDP, direct
 delegated-authoritative TCP, optional authenticated authoritative DoH,
@@ -209,7 +211,8 @@ callers cannot substitute a separate completion context. See `docs/p2p-dns-trans
 `hns-loopback-proxy` is deliberately the shared admission/publication boundary, not a DNS, socket,
 or TLS server. Its in-memory bounded registry consumes a `ProviderAuthorityContext`, atomically
 publishes/replaces/revokes the exact origin under an expected generation, and loses every
-publication on process or listener replacement. The private browser adapter packages now provide
+publication on process or listener replacement. The published, PolyForm-licensed browser adapter
+packages now provide
 shared mobile/Chromium request wiring and building blocks for validating ICANN DoH, origin
 transport, a native loopback listener with HTTP/TLS handling, and per-install local CA and
 exact-host leaf management. Platform hosts still own execution, secure persistence, and lifecycle,
