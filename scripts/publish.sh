@@ -111,6 +111,10 @@ package_with_local_dependencies() {
         hns-light-chain)
             run_package_operation "$package"
             ;;
+        hns-light-wallet)
+            run_package_operation "$package" \
+                --config 'patch.crates-io.hns-light-chain.path="crates/hns-light-chain"'
+            ;;
         hns-light-p2p)
             run_package_operation "$package"
             ;;

@@ -3,8 +3,13 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
-## 0.2.1 - Unreleased
+## 0.2.2 - 2026-08-23
 
+- Added the public `hns-light-wallet` evidence crate to the machine-checked
+  release inventory and its dependency-ordered publish path. The release
+  cohort now publishes every public workspace package, including the filtered
+  block evidence dependency consumed by `hns-wallet-rs`; it no longer permits
+  an apparently complete light-client release that omits that crate.
 - Migrated the complete engine protocol cohort from the dated `hns-rs` 0.2
   Git source to exact crates.io `=0.3.0` packages: thirteen direct workspace
   declarations and their sixteen-package locked closure now use registry
@@ -45,7 +50,7 @@ file. The public crates use a shared version and follow Semantic Versioning.
   fail-closed registry classification. Resume verification now rebuilds through
   Cargo's registry-backed publish dry-run so dependency `Cargo.lock`
   source/checksum fields reproduce the uploaded archive byte-for-byte. This is
-  release tooling only and does not publish or qualify the 0.2.1 engine source.
+  release tooling only and does not publish or qualify the 0.2.2 engine source.
 - Raised the default per-host loopback-proxy request budget from 80 to the
   unchanged global budget of 240 requests per 10 seconds for both mobile and
   Chromium, allowing same-origin code-split asset bursts without increasing

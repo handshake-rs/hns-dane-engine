@@ -837,10 +837,7 @@ mod tests {
             .unwrap();
         original.finish_round(now).unwrap();
 
-        let snapshot = original
-            .chain()
-            .encode_authenticated_snapshot()
-            .unwrap();
+        let snapshot = original.chain().encode_authenticated_snapshot().unwrap();
         let restored_chain = LightChain::decode_authenticated_snapshot(
             &snapshot,
             Network::Regtest,

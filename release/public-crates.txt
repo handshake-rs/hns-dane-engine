@@ -5,6 +5,7 @@ hns-icann-dane
 hns-namespace-resolution
 hns-resolution-policy
 hns-light-chain
+hns-light-wallet
 hns-dane
 hns-dnssec
 hns-gateway

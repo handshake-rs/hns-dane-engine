@@ -14,19 +14,20 @@ The release script processes only these packages, in dependency order:
 4. `hns-namespace-resolution`
 5. `hns-resolution-policy`
 6. `hns-light-chain`
-7. `hns-dane`
-8. `hns-dnssec`
-9. `hns-gateway`
-10. `hns-cache`
-11. `hns-light-p2p`
-12. `hns-light-sync`
-13. `hns-transport`
-14. `hns-resolver`
-15. `hns-browser-observability`
-16. `hns-p2p-transport`
-17. `hns-dane-engine`
-18. `hns-dane-engine-ffi`
-19. `hns-loopback-proxy`
+7. `hns-light-wallet`
+8. `hns-dane`
+9. `hns-dnssec`
+10. `hns-gateway`
+11. `hns-cache`
+12. `hns-light-p2p`
+13. `hns-light-sync`
+14. `hns-transport`
+15. `hns-resolver`
+16. `hns-browser-observability`
+17. `hns-p2p-transport`
+18. `hns-dane-engine`
+19. `hns-dane-engine-ffi`
+20. `hns-loopback-proxy`
 
 [`release/public-crates.txt`](../release/public-crates.txt) is the
 machine-readable authority for this list. The release validator rejects any
@@ -55,7 +56,7 @@ release contract therefore qualifies the normalized engine library, examples,
 and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
-Routine qualification creates all 19 normalized archives with `cargo package
+Routine qualification creates all 20 normalized archives with `cargo package
 --no-verify` and applies the custom archive inventory checks. The separate
 manual release preflight performs Cargo's real normalized `cargo publish
 --dry-run` for every package, keeping that repeated compilation out of the
@@ -189,7 +190,7 @@ Those runs are retained historical evidence and did not replace the manual
    confirmation must equal the workspace version:
 
    ```bash
-   ./scripts/publish.sh --execute --confirm-publish 0.2.1
+   ./scripts/publish.sh --execute --confirm-publish 0.2.2
    ```
 
 Execute mode validates the clean, dated source and all upstream protocol
@@ -212,7 +213,7 @@ interval only when crates.io communicates a different non-negative limit:
 ```bash
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish 0.2.1
+  ./scripts/publish.sh --execute --confirm-publish 0.2.2
 ```
 
 After each applicable cooldown, the script downloads the new archive and

@@ -111,6 +111,14 @@ EXPECTED_CONSUMERS = {
             ("dependencies", "hns-primitives"),
         }
     ),
+    Path("crates/hns-light-wallet/Cargo.toml"): frozenset(
+        {
+            ("dependencies", "hns-encoding"),
+            ("dependencies", "hns-header-consensus"),
+            ("dependencies", "hns-p2p-wire"),
+            ("dependencies", "hns-primitives"),
+        }
+    ),
     Path("crates/hns-p2p-transport/Cargo.toml"): frozenset(
         {
             ("dependencies", "hns-dns-relay-protocol"),
