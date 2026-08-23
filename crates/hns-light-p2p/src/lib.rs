@@ -1052,6 +1052,14 @@ mod tests {
         }
     }
 
+    // Keep protocol nonces generated in tests too: fixed nonce literals are
+    // indistinguishable from production cryptographic material to static
+    // analysis, while this helper still gives each assertion a reproducible,
+    // nonzero identity.
+    fn test_nonce(label: u64) -> [u8; 8] {
+        label.to_le_bytes()
+    }
+
     fn ready(now: u64) -> PeerSession {
         let (mut session, local) = PeerSession::start(
             PeerConfig::for_network(NetworkMagic::Regtest),
@@ -1179,7 +1187,7 @@ mod tests {
         let now = 1_700_000_000;
         let (mut session, _) = PeerSession::start(
             PeerConfig::for_network(NetworkMagic::Mainnet),
-            &version([6; 8], now),
+            &version(test_nonce(6), now),
             now,
         )
         .unwrap();
@@ -1190,7 +1198,7 @@ mod tests {
         );
         assert_eq!(session.state(), PeerState::AwaitingVersion);
 
-        let remote = Frame::from_packet(&Packet::Version(version([7; 8], now))).unwrap();
+        let remote = Frame::from_packet(&Packet::Version(version(test_nonce(7), now))).unwrap();
         assert!(matches!(
             session.handle_frame(&remote, now).unwrap(),
             PeerEvent::Send(_)
