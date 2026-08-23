@@ -4,6 +4,14 @@ The public `hns-dane-engine` crates use one shared version and are published to
 crates.io as a dependency-ordered cohort. Crates.io uploads are permanent: a
 published version cannot be overwritten or deleted.
 
+The initial twenty `0.2.2` packages were published from immutable source tag
+`v0.2.2` at `b7fdf8826c81b77650a0f740d1f05314b74969f9`. The eleven browser
+adapter names are new crates on that same version line, with their own
+immutable source tag `browser-adapters-v0.2.2`. A release runner must not
+recreate an already published package from the successor adapter commit: it
+verifies the initial artifacts directly by checksum and provenance, then
+packages and publishes only the new names.
+
 ## Public package allowlist
 
 The release script processes only these packages, in dependency order:
@@ -49,6 +57,14 @@ instead of the canonical repository path. The browser adapters in this list
 are published under their existing PolyForm Noncommercial license; the
 `hns-browser-testkit` fixture crate remains private.
 
+[`release/prepublished-0.2.2-crates.txt`](../release/prepublished-0.2.2-crates.txt)
+records the initial twenty packages in dependency order. Their crates.io
+checksums are pinned in
+[`release/hns-dane-engine-0.2.2-crates.sha256`](../release/hns-dane-engine-0.2.2-crates.sha256).
+Execute mode requires each archive to remain non-yanked, match both the API
+and downloaded checksums, and carry clean `b7fdf8826c81b77650a0f740d1f05314b74969f9`
+provenance at `crates/<name>` before it can upload an adapter.
+
 Every dependency between public packages carries both a repository path and
 the shared crates.io version. The private repository-only test dependency
 remains path-only. Cargo removes repository-local source selectors
@@ -68,10 +84,12 @@ release contract therefore qualifies the normalized engine library, examples,
 and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
-Routine qualification creates all 31 normalized archives with `cargo package
---no-verify` and applies the custom archive inventory checks. The separate
-manual release preflight performs Cargo's real normalized `cargo publish
---dry-run` for every package, keeping that repeated compilation out of the
+Routine qualification verifies the twenty immutable registry archives and
+creates all eleven new normalized adapter archives with `cargo package
+--no-verify`, applying the custom archive inventory checks to each relevant
+artifact. The separate manual release preflight performs Cargo's real
+normalized `cargo publish --dry-run` for every adapter while revalidating the
+recorded initial artifacts, keeping that repeated compilation out of the
 routine gate.
 
 ## Upstream protocol gate
@@ -154,8 +172,9 @@ Those runs are retained historical evidence and did not replace the manual
    ./scripts/check.sh
    ```
 
-   Routine qualification runs one archive-only packaging pass after the normal
-   workspace checks; it does not repeat 19 normalized package builds. Confirm
+   Routine qualification reads back the twenty immutable baseline archives and
+   performs one archive-only packaging pass for the eleven new adapter crates
+   after the normal workspace checks. Confirm
    that CI and every configured CodeQL language completed successfully for the
    same exact commit before continuing.
 
@@ -184,6 +203,13 @@ Those runs are retained historical evidence and did not replace the manual
    public C header. A single package may be inspected during preparation, but
    partial selection is unavailable in execute mode:
 
+   While browser adapter crate names are not yet available in the registry, the
+   dry-run runner temporarily patches their local dependency graph. Any shared
+   engine type that crosses that boundary is patched to the same local source,
+   so the preflight rejects a split registry/path Rust type identity rather
+   than mistaking it for a package failure. Those temporary Cargo patches are
+   command arguments only; normalized package manifests remain registry-only.
+
    ```bash
    ./scripts/publish.sh --dry-run hns-dane-engine-ffi
    ```
@@ -205,14 +231,18 @@ Those runs are retained historical evidence and did not replace the manual
    ./scripts/publish.sh --execute --confirm-publish 0.2.2
    ```
 
-Execute mode validates the clean, dated source and all upstream protocol
-archives before it can reach the first upload. For every engine package it
-creates and inspects the exact local normalized archive before checking the
-registry. An HTTP 200 is never sufficient to skip: the script downloads the
-published archive, requires byte-for-byte SHA-256 identity with the local
-archive, and requires both archives to identify the current clean release
-commit. This makes a partially completed release safely resumable without
-accepting another artifact under the same package and version.
+Execute mode validates the clean, dated adapter source, all upstream protocol
+archives, and the twenty initial engine archives before it can reach the first
+upload. It reads those prepublished archives directly from crates.io, requiring
+their pinned API/download checksums and clean `v0.2.2` provenance rather than
+incorrectly recreating them from the successor source. For every new adapter,
+the runner creates and inspects the exact local normalized archive before
+checking the registry. An HTTP 200 is never sufficient to skip an adapter:
+the script downloads the published archive, requires byte-for-byte SHA-256
+identity with the local archive, and requires both archives to identify the
+current clean adapter release commit. This makes a partially completed adapter
+release safely resumable without accepting another artifact under the same
+package and version.
 
 Before an upload, the script checks whether the crate name already exists and
 selects crates.io's independent action bucket. A new name uses a 605-second
@@ -236,6 +266,8 @@ uploaded archive exactly. If the registry has not exposed the archive yet, the
 command exits safely; rerun the identical execute command after propagation so
 resume verification can continue without republishing.
 
-After publication, create and push the annotated `vX.Y.Z` tag from the exact
-qualified release commit, then confirm every package page and docs.rs build.
+After publication, create and push the annotated
+`browser-adapters-v0.2.2` tag from the exact qualified adapter release commit,
+then confirm every new package page and docs.rs build. The historical `v0.2.2`
+tag remains the source record for the initial twenty packages.
 Yanking can discourage new resolution but cannot delete or replace an upload.

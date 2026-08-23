@@ -67,6 +67,12 @@ PUBLIC_ADAPTER_PACKAGES = {
     "hns-browser-transport",
     "hns-browser-urkel",
 }
+PREPUBLISHED_ENGINE_VERSION = "0.2.2"
+PREPUBLISHED_ENGINE_REVISION = "b7fdf8826c81b77650a0f740d1f05314b74969f9"
+PREPUBLISHED_ENGINE_MANIFEST = "release/prepublished-0.2.2-crates.txt"
+PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-0.2.2-crates.sha256"
+)
 PRIVATE_PACKAGES = {"hns-browser-testkit"}
 PACKAGE_FIXTURES = {
     "hns-dns-wire": (
@@ -141,6 +147,45 @@ def release_order(repo: Path) -> list[str]:
     return packages
 
 
+def verify_prepublished_engine_inventory(repo: Path, order: list[str]) -> None:
+    manifest = repo / PREPUBLISHED_ENGINE_MANIFEST
+    packages = [
+        line.strip()
+        for line in manifest.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    expected = [package for package in order if package not in PUBLIC_ADAPTER_PACKAGES]
+    if packages != expected:
+        fail(
+            f"{PREPUBLISHED_ENGINE_MANIFEST} must list every non-adapter public "
+            "package in release dependency order"
+        )
+    if len(packages) != 20 or len(packages) != len(set(packages)):
+        fail(f"{PREPUBLISHED_ENGINE_MANIFEST} must contain exactly 20 unique packages")
+
+    checksum_manifest = repo / PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST
+    checksums: dict[str, str] = {}
+    for line in checksum_manifest.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r"([0-9a-f]{64})  (hns-[a-z0-9-]+-0[.]2[.]2[.]crate)", line)
+        if match is None:
+            fail(
+                f"invalid checksum entry in {PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST}: "
+                f"{line!r}"
+            )
+        checksum, filename = match.groups()
+        if filename in checksums:
+            fail(f"duplicate checksum entry for {filename}")
+        checksums[filename] = checksum
+    expected_filenames = {f"{package}-0.2.2.crate" for package in packages}
+    if set(checksums) != expected_filenames:
+        fail(
+            f"{PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST} must contain exactly the "
+            "recorded prepublished package archives"
+        )
+
+
 def verify_release_document(repo: Path, order: list[str], version: str) -> None:
     document = (repo / "docs/releasing.md").read_text(encoding="utf-8")
     documented = re.findall(r"^\d+\. `([^`]+)`$", document, flags=re.MULTILINE)
@@ -189,6 +234,9 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
 
     required_text = (
         "release/public-crates.txt",
+        PREPUBLISHED_ENGINE_MANIFEST,
+        PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST,
+        PREPUBLISHED_ENGINE_REVISION,
         "./scripts/publish.sh --archive-only",
         ".github/workflows/release-preflight.yml",
         "expected_commit",
@@ -432,6 +480,27 @@ def verify_publish_script_safety(repo: Path) -> None:
         )
     if "--allow-dirty" in execute:
         fail("scripts/publish.sh execute path must never allow dirty packaging")
+    required_prepublished_fragments = (
+        f"prepublished_engine_version={PREPUBLISHED_ENGINE_VERSION}",
+        f"prepublished_engine_revision={PREPUBLISHED_ENGINE_REVISION}",
+        f"prepublished_engine_manifest={PREPUBLISHED_ENGINE_MANIFEST}",
+        f"prepublished_engine_checksum_manifest={PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST}",
+        "verify_prepublished_engine_packages",
+        'is_prepublished_engine_package "$package" "$version"',
+        'echo "skipping $package $version: immutable prepublished archive already verified"',
+        'if [ "$api_checksum" != "$expected_checksum" ]',
+        'if [ "$archive_checksum" != "$expected_checksum" ]',
+        '*\\"sha1\\":\\"$prepublished_engine_revision\\"*',
+    )
+    for fragment in required_prepublished_fragments:
+        if fragment not in script:
+            fail(
+                "scripts/publish.sh omits prepublished-engine provenance guard "
+                f"{fragment!r}"
+            )
+    prepublished_position = execute.index("verify_prepublished_engine_packages")
+    if not prepublished_position < upload_position:
+        fail("prepublished engine archive verification must precede every upload")
 
     mapping = script.split("package_with_local_dependencies()", 1)[1].split(
         "package_version()", 1
@@ -461,6 +530,20 @@ def verify_publish_script_safety(repo: Path) -> None:
             "package dependency mappings differ from the public allowlist: "
             f"mapped={sorted(mapped_packages)}, allowlist={sorted(allowlist)}"
         )
+
+    try:
+        gateway_mapping = mapping.split("hns-browser-gateway)", 1)[1].split(
+            ";;", 1
+        )[0]
+    except IndexError:
+        fail("scripts/publish.sh has no hns-browser-gateway package mapping")
+    for package in ("hns-icann-dane", "hns-namespace-resolution"):
+        required_patch = f'patch.crates-io.{package}.path="crates/{package}"'
+        if required_patch not in gateway_mapping:
+            fail(
+                "hns-browser-gateway dry-run must patch the shared "
+                f"{package} identity alongside unpublished browser adapters"
+            )
 
 
 def verify_protocol_source(repo: Path) -> None:
@@ -622,8 +705,11 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
         fail("release/CRATE-CHANGELOG.md does not link the immutable release tag")
     if expected_heading not in adapter_template_text:
         fail("release/ADAPTER-CRATE-CHANGELOG.md does not match the workspace release heading")
-    if stable_changelog_url not in adapter_template_text:
-        fail("release/ADAPTER-CRATE-CHANGELOG.md does not link the immutable release tag")
+    adapter_changelog_url = (
+        f"https://github.com/handshake-rs/hns-dane-engine/blob/browser-adapters-v{version}/CHANGELOG.md"
+    )
+    if adapter_changelog_url not in adapter_template_text:
+        fail("release/ADAPTER-CRATE-CHANGELOG.md does not link the adapter source tag")
 
     positions = {package: index for index, package in enumerate(order)}
     for name in order:
@@ -758,6 +844,7 @@ def main() -> None:
 
     repo = Path(__file__).resolve().parent.parent
     order = release_order(repo)
+    verify_prepublished_engine_inventory(repo, order)
     version, release_label = verify_workspace(
         repo, cargo_metadata(repo, args.toolchain), order
     )

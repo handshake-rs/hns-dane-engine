@@ -12,6 +12,18 @@ file. The public crates use a shared version and follow Semantic Versioning.
   ordered release gate now packages, dry-runs, checksum-verifies, and resumes
   this 31-package cohort. This publication-only change does not claim an
   installed product, provider, value, or marketplace qualification.
+- Made the pre-publication `hns-browser-gateway` dry-run patch the shared
+  `hns-icann-dane` and `hns-namespace-resolution` sources alongside its local
+  browser adapters. This prevents a temporary mixed registry/path graph from
+  masking or manufacturing distinct Rust type identities during the
+  credential-free release preflight; the production archive remains a normal
+  registry-only dependency graph.
+- Separated immutable initial-cohort evidence from the new adapter release
+  source. The runner reads back the twenty existing `0.2.2` archives using
+  their recorded crates.io checksums and clean `v0.2.2` provenance, then
+  packages, dry-runs, uploads, and verifies only the eleven previously
+  unpublished adapter names from `browser-adapters-v0.2.2`. This prevents a
+  successor source commit from falsely claiming to reproduce an older archive.
 - Added the public `hns-light-wallet` evidence crate to the machine-checked
   release inventory and its dependency-ordered publish path. The release
   cohort now publishes every public workspace package, including the filtered

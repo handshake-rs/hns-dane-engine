@@ -1,0 +1,22 @@
+# Public crates already published from source tag v0.2.2 (b7fdf8826c81b77650a0f740d1f05314b74969f9).
+# Keep this list in the same dependency order as release/public-crates.txt.
+hns-dns-wire
+hns-browser-runtime
+hns-icann-dane
+hns-namespace-resolution
+hns-resolution-policy
+hns-light-chain
+hns-light-wallet
+hns-dane
+hns-dnssec
+hns-gateway
+hns-cache
+hns-light-p2p
+hns-light-sync
+hns-transport
+hns-resolver
+hns-browser-observability
+hns-p2p-transport
+hns-dane-engine
+hns-dane-engine-ffi
+hns-loopback-proxy
