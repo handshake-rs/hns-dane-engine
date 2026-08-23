@@ -54,7 +54,7 @@ PROTOCOL_DIRECT_PACKAGES = {
     "hns-service-authority",
     "hns-urkel-proof",
 }
-PRIVATE_PACKAGES = {
+PUBLIC_ADAPTER_PACKAGES = {
     "hns-browser-chain",
     "hns-browser-dane",
     "hns-browser-dnssec",
@@ -64,10 +64,10 @@ PRIVATE_PACKAGES = {
     "hns-browser-primitives",
     "hns-browser-resolver",
     "hns-browser-sync",
-    "hns-browser-testkit",
     "hns-browser-transport",
     "hns-browser-urkel",
 }
+PRIVATE_PACKAGES = {"hns-browser-testkit"}
 PACKAGE_FIXTURES = {
     "hns-dns-wire": (
         "dns/basic-query.hex",
@@ -131,8 +131,8 @@ def release_order(repo: Path) -> list[str]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    if len(packages) != 20:
-        fail(f"{path.relative_to(repo)} must contain exactly 20 packages")
+    if len(packages) != 31:
+        fail(f"{path.relative_to(repo)} must contain exactly 31 packages")
     if len(packages) != len(set(packages)):
         fail(f"{path.relative_to(repo)} contains a duplicate package")
     for package in packages:
@@ -610,7 +610,9 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
     expected_heading = f"## {version} - {release_label}"
 
     template = (repo / "release/CRATE-CHANGELOG.md").read_bytes()
+    adapter_template = (repo / "release/ADAPTER-CRATE-CHANGELOG.md").read_bytes()
     template_text = template.decode("utf-8")
+    adapter_template_text = adapter_template.decode("utf-8")
     if expected_heading not in template_text:
         fail("release/CRATE-CHANGELOG.md does not match the workspace release heading")
     stable_changelog_url = (
@@ -618,6 +620,10 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
     )
     if stable_changelog_url not in template_text:
         fail("release/CRATE-CHANGELOG.md does not link the immutable release tag")
+    if expected_heading not in adapter_template_text:
+        fail("release/ADAPTER-CRATE-CHANGELOG.md does not match the workspace release heading")
+    if stable_changelog_url not in adapter_template_text:
+        fail("release/ADAPTER-CRATE-CHANGELOG.md does not link the immutable release tag")
 
     positions = {package: index for index, package in enumerate(order)}
     for name in order:
@@ -632,7 +638,6 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             fail(f"{name} must publish only to crates-io")
         required_values = {
             "description": package.get("description"),
-            "license": package.get("license"),
             "repository": package.get("repository"),
             "documentation": package.get("documentation"),
             "readme": package.get("readme"),
@@ -641,7 +646,15 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
         missing_values = [field for field, value in required_values.items() if not value]
         if missing_values:
             fail(f"{name} is missing crates.io metadata: {', '.join(missing_values)}")
-        if package["license"] != workspace_package["license"]:
+        if name in PUBLIC_ADAPTER_PACKAGES:
+            expected_license_file = (
+                package_root / "LICENSE-POLYFORM-NONCOMMERCIAL"
+            ).resolve()
+            if package.get("license") is not None or (
+                package_root / package.get("license_file", "")
+            ).resolve() != expected_license_file:
+                fail(f"{name} must retain the PolyForm Noncommercial license file")
+        elif package.get("license") != workspace_package["license"]:
             fail(f"{name} license differs from [workspace.package]")
         if package["repository"] != REPOSITORY:
             fail(f"{name} repository is not {REPOSITORY}")
@@ -659,13 +672,26 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
         readme = package_root / package["readme"]
         if not readme.is_file() or not readme.read_text(encoding="utf-8").strip():
             fail(f"{name} readme is missing or empty")
-        for license_name in ("LICENSE-APACHE", "LICENSE-MIT"):
+        license_names = (
+            ("LICENSE-POLYFORM-NONCOMMERCIAL",)
+            if name in PUBLIC_ADAPTER_PACKAGES
+            else ("LICENSE-APACHE", "LICENSE-MIT")
+        )
+        for license_name in license_names:
             package_license = (package_root / license_name).read_bytes()
             workspace_license = (repo / license_name).read_bytes()
             if package_license != workspace_license:
                 fail(f"{name} {license_name} differs from the workspace license")
-        if (package_root / "CHANGELOG.md").read_bytes() != template:
-            fail(f"{name} CHANGELOG.md differs from release/CRATE-CHANGELOG.md")
+        expected_template = (
+            adapter_template if name in PUBLIC_ADAPTER_PACKAGES else template
+        )
+        expected_template_name = (
+            "release/ADAPTER-CRATE-CHANGELOG.md"
+            if name in PUBLIC_ADAPTER_PACKAGES
+            else "release/CRATE-CHANGELOG.md"
+        )
+        if (package_root / "CHANGELOG.md").read_bytes() != expected_template:
+            fail(f"{name} CHANGELOG.md differs from {expected_template_name}")
 
         for fixture in PACKAGE_FIXTURES.get(name, ()):
             canonical_fixture = repo / "fixtures" / fixture
