@@ -22,15 +22,15 @@ table:
 - `hns-service-authority`
 - `hns-urkel-proof`
 
-Every declaration requires the exact crates.io version `=0.3.0`. The lockfile
+Every declaration requires the exact crates.io version `=0.3.1`. The lockfile
 resolves those packages plus transitive `hns-chat-protocol`, `hns-mining`, and
 `hns-transaction` from the crates.io registry, for a fixed sixteen-package
 closure. No Git package is permitted in a tracked manifest or the lockfile.
 
-[`../release/hns-rs-0.3.0-crates.sha256`](../release/hns-rs-0.3.0-crates.sha256)
-records the crates.io archive checksum for all nineteen public `hns-rs` 0.3.0
+[`../release/hns-rs-0.3.1-crates.sha256`](../release/hns-rs-0.3.1-crates.sha256)
+records the crates.io archive checksum for all nineteen public `hns-rs` 0.3.1
 packages. Each archive identifies clean source revision
-`d0cde9ded6f8f93f96f16daafc094849c6d484bf` and its expected `crates/<name>`
+`0e99addca59778b7b7c6fc56291333a97c4c8815` and its expected `crates/<name>`
 source path. `hns-script`, `hns-swap`, and `hns-marketplace-protocol` are
 verified release-cohort members but are outside this engine's dependency
 closure. The newly declared `hns-hrm` and `hns-rollback-journal` dependencies
@@ -44,7 +44,7 @@ crate dependencies remain repository-local paths.
 
 `scripts/verify_cargo_source_policy.py` fails if:
 
-- any direct `hns-rs` package is not an exact `=0.3.0` crates.io dependency or
+- any direct `hns-rs` package is not an exact `=0.3.1` crates.io dependency or
   uses a Git, path, branch, tag, revision, or alias override;
 - a consumer bypasses the root declaration or appears outside the reviewed
   manifest and dependency section;
@@ -82,6 +82,6 @@ dry-runs remain isolated in the exact-commit manual workflow documented in
 clone with no sibling `hns-rs` directory.
 
 Before an upload, release execute mode independently reads back all nineteen
-crates.io API records and archives. It requires exact version 0.3.0, non-yanked
+crates.io API records and archives. It requires exact version 0.3.1, non-yanked
 status, the reviewed archive checksums, and clean per-package VCS provenance at
 the reviewed source revision and paths.

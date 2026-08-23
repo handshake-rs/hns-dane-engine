@@ -6,12 +6,12 @@ Compatibility was inspected against these immutable inputs:
 
 | Input | Commit | License | Relevant paths |
 | --- | --- | --- | --- |
-| handshake-rs/hns-rs | `d0cde9ded6f8f93f96f16daafc094849c6d484bf` | MIT OR Apache-2.0 | Thirteen exact crates.io `=0.3.0` workspace dependencies and their sixteen-package locked closure; all nineteen published archive hashes retained in `release/hns-rs-0.3.0-crates.sha256`, including HRM, durable HNSA/HNSR, and external rollback-journal contracts |
+| handshake-rs/hns-rs | `0e99addca59778b7b7c6fc56291333a97c4c8815` | MIT OR Apache-2.0 | Thirteen exact crates.io `=0.3.1` workspace dependencies and their sixteen-package locked closure; all nineteen published archive hashes retained in `release/hns-rs-0.3.1-crates.sha256`, including HRM, durable HNSA/HNSR, and external rollback-journal contracts |
 | handshake-org/hsd | `698e252ebc7b5c1dd0a9587e342fdd153d020ae4` | MIT | `test/dns-test.js`, `test/resource-test.js` |
 | Denuo-Web/hns-dane-browser | `a71f9ea8dd2e697df6059e8840907f96e6eea2c9` | PolyForm Noncommercial 1.0.0 | `rust/crates/hns-core/src/dns.rs`, `fixtures/experimental-dns-relay/manifest.json` |
 
 The `hns-rs` input is executable source, not only a compatibility reference.
-The root manifest requires exact crates.io `=0.3.0`; `Cargo.lock` pins the
+The root manifest requires exact crates.io `=0.3.1`; `Cargo.lock` pins the
 registry checksums of the exact sixteen-package engine closure.
 `scripts/verify_cargo_source_policy.py` independently verifies the direct and
 transitive package sets, consumer locations, versions, registry sources,

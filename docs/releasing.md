@@ -64,25 +64,25 @@ routine gate.
 
 ## Upstream protocol gate
 
-This source consumes `hns-rs` `0.3.0` through thirteen direct packages with
-exact crates.io requirement `=0.3.0`; the lockfile contains the reviewed
+This source consumes `hns-rs` `0.3.1` through thirteen direct packages with
+exact crates.io requirement `=0.3.1`; the lockfile contains the reviewed
 sixteen-package closure.
-Before any engine upload, execute mode reads back all nineteen public 0.3.0
+Before any engine upload, execute mode reads back all nineteen public 0.3.1
 packages from the crates.io API and archive endpoint. It requires non-yanked
 status, the exact checksums in
-[`../release/hns-rs-0.3.0-crates.sha256`](../release/hns-rs-0.3.0-crates.sha256),
+[`../release/hns-rs-0.3.1-crates.sha256`](../release/hns-rs-0.3.1-crates.sha256),
 and clean `.cargo_vcs_info.json` provenance at source revision
-`d0cde9ded6f8f93f96f16daafc094849c6d484bf` with each package's expected
+`0e99addca59778b7b7c6fc56291333a97c4c8815` with each package's expected
 `crates/<name>` path. Any mismatch stops the release before an engine upload.
 
 The protocol source passed exact CI run
-[`31863271873`](https://github.com/handshake-rs/hns-rs/actions/runs/31863271873),
+[`32637180489`](https://github.com/handshake-rs/hns-rs/actions/runs/32637180489),
 CodeQL run
-[`31863271863`](https://github.com/handshake-rs/hns-rs/actions/runs/31863271863),
+[`32637186016`](https://github.com/handshake-rs/hns-rs/actions/runs/32637186016),
 and the nineteen-package credential-free release preflight in
-[`31863520941`](https://github.com/handshake-rs/hns-rs/actions/runs/31863520941).
-All nineteen 0.3.0 packages are published and non-yanked, exact archive
-readback passed, and source tag `v0.3.0` exists. This is upstream dependency
+[`32637182502`](https://github.com/handshake-rs/hns-rs/actions/runs/32637182502).
+All nineteen 0.3.1 packages are published and non-yanked, exact archive
+readback passed, and source tag `v0.3.1` exists. This is upstream dependency
 evidence and does not satisfy any engine gate.
 
 The exact dated engine source at

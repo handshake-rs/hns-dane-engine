@@ -10,18 +10,17 @@ file. The public crates use a shared version and follow Semantic Versioning.
   cohort now publishes every public workspace package, including the filtered
   block evidence dependency consumed by `hns-wallet-rs`; it no longer permits
   an apparently complete light-client release that omits that crate.
-- Migrated the complete engine protocol cohort from the dated `hns-rs` 0.2
-  Git source to exact crates.io `=0.3.0` packages: thirteen direct workspace
-  declarations and their sixteen-package locked closure now use registry
-  checksums only. Added `hns-hrm`, `hns-service-authority`, and
-  `hns-rollback-journal` as direct facade inputs without changing the existing
-  `hsa1`-backed HNSA-v2 route semantics. The release
-  gate pins all nineteen non-yanked upstream archives in
-  `release/hns-rs-0.3.0-crates.sha256` and verifies their crates.io API and
+- Repinned the complete registry-only protocol cohort to published `hns-rs`
+  `=0.3.1`: thirteen direct workspace declarations and their sixteen-package
+  locked closure use the new non-yanked archive checksums only. `hns-hrm`,
+  `hns-service-authority`, and `hns-rollback-journal` remain direct facade
+  inputs without changing the existing `hsa1`-backed HNSA-v2 route semantics.
+  The release gate pins all nineteen upstream archives in
+  `release/hns-rs-0.3.1-crates.sha256` and verifies their crates.io API and
   download checksums, clean VCS source
-  `d0cde9ded6f8f93f96f16daafc094849c6d484bf`, and package paths before any
-  engine upload. This dependency migration does not itself qualify or enable
-  an installed product.
+  `0e99addca59778b7b7c6fc56291333a97c4c8815`, and package paths before any
+  engine upload. This dependency repin does not itself qualify or enable an
+  installed product.
 - Added a bounded synchronous native `HrmHnsaAuthorityBroker` for canonical
   HRM/HNSA service authority. It holds a subject-wide fenced lease while it
   restores and reconfirms authenticated aggregate state, advances trusted time
