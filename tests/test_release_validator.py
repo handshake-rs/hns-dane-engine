@@ -37,6 +37,12 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
         (root / verify_release.PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST).write_bytes(
             (ROOT / verify_release.PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST).read_bytes()
         )
+        (root / verify_release.PREPUBLISHED_ADAPTER_MANIFEST).write_bytes(
+            (ROOT / verify_release.PREPUBLISHED_ADAPTER_MANIFEST).read_bytes()
+        )
+        (root / verify_release.PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST).write_bytes(
+            (ROOT / verify_release.PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST).read_bytes()
+        )
         return temporary, root
 
     def assert_predicate_mutation_rejected(
@@ -109,6 +115,17 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
             checksum_path.write_text("\n".join(entries[:-1]) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(SystemExit, "must contain exactly"):
                 verify_release.verify_prepublished_engine_inventory(
+                    root, verify_release.release_order(root)
+                )
+
+    def test_rejects_incomplete_adapter_checksum_inventory(self) -> None:
+        temporary, root = self.create_fixture()
+        with temporary:
+            checksum_path = root / verify_release.PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST
+            entries = checksum_path.read_text(encoding="utf-8").splitlines()
+            checksum_path.write_text("\n".join(entries[:-1]) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "must contain exactly"):
+                verify_release.verify_prepublished_adapter_inventory(
                     root, verify_release.release_order(root)
                 )
 

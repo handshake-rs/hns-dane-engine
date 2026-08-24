@@ -12,6 +12,13 @@ recreate an already published package from the successor adapter commit: it
 verifies the initial artifacts directly by checksum and provenance, then
 packages and publishes only the new names.
 
+The retained stateless-DANE plan correction is a targeted `0.2.3` patch release
+of only `hns-namespace-resolution` and `hns-browser-gateway`. It does not
+reissue the other twenty-nine crates solely to preserve a workspace-wide version
+number. [`release/stateless-dane-0.2.3-crates.txt`](../release/stateless-dane-0.2.3-crates.txt)
+is the exact release set. The runner verifies both immutable `0.2.2`
+inventories before packaging either patch crate.
+
 ## Public package allowlist
 
 The release script processes only these packages, in dependency order:
@@ -65,6 +72,14 @@ Execute mode requires each archive to remain non-yanked, match both the API
 and downloaded checksums, and carry clean `b7fdf8826c81b77650a0f740d1f05314b74969f9`
 provenance at `crates/<name>` before it can upload an adapter.
 
+[`release/prepublished-browser-adapters-0.2.2-crates.txt`](../release/prepublished-browser-adapters-0.2.2-crates.txt)
+and
+[`release/hns-dane-engine-browser-adapters-0.2.2-crates.sha256`](../release/hns-dane-engine-browser-adapters-0.2.2-crates.sha256)
+provide the equivalent immutable registry checksum and
+`3907e2a93eb7b10ee7deb1f179ce67824277c82a` provenance record for the eleven
+browser adapters. No release operation may reconstruct either `0.2.2` archive
+from a later source commit.
+
 Every dependency between public packages carries both a repository path and
 the shared crates.io version. The private repository-only test dependency
 remains path-only. Cargo removes repository-local source selectors
@@ -84,13 +99,11 @@ release contract therefore qualifies the normalized engine library, examples,
 and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
-Routine qualification verifies the twenty immutable registry archives and
-creates all eleven new normalized adapter archives with `cargo package
---no-verify`, applying the custom archive inventory checks to each relevant
-artifact. The separate manual release preflight performs Cargo's real
-normalized `cargo publish --dry-run` for every adapter while revalidating the
-recorded initial artifacts, keeping that repeated compilation out of the
-routine gate.
+Routine qualification verifies all thirty-one immutable `0.2.2` registry
+archives and creates normalized `0.2.3` archives only for the two crates in
+`release/stateless-dane-0.2.3-crates.txt`. The separate manual release
+preflight performs Cargo's real normalized `cargo publish --dry-run` only for
+those two updates while revalidating every recorded immutable artifact.
 
 ## Upstream protocol gate
 
@@ -224,11 +237,11 @@ Those runs are retained historical evidence and did not replace the manual
    cargo login
    ```
 
-7. Recheck the intended version and run the explicitly confirmed upload. The
-   confirmation must equal the workspace version:
+7. Recheck the intended patch version and run the explicitly confirmed upload.
+   The confirmation must equal the exact patch-release version:
 
    ```bash
-   ./scripts/publish.sh --execute --confirm-publish 0.2.2
+   ./scripts/publish.sh --execute --confirm-publish 0.2.3
    ```
 
 Execute mode validates the clean, dated adapter source, all upstream protocol
@@ -255,7 +268,7 @@ interval only when crates.io communicates a different non-negative limit:
 ```bash
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish 0.2.2
+  ./scripts/publish.sh --execute --confirm-publish 0.2.3
 ```
 
 After each applicable cooldown, the script downloads the new archive and

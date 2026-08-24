@@ -1,7 +1,7 @@
 [package]
 name = "hns-namespace-resolution"
 description = "Shared fail-closed HNS and ICANN full-host namespace decision contract"
-version.workspace = true
+version = "0.2.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
