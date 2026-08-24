@@ -1208,7 +1208,7 @@ mod tests {
                 ..GatewayConfig::default()
             },
             PreparedOnlyResolver {
-                prepared: prepared_ech_resolution(&VALID_ECH_CONFIG_LIST, TlsTrustPolicy::Dane),
+                prepared: prepared_ech_resolution(VALID_ECH_CONFIG_LIST, TlsTrustPolicy::Dane),
                 resolve_calls: Arc::clone(&resolve_calls),
             },
             CapturingTransport::default(),
@@ -1247,7 +1247,7 @@ mod tests {
             },
             PreparedOnlyResolver {
                 prepared: prepared_ech_resolution(
-                    &VALID_ECH_CONFIG_LIST,
+                    VALID_ECH_CONFIG_LIST,
                     TlsTrustPolicy::StatelessDane,
                 ),
                 resolve_calls: Arc::new(AtomicUsize::new(0)),
