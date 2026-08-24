@@ -73,6 +73,21 @@ PREPUBLISHED_ENGINE_MANIFEST = "release/prepublished-0.2.2-crates.txt"
 PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST = (
     "release/hns-dane-engine-0.2.2-crates.sha256"
 )
+PREPUBLISHED_ADAPTER_VERSION = "0.2.2"
+PREPUBLISHED_ADAPTER_REVISION = "3907e2a93eb7b10ee7deb1f179ce67824277c82a"
+PREPUBLISHED_ADAPTER_MANIFEST = "release/prepublished-browser-adapters-0.2.2-crates.txt"
+PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-browser-adapters-0.2.2-crates.sha256"
+)
+PATCH_RELEASE_VERSION = "0.2.3"
+PATCH_RELEASE_MANIFEST = "release/stateless-dane-0.2.3-crates.txt"
+PATCH_RELEASE_PACKAGES = (
+    "hns-namespace-resolution",
+    "hns-browser-gateway",
+)
+PATCH_RELEASE_VERSIONS = {
+    package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
+}
 PRIVATE_PACKAGES = {"hns-browser-testkit"}
 PACKAGE_FIXTURES = {
     "hns-dns-wire": (
@@ -186,13 +201,65 @@ def verify_prepublished_engine_inventory(repo: Path, order: list[str]) -> None:
         )
 
 
+def verify_prepublished_adapter_inventory(repo: Path, order: list[str]) -> None:
+    manifest = repo / PREPUBLISHED_ADAPTER_MANIFEST
+    packages = [
+        line.strip()
+        for line in manifest.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    expected = [package for package in order if package in PUBLIC_ADAPTER_PACKAGES]
+    if packages != expected:
+        fail(
+            f"{PREPUBLISHED_ADAPTER_MANIFEST} must list every adapter public "
+            "package in release dependency order"
+        )
+    if len(packages) != 11 or len(packages) != len(set(packages)):
+        fail(f"{PREPUBLISHED_ADAPTER_MANIFEST} must contain exactly 11 unique packages")
+
+    checksum_manifest = repo / PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST
+    checksums: dict[str, str] = {}
+    for line in checksum_manifest.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r"([0-9a-f]{64})  (hns-[a-z0-9-]+-0[.]2[.]2[.]crate)", line)
+        if match is None:
+            fail(
+                f"invalid checksum entry in {PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST}: "
+                f"{line!r}"
+            )
+        checksum, filename = match.groups()
+        if filename in checksums:
+            fail(f"duplicate checksum entry for {filename}")
+        checksums[filename] = checksum
+    expected_filenames = {f"{package}-0.2.2.crate" for package in packages}
+    if set(checksums) != expected_filenames:
+        fail(
+            f"{PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST} must contain exactly "
+            "the recorded prepublished adapter archives"
+        )
+
+
+def patch_release_order(repo: Path) -> tuple[str, ...]:
+    packages = tuple(
+        line.strip()
+        for line in (repo / PATCH_RELEASE_MANIFEST).read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    if packages != PATCH_RELEASE_PACKAGES:
+        fail(f"{PATCH_RELEASE_MANIFEST} must contain exactly {list(PATCH_RELEASE_PACKAGES)}")
+    return packages
+
+
 def verify_release_document(repo: Path, order: list[str], version: str) -> None:
     document = (repo / "docs/releasing.md").read_text(encoding="utf-8")
     documented = re.findall(r"^\d+\. `([^`]+)`$", document, flags=re.MULTILINE)
     if documented != order:
         fail("docs/releasing.md does not match release/public-crates.txt")
 
-    execute_command = f"./scripts/publish.sh --execute --confirm-publish {version}"
+    execute_command = (
+        f"./scripts/publish.sh --execute --confirm-publish {PATCH_RELEASE_VERSION}"
+    )
     if execute_command not in document:
         fail("docs/releasing.md does not use the current version in its execute example")
 
@@ -237,6 +304,11 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         PREPUBLISHED_ENGINE_MANIFEST,
         PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST,
         PREPUBLISHED_ENGINE_REVISION,
+        PREPUBLISHED_ADAPTER_MANIFEST,
+        PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST,
+        PREPUBLISHED_ADAPTER_REVISION,
+        PATCH_RELEASE_MANIFEST,
+        PATCH_RELEASE_VERSION,
         "./scripts/publish.sh --archive-only",
         ".github/workflows/release-preflight.yml",
         "expected_commit",
@@ -485,12 +557,18 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"prepublished_engine_revision={PREPUBLISHED_ENGINE_REVISION}",
         f"prepublished_engine_manifest={PREPUBLISHED_ENGINE_MANIFEST}",
         f"prepublished_engine_checksum_manifest={PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST}",
-        "verify_prepublished_engine_packages",
+        f"prepublished_adapter_version={PREPUBLISHED_ADAPTER_VERSION}",
+        f"prepublished_adapter_revision={PREPUBLISHED_ADAPTER_REVISION}",
+        f"prepublished_adapter_manifest={PREPUBLISHED_ADAPTER_MANIFEST}",
+        f"prepublished_adapter_checksum_manifest={PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST}",
+        "verify_prepublished_packages",
+        'is_prepublished_package "$package" "$version"',
         'is_prepublished_engine_package "$package" "$version"',
+        'is_prepublished_adapter_package "$package" "$version"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
         'if [ "$api_checksum" != "$expected_checksum" ]',
         'if [ "$archive_checksum" != "$expected_checksum" ]',
-        '*\\"sha1\\":\\"$prepublished_engine_revision\\"*',
+        '*\\"sha1\\":\\"$source_revision\\"*',
     )
     for fragment in required_prepublished_fragments:
         if fragment not in script:
@@ -498,7 +576,7 @@ def verify_publish_script_safety(repo: Path) -> None:
                 "scripts/publish.sh omits prepublished-engine provenance guard "
                 f"{fragment!r}"
             )
-    prepublished_position = execute.index("verify_prepublished_engine_packages")
+    prepublished_position = execute.index("verify_prepublished_packages")
     if not prepublished_position < upload_position:
         fail("prepublished engine archive verification must precede every upload")
 
@@ -613,6 +691,9 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
     expected_publish = ["crates-io"]
 
     packages = {package["name"]: package for package in metadata["packages"]}
+    expected_versions = {
+        name: PATCH_RELEASE_VERSIONS.get(name, version) for name in packages
+    }
     expected_packages = set(order) | PRIVATE_PACKAGES
     if set(packages) != expected_packages:
         fail(
@@ -668,10 +749,11 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 f"Cargo.lock retains external duplicate identity for workspace package "
                 f"{package['name']} {package['version']}"
             )
-        if package["version"] != version:
+        expected_version = expected_versions[package["name"]]
+        if package["version"] != expected_version:
             fail(
                 f"Cargo.lock workspace package {package['name']} has version "
-                f"{package['version']}, expected {version}"
+                f"{package['version']}, expected {expected_version}"
             )
 
     changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -718,8 +800,9 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
         expected_root = (repo / "crates" / name).resolve()
         if package_root != expected_root:
             fail(f"{name} manifest is outside crates/{name}")
-        if package["version"] != version:
-            fail(f"{name} version {package['version']} differs from workspace {version}")
+        expected_version = expected_versions[name]
+        if package["version"] != expected_version:
+            fail(f"{name} version {package['version']} differs from expected {expected_version}")
         if package.get("publish") != expected_publish:
             fail(f"{name} must publish only to crates-io")
         required_values = {
@@ -797,7 +880,7 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 if dependency.get("kind") != "dev":
                     fail(f"public package {name} has a non-dev private dependency")
                 continue
-            expected_requirement = f"^{version}"
+            expected_requirement = f"^{expected_versions[dependency_name]}"
             if dependency["req"] != expected_requirement:
                 fail(
                     f"{name} requires internal {dependency_name} at "
@@ -845,6 +928,8 @@ def main() -> None:
     repo = Path(__file__).resolve().parent.parent
     order = release_order(repo)
     verify_prepublished_engine_inventory(repo, order)
+    verify_prepublished_adapter_inventory(repo, order)
+    patch_release_order(repo)
     version, release_label = verify_workspace(
         repo, cargo_metadata(repo, args.toolchain), order
     )
@@ -852,15 +937,19 @@ def main() -> None:
     verify_release_document(repo, order, version)
     verify_release_workflow(repo)
     verify_publish_script_safety(repo)
-    if args.expected_version is not None and args.expected_version != version:
+    if args.expected_version is not None and args.expected_version != PATCH_RELEASE_VERSION:
         fail(
-            f"confirmed version {args.expected_version} differs from workspace version {version}"
+            f"confirmed version {args.expected_version} differs from patch release "
+            f"version {PATCH_RELEASE_VERSION}"
         )
     if args.require_clean:
         if release_label.lower() == "unreleased":
             fail("execution requires a dated release heading, not 'Unreleased'")
         verify_clean_source(repo)
-    print(f"release metadata valid for {len(order)} public crates at version {version}")
+    print(
+        f"release metadata valid for {len(order)} public crates; "
+        f"{len(PATCH_RELEASE_PACKAGES)} patch packages are at {PATCH_RELEASE_VERSION}"
+    )
 
 
 if __name__ == "__main__":

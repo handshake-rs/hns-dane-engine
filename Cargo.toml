@@ -47,7 +47,7 @@ categories = ["cryptography", "network-programming", "web-programming"]
 
 [workspace.dependencies]
 hns-browser-observability = { version = "0.2.2", path = "crates/hns-browser-observability" }
-hns-browser-gateway = { version = "0.2.2", path = "crates/hns-browser-gateway" }
+hns-browser-gateway = { version = "0.2.3", path = "crates/hns-browser-gateway" }
 hns-browser-chain = { version = "0.2.2", path = "crates/hns-browser-chain" }
 hns-browser-dane = { version = "0.2.2", path = "crates/hns-browser-dane" }
 hns-browser-dnssec = { version = "0.2.2", path = "crates/hns-browser-dnssec" }
@@ -78,7 +78,7 @@ hns-light-p2p = { version = "0.2.2", path = "crates/hns-light-p2p" }
 hns-light-sync = { version = "0.2.2", path = "crates/hns-light-sync" }
 hns-light-wallet = { version = "0.2.2", path = "crates/hns-light-wallet" }
 hns-loopback-proxy = { version = "0.2.2", path = "crates/hns-loopback-proxy" }
-hns-namespace-resolution = { version = "0.2.2", path = "crates/hns-namespace-resolution" }
+hns-namespace-resolution = { version = "0.2.3", path = "crates/hns-namespace-resolution" }
 hns-odoh-protocol = { version = "=0.3.1" }
 hns-p2p-experimental = { version = "=0.3.1" }
 hns-p2p-transport = { version = "0.2.2", path = "crates/hns-p2p-transport" }

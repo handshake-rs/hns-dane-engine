@@ -1,0 +1,3 @@
+# Exact patch-release set for retained stateless DANE plans.
+hns-namespace-resolution
+hns-browser-gateway

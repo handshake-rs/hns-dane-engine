@@ -25,6 +25,10 @@ prepublished_engine_version=0.2.2
 prepublished_engine_revision=b7fdf8826c81b77650a0f740d1f05314b74969f9
 prepublished_engine_manifest=release/prepublished-0.2.2-crates.txt
 prepublished_engine_checksum_manifest=release/hns-dane-engine-0.2.2-crates.sha256
+prepublished_adapter_version=0.2.2
+prepublished_adapter_revision=3907e2a93eb7b10ee7deb1f179ce67824277c82a
+prepublished_adapter_manifest=release/prepublished-browser-adapters-0.2.2-crates.txt
+prepublished_adapter_checksum_manifest=release/hns-dane-engine-browser-adapters-0.2.2-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -68,6 +72,10 @@ prepublished_engine_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$prepublished_engine_manifest")
+prepublished_adapter_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_adapter_manifest")
 
 last_public_crate=
 for package in $public_crates
@@ -103,6 +111,28 @@ is_prepublished_engine_package() {
         fi
     done
     return 1
+}
+
+is_prepublished_adapter_package() {
+    package=$1
+    version=$2
+    if [ "$version" != "$prepublished_adapter_version" ]
+    then
+        return 1
+    fi
+    for prepublished_package in $prepublished_adapter_crates
+    do
+        if [ "$package" = "$prepublished_package" ]
+        then
+            return 0
+        fi
+    done
+    return 1
+}
+
+is_prepublished_package() {
+    is_prepublished_engine_package "$1" "$2" ||
+        is_prepublished_adapter_package "$1" "$2"
 }
 
 run_package_operation() {
@@ -503,12 +533,19 @@ published_package_status() {
         "https://crates.io/api/v1/crates/$package/$version"
 }
 
-verify_prepublished_engine_package() {
+verify_prepublished_package() {
     package=$1
     version=$2
-    if ! is_prepublished_engine_package "$package" "$version"
+    if is_prepublished_engine_package "$package" "$version"
     then
-        echo "error: $package $version is not a recorded prepublished engine package" >&2
+        source_revision=$prepublished_engine_revision
+        checksum_manifest=$prepublished_engine_checksum_manifest
+    elif is_prepublished_adapter_package "$package" "$version"
+    then
+        source_revision=$prepublished_adapter_revision
+        checksum_manifest=$prepublished_adapter_checksum_manifest
+    else
+        echo "error: $package $version is not a recorded immutable package" >&2
         exit 1
     fi
 
@@ -516,10 +553,10 @@ verify_prepublished_engine_package() {
     expected_checksum=$(awk \
         -v filename="$expected_filename" \
         '$2 == filename { print $1 }' \
-        "$prepublished_engine_checksum_manifest")
+        "$checksum_manifest")
     if [ -z "$expected_checksum" ]
     then
-        echo "error: $prepublished_engine_checksum_manifest has no checksum for $expected_filename" >&2
+        echo "error: $checksum_manifest has no checksum for $expected_filename" >&2
         exit 1
     fi
 
@@ -547,7 +584,7 @@ verify_prepublished_engine_package() {
         <"$metadata")
     if [ "$api_checksum" != "$expected_checksum" ]
     then
-        echo "error: crates.io API checksum for prepublished $package $version differs from $prepublished_engine_checksum_manifest" >&2
+        echo "error: crates.io API checksum for immutable $package $version differs from $checksum_manifest" >&2
         exit 1
     fi
     if [ "$api_yanked" != "false" ]
@@ -568,22 +605,22 @@ verify_prepublished_engine_package() {
     archive_checksum=$(sha256sum "$archive" | awk '{print $1}')
     if [ "$archive_checksum" != "$expected_checksum" ]
     then
-        echo "error: downloaded prepublished $package $version differs from $prepublished_engine_checksum_manifest" >&2
+        echo "error: downloaded immutable $package $version differs from $checksum_manifest" >&2
         exit 1
     fi
 
     vcs_info=$(tar -xOf "$archive" "$package-$version/.cargo_vcs_info.json")
     compact_vcs_info=$(printf '%s' "$vcs_info" | tr -d '[:space:]')
     case "$compact_vcs_info" in
-        *\"sha1\":\"$prepublished_engine_revision\"*) ;;
+        *\"sha1\":\"$source_revision\"*) ;;
         *)
-            echo "error: prepublished $package $version does not identify source $prepublished_engine_revision" >&2
+            echo "error: immutable $package $version does not identify source $source_revision" >&2
             exit 1
             ;;
     esac
     case "$compact_vcs_info" in
         *\"dirty\":true*)
-            echo "error: prepublished $package $version records a dirty source tree" >&2
+            echo "error: immutable $package $version records a dirty source tree" >&2
             exit 1
             ;;
     esac
@@ -591,17 +628,22 @@ verify_prepublished_engine_package() {
         python3 -c 'import json, sys; print(json.load(sys.stdin).get("path_in_vcs", ""))')
     if [ "$prepublished_path" != "crates/$package" ]
     then
-        echo "error: prepublished $package $version identifies path $prepublished_path, expected crates/$package" >&2
+        echo "error: immutable $package $version identifies path $prepublished_path, expected crates/$package" >&2
         exit 1
     fi
 }
 
-verify_prepublished_engine_packages() {
+verify_prepublished_packages() {
     for package in $prepublished_engine_crates
     do
-        verify_prepublished_engine_package "$package" "$prepublished_engine_version"
+        verify_prepublished_package "$package" "$prepublished_engine_version"
     done
     echo "verified all recorded prepublished engine $prepublished_engine_version archives and checksums at source $prepublished_engine_revision"
+    for package in $prepublished_adapter_crates
+    do
+        verify_prepublished_package "$package" "$prepublished_adapter_version"
+    done
+    echo "verified all recorded prepublished browser adapter $prepublished_adapter_version archives and checksums at source $prepublished_adapter_revision"
 }
 
 verify_published_package() {
@@ -794,19 +836,19 @@ case "$mode" in
         then
             require_public_crate "$requested_package"
             version=$(package_version "$requested_package")
-            if is_prepublished_engine_package "$requested_package" "$version"
+            if is_prepublished_package "$requested_package" "$version"
             then
-                verify_prepublished_engine_package "$requested_package" "$version"
+                verify_prepublished_package "$requested_package" "$version"
             else
                 package_with_local_dependencies "$requested_package"
                 verify_source_package "$requested_package"
             fi
         else
-            verify_prepublished_engine_packages
+            verify_prepublished_packages
             for package in $public_crates
             do
                 version=$(package_version "$package")
-                if is_prepublished_engine_package "$package" "$version"
+                if is_prepublished_package "$package" "$version"
                 then
                     continue
                 fi
@@ -826,19 +868,19 @@ case "$mode" in
         then
             require_public_crate "$requested_package"
             version=$(package_version "$requested_package")
-            if is_prepublished_engine_package "$requested_package" "$version"
+            if is_prepublished_package "$requested_package" "$version"
             then
-                verify_prepublished_engine_package "$requested_package" "$version"
+                verify_prepublished_package "$requested_package" "$version"
             else
                 package_with_local_dependencies "$requested_package"
                 verify_source_package "$requested_package"
             fi
         else
-            verify_prepublished_engine_packages
+            verify_prepublished_packages
             for package in $public_crates
             do
                 version=$(package_version "$package")
-                if is_prepublished_engine_package "$package" "$version"
+                if is_prepublished_package "$package" "$version"
                 then
                     continue
                 fi
@@ -873,7 +915,7 @@ case "$mode" in
             --expected-version "$confirmed_version"
         require_clean_archive_vcs=yes
         verify_protocol_packages_published
-        verify_prepublished_engine_packages
+        verify_prepublished_packages
         verify_release_source_unchanged
 
         cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
@@ -887,7 +929,7 @@ case "$mode" in
         for package in $public_crates
         do
             version=$(package_version "$package")
-            if is_prepublished_engine_package "$package" "$version"
+            if is_prepublished_package "$package" "$version"
             then
                 echo "skipping $package $version: immutable prepublished archive already verified"
                 continue

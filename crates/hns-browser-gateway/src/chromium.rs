@@ -902,6 +902,17 @@ fn apply_selected_tls_plan(
             request.tls.tlsa_source = Some(TlsaRecordSource::NativeTlsa);
             request.tls.browser_tls_decision = None;
         }
+        (Namespace::Hns, TlsTrustPolicy::StatelessDane) => {
+            if !records.is_empty() || !stateless_dane.enabled {
+                return Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse));
+            }
+            request.tls.mode = hns_https_mode.domain_trust_mode();
+            request.tls.stateless_dane = stateless_dane.clone();
+            request.tls.dnssec_secure = false;
+            request.tls.tlsa_records.clear();
+            request.tls.tlsa_source = None;
+            request.tls.browser_tls_decision = None;
+        }
         (Namespace::Icann, TlsTrustPolicy::Dane) => {
             let record_count = NonZeroUsize::new(records.len())
                 .ok_or(GatewayError::Resolver(ResolverError::InvalidDnsResponse))?;
@@ -931,6 +942,9 @@ fn apply_selected_tls_plan(
             request.tls.tlsa_records.clear();
             request.tls.tlsa_source = None;
             request.tls.browser_tls_decision = Some(BrowserTlsDecision::WebPkiInsecureDelegation);
+        }
+        (Namespace::Icann, TlsTrustPolicy::StatelessDane) => {
+            return Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse));
         }
         (
             Namespace::Hns,
@@ -3037,6 +3051,24 @@ mod tests {
         assert_eq!(
             captured.tls.browser_tls_decision,
             Some(BrowserTlsDecision::WebPkiAuthenticatedAbsence),
+        );
+    }
+
+    #[test]
+    fn icann_stateless_dane_plan_is_rejected_fail_closed() {
+        let mut origin = request("example.com", "example.com").origin;
+
+        assert_eq!(
+            apply_selected_tls_plan(
+                &mut origin,
+                Namespace::Icann,
+                TlsTrustPolicy::StatelessDane,
+                &[],
+                GatewayConfig::default().hns_https_mode,
+                &StatelessDaneConfig::default(),
+            )
+            .unwrap_err(),
+            GatewayError::Resolver(ResolverError::InvalidDnsResponse),
         );
     }
 

@@ -908,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-gateway"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "hns-browser-dane",
  "hns-browser-primitives",
@@ -1296,7 +1296,7 @@ dependencies = [
 
 [[package]]
 name = "hns-namespace-resolution"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "hns-odoh-protocol"

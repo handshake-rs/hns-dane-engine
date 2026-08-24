@@ -1,0 +1,13 @@
+# Browser adapter crates published from source tag browser-adapters-v0.2.2
+# (3907e2a93eb7b10ee7deb1f179ce67824277c82a). Keep release dependency order.
+hns-browser-primitives
+hns-browser-urkel
+hns-browser-dnssec
+hns-browser-dane
+hns-browser-chain
+hns-browser-p2p
+hns-browser-resolver
+hns-browser-transport
+hns-browser-gateway
+hns-browser-loopback-proxy
+hns-browser-sync
