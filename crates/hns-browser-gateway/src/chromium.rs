@@ -943,6 +943,9 @@ fn apply_selected_tls_plan(
             request.tls.tlsa_source = None;
             request.tls.browser_tls_decision = Some(BrowserTlsDecision::WebPkiInsecureDelegation);
         }
+        (Namespace::Icann, TlsTrustPolicy::StatelessDane) => {
+            return Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse));
+        }
         (
             Namespace::Hns,
             TlsTrustPolicy::Cleartext
@@ -3048,6 +3051,24 @@ mod tests {
         assert_eq!(
             captured.tls.browser_tls_decision,
             Some(BrowserTlsDecision::WebPkiAuthenticatedAbsence),
+        );
+    }
+
+    #[test]
+    fn icann_stateless_dane_plan_is_rejected_fail_closed() {
+        let mut origin = request("example.com", "example.com").origin;
+
+        assert_eq!(
+            apply_selected_tls_plan(
+                &mut origin,
+                Namespace::Icann,
+                TlsTrustPolicy::StatelessDane,
+                &[],
+                GatewayConfig::default().hns_https_mode,
+                &StatelessDaneConfig::default(),
+            )
+            .unwrap_err(),
+            GatewayError::Resolver(ResolverError::InvalidDnsResponse),
         );
     }
 
