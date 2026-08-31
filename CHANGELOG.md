@@ -11,11 +11,13 @@ file. The public crates use a shared version and follow Semantic Versioning.
   Shakescape registry, fingerprint, service and packet assignments supplied by
   `hns-p2p-experimental 0.4.0`; it retains no Denuo alias, V2 profile, legacy
   registry artifact, or compatibility decoding path.
-- Published only the three public crates whose production API or dependency
-  boundary changed: `hns-resolution-policy`, `hns-p2p-transport`, and
-  `hns-dane-engine`. Other workspace crates keep their existing releases; test
-  and documentation references were updated without manufacturing unrelated
-  crate versions.
+- Published the five public crates required for one coherent policy type graph:
+  `hns-resolution-policy 0.3.0`, `hns-gateway 0.3.0`,
+  `hns-browser-observability 0.3.0`, `hns-p2p-transport 0.3.1`, and
+  `hns-dane-engine 0.3.0`. The gateway and observability releases prevent
+  packaged consumers from resolving the retired policy type alongside
+  Shakescape V1; the transport patch release records that corrected gateway
+  edge. Other workspace crates keep their existing releases.
 
 ## 0.2.2 - 2026-08-23
 
