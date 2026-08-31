@@ -162,7 +162,7 @@ The DNS AD bit, Brontide, a relay, an ODoH proxy, and an ODoH target are never v
 authorities. Transport status is reported separately from evidence status.
 
 HIP-76/77 requesters consume only an established peer whose exact wire profile,
-advertised service, Denuo extension, registry fingerprint, network, and genesis
+advertised service, Shakescape extension, registry fingerprint, network, and genesis
 identity were admitted. Each requester owns a
 non-cloneable monotonic nonzero request-ID sequence. The runtime adapter receives an exact packet,
 deadline, authenticated destination, and response allocation cap; its response must attest the
@@ -182,11 +182,11 @@ stop, policy replacement, or another runtime session does. Both sides of the
 platform adapter call are checked; a response completed after invalidation is
 discarded. Readiness requires one exact authenticated/registry-negotiated proxy
 whose network and genesis match canonical engine parameters and whose retained
-wire profile equals the policy-resolved concrete Denuo V1 profile. Its registry
-must be the canonical Denuo V1 fingerprint/version/negotiation, both the
-Denuo-extension and ODoH services must be advertised, its ODoH packet must be
+wire profile equals the policy-resolved concrete Shakescape V1 profile. Its registry
+must be the canonical Shakescape V1 fingerprint/version/negotiation, both the
+Shakescape-extension and ODoH services must be advertised, its ODoH packet must be
 pre-admitted, and at least one current signed target must exist. Official,
-Denuo V2, legacy-draft, and unresolved automatic peer profiles fail closed. A
+Shakescape V1, legacy-draft, and unresolved automatic peer profiles fail closed. A
 response completion time earlier than request start or later than deadline is rejected.
 Canonical transport errors are not
 flattened, preserving peer, registry, packet, deadline, request-correlation,
@@ -246,8 +246,8 @@ rechecks the anchor validity window and exact query TLD before socket I/O, uses 
 message bounds, sends a non-recursive DNSSEC query, and parses/correlates the complete response.
 
 The built-in HNS resolution candidates are direct delegated-authoritative
-UDP/TCP, explicitly authenticated authoritative DoH, Denuo Experimental V1 P2P
-ODoH, and Denuo Experimental V1 P2P DNS Relay. A separate, default-off
+UDP/TCP, explicitly authenticated authoritative DoH, Shakescape Experimental V1 P2P
+ODoH, and Shakescape Experimental V1 P2P DNS Relay. A separate, default-off
 requester-consent bit may append explicitly user-configured recursive HNS DoH
 after all of them. The policy model contains no operating-system or implicit
 recursive fallback. When the locally verified HNS name proof itself contains

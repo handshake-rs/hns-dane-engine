@@ -1242,7 +1242,7 @@ mod tests {
                     odoh_target: false,
                     market_gossip: false,
                 },
-                wire_profile: WireProfile::DenuoV1,
+                wire_profile: WireProfile::ShakescapeV1,
                 allow_legacy_regtest_compatibility: false,
             },
         )
@@ -1290,7 +1290,7 @@ mod tests {
                 peer: Some("peer-a".to_owned()),
                 ..TransportIdentities::default()
             },
-            registry_profile: WireProfile::DenuoV1,
+            registry_profile: WireProfile::ShakescapeV1,
             registry_fingerprint: [8; 32],
             protocol_version: 1,
             provider_readiness,

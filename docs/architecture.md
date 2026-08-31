@@ -180,9 +180,9 @@ runtime admission binds its independent request-ID space, authenticated proxy,
 negotiated registry, and signed target cache to the exact runtime session,
 runtime/policy generations, invalidation watermark, and Handshake network.
 Proxy installation independently requires the canonical engine network and
-genesis, the concrete Denuo V1 profile resolved by policy and retained from
-peer admission, the Denuo V1 registry identity and negotiation protocol, and
-both Denuo-extension and ODoH service advertisements. Official, Denuo V2,
+genesis, the concrete Shakescape V1 profile resolved by policy and retained from
+peer admission, the Shakescape V1 registry identity and negotiation protocol, and
+both Shakescape-extension and ODoH service advertisements. Official, Shakescape V1,
 legacy-draft, unresolved automatic, and caller-self-consistent alternate peer
 states are insufficient.
 Pre/post-adapter checks discard results if that epoch changes. The 16-locator
@@ -436,7 +436,7 @@ lease, authenticated snapshot/initialized-marker/external-floor, trusted-time,
 current-chain retrieval, and durable CAS contracts; their Android, Apple, and
 Chromium bridge wiring; P2P socket dialing or peer discovery, download/reorganization from a fork
 predating the current tip, durable restart checkpoints, authenticated authoritative DoH, a native
-Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,
+Brontide and live Shakescape registry/HIP-76/77/HNSR platform network adapter,
 complete HNSA route discovery and response-completeness/quorum policy,
 authenticated rollback-resistant platform generation/time/named-route-state
 storage, and endpoint-authenticated inner-session integration,

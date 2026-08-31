@@ -225,8 +225,8 @@ const fn legacy_hnsr_policy(value: u8) -> Result<HnsrPolicy, PolicyError> {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WireProfile {
-    /// Denuo Experimental V1, not an official Handshake assignment.
-    DenuoV1 = 0,
+    /// Shakescape Experimental V1, not an official Handshake assignment.
+    ShakescapeV1 = 0,
     /// Future official assignment profile.
     Official = 1,
     /// Negotiate supported profiles without silent packet-number reuse.
@@ -238,7 +238,7 @@ impl TryFrom<u8> for WireProfile {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::DenuoV1),
+            0 => Ok(Self::ShakescapeV1),
             1 => Ok(Self::Official),
             2 => Ok(Self::Auto),
             _ => Err(PolicyError::InvalidEncoding),
@@ -479,9 +479,9 @@ pub enum ResolutionTransport {
     DirectAuthoritativeTcp = 1,
     /// DoH endpoint authenticated from local HNS/DNSSEC evidence.
     AuthenticatedAuthoritativeDoh = 2,
-    /// Denuo Experimental V1 ODoH intermediary path.
+    /// Shakescape Experimental V1 ODoH intermediary path.
     HandshakeP2pOdoh = 3,
-    /// Denuo Experimental V1 recursive relay path.
+    /// Shakescape Experimental V1 recursive relay path.
     HandshakeP2pDnsRelay = 4,
     /// No transport succeeded.
     Unavailable = 5,
@@ -1361,7 +1361,7 @@ mod tests {
             proxy_identity: Some("proxy".to_owned()),
             target_identity: Some("target".to_owned()),
             direct_relay_fallback: false,
-            registry_profile: WireProfile::DenuoV1,
+            registry_profile: WireProfile::ShakescapeV1,
             evidence: ValidationEvidence {
                 hns_proof: EvidenceState::Verified,
                 dnssec: EvidenceState::Verified,

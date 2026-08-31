@@ -115,7 +115,7 @@ impl HnsrTransportBinding {
         self.policy_wire_profile
     }
 
-    /// Concrete peer profile; always Denuo V1 for an admitted runtime.
+    /// Concrete peer profile; always Shakescape V1 for an admitted runtime.
     #[must_use]
     pub const fn resolved_wire_profile(self) -> ExperimentalWireProfile {
         self.resolved_wire_profile
@@ -273,7 +273,7 @@ impl HnsrRequesterRuntime {
         self.binding
     }
 
-    /// Authenticate one exact relay connection against canonical Denuo V1.
+    /// Authenticate one exact relay connection against canonical Shakescape V1.
     pub fn authenticate_relay<C: HnsrTransportAuthorityContext + ?Sized>(
         &mut self,
         authority: &C,
@@ -1250,7 +1250,7 @@ fn validate_hnsr_transport_binding(
         return Err(HnsrTransportError::PolicyGenerationChanged);
     }
     if policy.config().wire_profile != binding.policy_wire_profile
-        || binding.resolved_wire_profile != ExperimentalWireProfile::DenuoV1
+        || binding.resolved_wire_profile != ExperimentalWireProfile::ShakescapeV1
     {
         return Err(HnsrTransportError::UnsupportedWireProfile);
     }
@@ -1732,7 +1732,7 @@ pub enum HnsrTransportError {
     Runtime(HnsrRuntimeError),
     /// Canonical HNSR reservation/wire failure.
     Protocol(HnsrProtocolError),
-    /// Canonical Brontide/Denuo peer admission failure.
+    /// Canonical Brontide/Shakescape peer admission failure.
     Peer(P2pTransportError),
     /// Browser authority is not ready for transport work.
     AuthorityUnavailable,

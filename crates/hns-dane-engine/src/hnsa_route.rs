@@ -1598,9 +1598,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        AuthenticatedHnsrPeer, AuthorityState, DENUO_EXTENSION_SERVICE, EngineConfig,
-        ExperimentalNetwork, ExperimentalPeerState, ExperimentalWireProfile, HnsrRequesterRuntime,
-        PeerIdentity, RegistryHello, RuntimeSessionId, ServiceMask,
+        AuthenticatedHnsrPeer, AuthorityState, EngineConfig, ExperimentalNetwork,
+        ExperimentalPeerState, ExperimentalWireProfile, HnsrRequesterRuntime, PeerIdentity,
+        RegistryHello, RuntimeSessionId, SHAKESCAPE_EXTENSION_SERVICE, ServiceMask,
     };
 
     const NAME: &[u8] = b"alpha";
@@ -1836,7 +1836,7 @@ mod tests {
             )
             .unwrap();
         let genesis = crate::private_transport::canonical_genesis_hash(Network::Regtest);
-        let hello = RegistryHello::denuo_v1(
+        let hello = RegistryHello::shakescape_v1(
             ExperimentalNetwork::Regtest,
             genesis,
             Vec::new(),
@@ -1847,11 +1847,11 @@ mod tests {
         .unwrap();
         let registry = crate::NegotiatedRegistry::negotiate(&hello, &hello).unwrap();
         let peer = ExperimentalPeerState::new(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Regtest,
             genesis,
             registry.fingerprint,
-            ServiceMask::new(DENUO_EXTENSION_SERVICE.value() | HNSR_RELAY_SERVICE),
+            ServiceMask::new(SHAKESCAPE_EXTENSION_SERVICE.value() | HNSR_RELAY_SERVICE),
         );
         let identity =
             PeerIdentity::new(hns_hnsr_protocol::public_key(&relay_private_key).unwrap()).unwrap();

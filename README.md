@@ -24,7 +24,7 @@
   negotiated registry, with pre/post-I/O generation checks, explicit readiness and revocation,
   and a bounded canonical restart representation for signed target records and sequence and
   trusted-time high-water marks; canonical network/genesis/registry admission, an exact
-  policy-resolved Denuo V1 peer profile, both Denuo-extension and ODoH service advertisements,
+  policy-resolved Shakescape V1 peer profile, both Shakescape-extension and ODoH service advertisements,
   and response-time monotonicity are required, and it exposes no proxy or target provider
   implementation;
 - engine-bound HNSR requester and ciphertext-only relay lifecycles with exact
@@ -139,7 +139,7 @@ authenticated request/response boundary. The ODoH engine runtime now owns its
 requester lifecycle and signed-target restart representation, but it still
 consumes a platform-supplied established Brontide exchange. The shared
 platform adapter source supplies neither a native Brontide transport nor a
-live Denuo registry exchange. The local HNSA selector accepts no unauthenticated
+live Shakescape registry exchange. The local HNSA selector accepts no unauthenticated
 directory input in place of a non-forgeable HNS resource, bounds the supplied
 complete response before decoding, applies all three replacement/conflict
 layers, and enters the HNSR open sink without exposing a raw ticket. For the
@@ -183,7 +183,7 @@ selected root, and whole connection/trust plan so browser connection,
 TLS-session, Alt-Svc, and site-data state can be partitioned across namespace
 choices.
 
-P2P DNS Relay and P2P ODoH are described as **Denuo Experimental V1 — Not an official Handshake
+P2P DNS Relay and P2P ODoH are described as **Shakescape Experimental V1 — Not an official Handshake
 protocol assignment**. Their transport cannot establish authenticity. The production Rust path
 validates shared `hns-rs` headers from the selected network genesis, verifies the exact HSD Urkel
 proof and committed `NameState`, derives the initial DS set from that private proof token,
@@ -300,7 +300,7 @@ runtime/requester authority, authenticated rollback-resistant state and floors,
 and trusted-time checks across the platform bridge. The source-only
 provider-authority consumer ABI can retain and inspect a context moved from
 trusted Rust, but cannot create one from C. Pure-C authority minting, a native
-Brontide and live Denuo registry/HIP-76/77/HNSR platform network adapter,
+Brontide and live Shakescape registry/HIP-76/77/HNSR platform network adapter,
 complete HNSA route discovery and response-completeness/quorum policy, atomic
 authenticated rollback-resistant storage of `HnsaNamedRouteState` with
 platform resource/profile generations and trusted-time high-water marks,

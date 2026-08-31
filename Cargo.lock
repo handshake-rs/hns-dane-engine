@@ -1096,7 +1096,7 @@ dependencies = [
 
 [[package]]
 name = "hns-dane-engine"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "blake2",
  "hns-browser-observability",
@@ -1317,9 +1317,9 @@ dependencies = [
 
 [[package]]
 name = "hns-p2p-experimental"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18e41ae74ab0179b1840ef35f7184db2695ae95e21ae5756f4203917eab0191e"
+checksum = "5c628a25f35064134059d4122ace0e8de078aff1bdb9fce2085d2d190a3100c6"
 dependencies = [
  "hex",
  "hns-encoding",
@@ -1332,7 +1332,7 @@ dependencies = [
 
 [[package]]
 name = "hns-p2p-transport"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "blake2",
  "hex",
@@ -1376,7 +1376,7 @@ dependencies = [
 
 [[package]]
 name = "hns-resolution-policy"
-version = "0.2.2"
+version = "0.3.0"
 
 [[package]]
 name = "hns-resolver"

@@ -3,6 +3,20 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## 0.3.0 - 2026-08-30
+
+- Replaced the discarded Denuo experimental peer profile with the clean-break
+  Shakescape V1 profile throughout resolution policy, authenticated P2P
+  transport, and the engine facade. The release accepts only the canonical
+  Shakescape registry, fingerprint, service and packet assignments supplied by
+  `hns-p2p-experimental 0.4.0`; it retains no Denuo alias, V2 profile, legacy
+  registry artifact, or compatibility decoding path.
+- Published only the three public crates whose production API or dependency
+  boundary changed: `hns-resolution-policy`, `hns-p2p-transport`, and
+  `hns-dane-engine`. Other workspace crates keep their existing releases; test
+  and documentation references were updated without manufacturing unrelated
+  crate versions.
+
 ## 0.2.2 - 2026-08-23
 
 - Added the eleven browser adapter names to the `0.2.2` crates.io cohort at
@@ -144,7 +158,7 @@ file. The public crates use a shared version and follow Semantic Versioning.
   listener and HTTP/TLS handling, local CA and exact-host leaf management, and
   browser integration building blocks. Mobile and Chromium shells consume this
   source, but no installed-product or live-network qualification evidence has
-  been recorded. Native Brontide and live Denuo registry/HIP-76/77/HNSR network
+  been recorded. Native Brontide and live Shakescape registry/HIP-76/77/HNSR network
   adapters, HNSA route discovery and endpoint-authenticated inner-session
   integration, HNSR endpoint/rendezvous roles, pure-C authority minting, and
   provider release availability remain absent.
@@ -180,7 +194,7 @@ file. The public crates use a shared version and follow Semantic Versioning.
   which did not publish or release the 0.2 line.
 - Added the canonical engine HNSR requester and ciphertext-only relay adapter
   over `hns-hnsr-protocol` 0.2.0. Both roles bind exact browser session/runtime
-  and policy generations, network/genesis, concrete Denuo V1 registry/profile,
+  and policy generations, network/genesis, concrete Shakescape V1 registry/profile,
   inner service profile, authenticated outer connection IDs, trusted time, and
   independent role generation. The adapter owns ticket admission, bounded
   requester flow control, reservation/circuit routing, generation-bound write
@@ -211,10 +225,10 @@ file. The public crates use a shared version and follow Semantic Versioning.
   signatures, network, locator, configuration, sequence, lifetime, time
   monotonicity, and snapshot non-rollback.
   Proxy binding independently requires the engine-selected canonical network
-  genesis, a policy-authorized concrete Denuo V1 wire profile retained from
-  peer admission, the Denuo V1 registry fingerprint/version/negotiation, and
-  both the Denuo-extension and ODoH service advertisements. Official,
-  Denuo V2, legacy-draft, and unresolved automatic peer profiles are rejected.
+  genesis, a policy-authorized concrete Shakescape V1 wire profile retained from
+  peer admission, the Shakescape V1 registry fingerprint/version/negotiation, and
+  both the Shakescape-extension and ODoH service advertisements. Official,
+  retired alternate profile, legacy-draft, and unresolved automatic peer profiles are rejected.
   Requester status schema 4 exposes the resolved peer profile and target-cache
   generation. Responses predating request
   start are rejected. Exact
@@ -225,7 +239,7 @@ file. The public crates use a shared version and follow Semantic Versioning.
   qualification gate; no live adapter or provider role was qualified.
 - Enabled the new-policy HNSR requester/client default alongside the existing
   opaque HNSR relay, HIP-76/HIP-77 requester paths, and opaque ODoH proxy.
-  Fresh policy now selects the bounded `Auto` wire profile so current Denuo
+  Fresh policy now selects the bounded `Auto` wire profile so current Shakescape
   draft assignments work while future exact official mappings can be
   negotiated without silently reusing packet numbers.
   Persisted requester and relay opt-outs remain exact, direct authority remains

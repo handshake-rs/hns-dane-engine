@@ -83,12 +83,11 @@ pub use hns_namespace_resolution::{
     HnsNetwork, Namespace, NamespaceDecision, OriginScheme, TlsTrustPolicy,
 };
 pub use hns_p2p_transport::{
-    AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DENUO_EXTENSION_SERVICE,
-    DirectTargetLocator, DnsRelayRequester, ExperimentalExchange, ExperimentalNetwork,
-    ExperimentalPeerState, ExperimentalRequest, ExperimentalResponse, ExperimentalWireProfile,
-    FetchedOdohTargetConfig, NegotiatedRegistry, ODOH_SERVICE, OdohRequester, P2pTransportError,
-    PeerIdentity, PeerProtocolError, ProtocolRange, RegistryHello, RequesterLimits, ServiceMask,
-    VerifiedOdohTarget,
+    AdapterFailure, AdmittedDnsResponse, AuthenticatedPeer, DirectTargetLocator, DnsRelayRequester,
+    ExperimentalExchange, ExperimentalNetwork, ExperimentalPeerState, ExperimentalRequest,
+    ExperimentalResponse, ExperimentalWireProfile, FetchedOdohTargetConfig, NegotiatedRegistry,
+    ODOH_SERVICE, OdohRequester, P2pTransportError, PeerIdentity, PeerProtocolError, ProtocolRange,
+    RegistryHello, RequesterLimits, SHAKESCAPE_EXTENSION_SERVICE, ServiceMask, VerifiedOdohTarget,
 };
 use hns_resolution_policy::{
     Admission, ChainAnchor, EvidenceState, Network, PolicyConfig, PolicyController, PolicyError,

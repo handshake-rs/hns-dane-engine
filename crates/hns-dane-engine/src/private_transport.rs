@@ -215,7 +215,7 @@ impl PrivateTransportBinding {
         self.network_magic
     }
 
-    /// Persisted policy profile from which a concrete Denuo V1 peer is resolved.
+    /// Persisted policy profile from which a concrete Shakescape V1 peer is resolved.
     #[must_use]
     pub const fn policy_wire_profile(self) -> WireProfile {
         self.policy_wire_profile
@@ -1215,7 +1215,7 @@ pub(crate) const fn resolved_odoh_profile(
     policy_profile: WireProfile,
 ) -> Result<ExperimentalWireProfile, PrivateTransportError> {
     match policy_profile {
-        WireProfile::DenuoV1 | WireProfile::Auto => Ok(ExperimentalWireProfile::DenuoV1),
+        WireProfile::ShakescapeV1 | WireProfile::Auto => Ok(ExperimentalWireProfile::ShakescapeV1),
         WireProfile::Official => Err(PrivateTransportError::UnsupportedWireProfile),
     }
 }
@@ -1489,9 +1489,8 @@ impl Error for PrivateTransportError {
 mod tests {
     use super::*;
     use crate::{
-        DENUO_EXTENSION_SERVICE, EngineConfig, ExperimentalWireProfile, ODOH_SERVICE,
-        PeerProtocolError, PolicyConfig, PolicySnapshot, RegistryHello, RuntimeSessionId,
-        ServiceMask,
+        EngineConfig, ExperimentalWireProfile, ODOH_SERVICE, PeerProtocolError, PolicyConfig,
+        PolicySnapshot, RegistryHello, RuntimeSessionId, SHAKESCAPE_EXTENSION_SERVICE, ServiceMask,
     };
 
     const SECP256K1_GENERATOR: [u8; 33] = [
@@ -1501,7 +1500,7 @@ mod tests {
     ];
 
     fn ready_engine(session: u8, network: Network) -> Engine {
-        ready_engine_with_profile(session, network, WireProfile::DenuoV1)
+        ready_engine_with_profile(session, network, WireProfile::ShakescapeV1)
     }
 
     fn ready_engine_with_profile(
@@ -1539,18 +1538,18 @@ mod tests {
         network: ExperimentalNetwork,
         genesis_hash: [u8; 32],
         advertise_odoh: bool,
-        advertise_denuo: bool,
+        advertise_shakescape: bool,
         alternate_registry: bool,
     ) -> (ExperimentalPeerState, NegotiatedRegistry) {
         let hello =
-            RegistryHello::denuo_v1(network, genesis_hash, Vec::new(), 100_000, 8, 0).unwrap();
+            RegistryHello::shakescape_v1(network, genesis_hash, Vec::new(), 100_000, 8, 0).unwrap();
         let mut registry = NegotiatedRegistry::negotiate(&hello, &hello).unwrap();
         if alternate_registry {
             registry.fingerprint = [0x44; 32].into();
         }
         let mut services = ServiceMask::default();
-        if advertise_denuo {
-            services = services.with(DENUO_EXTENSION_SERVICE);
+        if advertise_shakescape {
+            services = services.with(SHAKESCAPE_EXTENSION_SERVICE);
         }
         if advertise_odoh {
             services = services.with(ODOH_SERVICE);
@@ -1783,7 +1782,7 @@ mod tests {
         let regtest_genesis = canonical_genesis_hash(Network::Regtest);
 
         let (peer, registry) = proxy_inputs(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Testnet,
             canonical_genesis_hash(Network::Testnet),
             true,
@@ -1798,7 +1797,7 @@ mod tests {
         ));
 
         let (peer, registry) = proxy_inputs(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Regtest,
             [0x45; 32],
             true,
@@ -1813,7 +1812,7 @@ mod tests {
         ));
 
         let (peer, registry) = proxy_inputs(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Regtest,
             regtest_genesis,
             true,
@@ -1828,7 +1827,7 @@ mod tests {
         ));
 
         let (peer, registry) = proxy_inputs(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Regtest,
             regtest_genesis,
             false,
@@ -1843,7 +1842,7 @@ mod tests {
         ));
 
         let (peer, registry) = proxy_inputs(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Regtest,
             regtest_genesis,
             true,
@@ -1860,7 +1859,6 @@ mod tests {
         ));
 
         for profile in [
-            ExperimentalWireProfile::DenuoV2,
             ExperimentalWireProfile::LegacyDraftRegtest,
             ExperimentalWireProfile::Official(1),
             ExperimentalWireProfile::Auto,
@@ -1877,7 +1875,7 @@ mod tests {
                 runtime.bind_proxy(&engine, identity, peer, registry),
                 Err(PrivateTransportError::Transport(
                     P2pTransportError::UnexpectedWireProfile {
-                        expected: ExperimentalWireProfile::DenuoV1,
+                        expected: ExperimentalWireProfile::ShakescapeV1,
                         actual,
                     }
                 )) if actual == profile
@@ -1885,7 +1883,7 @@ mod tests {
         }
 
         let (peer, registry) = proxy_inputs(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Regtest,
             regtest_genesis,
             true,
@@ -1900,11 +1898,11 @@ mod tests {
         assert_eq!(status.proxy_identity, Some(SECP256K1_GENERATOR));
         assert_eq!(
             runtime.binding().policy_wire_profile(),
-            WireProfile::DenuoV1
+            WireProfile::ShakescapeV1
         );
         assert_eq!(
             status.resolved_wire_profile,
-            Some(ExperimentalWireProfile::DenuoV1)
+            Some(ExperimentalWireProfile::ShakescapeV1)
         );
         assert!(!status.requester_ready);
     }
@@ -1932,7 +1930,7 @@ mod tests {
             .unwrap();
         let regtest_genesis = canonical_genesis_hash(Network::Regtest);
         let (peer, registry) = proxy_inputs(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             ExperimentalNetwork::Regtest,
             regtest_genesis,
             true,
@@ -1953,7 +1951,7 @@ mod tests {
                 .status(&auto_engine, 1_700_000_101)
                 .unwrap()
                 .resolved_wire_profile,
-            Some(ExperimentalWireProfile::DenuoV1)
+            Some(ExperimentalWireProfile::ShakescapeV1)
         );
     }
 }

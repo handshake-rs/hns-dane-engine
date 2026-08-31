@@ -609,7 +609,7 @@ mod tests {
             authenticated_authoritative_doh: false,
             oblivious_dns: ObliviousDnsPolicy::Required,
             providers: ProviderPolicy::default(),
-            wire_profile: WireProfile::DenuoV1,
+            wire_profile: WireProfile::ShakescapeV1,
             ..PolicyConfig::default()
         };
         let snapshot = PolicySnapshot::new(9, config).unwrap();

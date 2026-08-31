@@ -121,7 +121,7 @@ Those runs remain historical, exact-commit source evidence.
 
 This remains deterministic engine-source evidence, not installed-platform or
 live-network evidence. It does not establish benchmark results, native
-Brontide or live Denuo/HIP-76/HIP-77/HNSR I/O, HNSA directory discovery or
+Brontide or live Shakescape/HIP-76/HIP-77/HNSR I/O, HNSA directory discovery or
 inner sessions, platform rollback-resistant persistence, provider
 availability, wallet/value operations, or a marketplace.
 
@@ -375,8 +375,8 @@ Recorded foundation coverage and dated source status:
   requester-only ODoH runtime:
   exact runtime session/generation/invalidation/policy/network binding;
   canonical network/genesis/registry/negotiation proxy admission; exact
-  policy-resolved Denuo V1 peer-profile retention; mandatory Denuo-extension
-  and ODoH services; rejection of Official, Denuo V2, legacy-draft, and
+  policy-resolved Shakescape V1 peer-profile retention; mandatory Shakescape-extension
+  and ODoH services; rejection of Official, Shakescape V1, legacy-draft, and
   unresolved automatic peer profiles; status schema 4 exposure of the resolved
   peer profile and monotonic cache generation; target-cache wire schema 3 with
   a mandatory caller-held restore floor;
@@ -389,7 +389,7 @@ Recorded foundation coverage and dated source status:
 - 0.2 source covered by the exact dated `2b23bd5` gate for canonical
   GETCONFIG/CONFIG acquisition and the HNSR requester/opaque-relay adapter:
   borrowed consumption of the one
-  platform-owned `BrowserRuntime`; exact Denuo V1 outer-peer, connection,
+  platform-owned `BrowserRuntime`; exact Shakescape V1 outer-peer, connection,
   network/genesis, policy, role, and service-profile binding; signed-ticket
   requester flow control; opaque reservation/circuit routing; exact queued
   write acknowledgement and disconnect cleanup; checked role enablement
@@ -496,7 +496,7 @@ Still absent or unevidenced:
 - subdelegation discovery and a complete live authoritative DNSSEC walk beyond the on-chain TLD
   DNSKEY path;
 - authenticated authoritative DoH and HIP-76/77 provider roles;
-- a native Brontide socket adapter and live Denuo registry negotiation exchange
+- a native Brontide socket adapter and live Shakescape registry negotiation exchange
   for the implemented HIP-76/77 requester boundary, engine-owned ODoH
   lifecycle, and HNSR requester/opaque-relay state machines, plus HSD draft-PR
   cross-language execution (the requester consumes and enforces an already

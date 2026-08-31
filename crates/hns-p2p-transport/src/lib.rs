@@ -30,14 +30,15 @@ use hns_odoh_protocol::{
     OdohStatus, QueryContext, TargetConfigRecord, seal_query,
 };
 use hns_p2p_experimental::{
-    DENUO_EXTENSION_PACKET, DENUO_V1_REGISTRY_FINGERPRINT, DENUO_V1_REGISTRY_VERSION,
     DNS_RELAY_REQUEST_PACKET, DNS_RELAY_RESPONSE_PACKET, HNSR_PACKET, ODOH_PACKET, PacketType,
     REGISTRY_NEGOTIATION_PROTOCOL_ID, REGISTRY_NEGOTIATION_PROTOCOL_VERSION,
+    SHAKESCAPE_EXTENSION_PACKET, SHAKESCAPE_V1_REGISTRY_FINGERPRINT,
+    SHAKESCAPE_V1_REGISTRY_VERSION,
 };
 pub use hns_p2p_experimental::{
-    DENUO_EXTENSION_SERVICE, ExperimentalPeerState, ExperimentalWireProfile, NegotiatedRegistry,
+    ExperimentalPeerState, ExperimentalWireProfile, NegotiatedRegistry,
     Network as ExperimentalNetwork, ODOH_SERVICE, PeerProtocolError, ProtocolRange, RegistryHello,
-    ServiceMask,
+    SHAKESCAPE_EXTENSION_SERVICE, ServiceMask,
 };
 use hns_transport::CancellationToken;
 use k256::PublicKey;
@@ -74,7 +75,7 @@ impl PeerIdentity {
 ///
 /// The caller may create this value only after the adapter's Brontide
 /// handshake authenticated `identity`. The constructor installs the exact
-/// negotiated Denuo registry before any private packet can be used.
+/// negotiated Shakescape registry before any private packet can be used.
 #[derive(Debug)]
 pub struct AuthenticatedPeer {
     identity: PeerIdentity,
@@ -147,13 +148,13 @@ impl AuthenticatedPeer {
         self.identity
     }
 
-    /// Exact Denuo registry fingerprint authenticated for this session.
+    /// Exact Shakescape registry fingerprint authenticated for this session.
     #[must_use]
     pub const fn registry_fingerprint(&self) -> [u8; 32] {
         self.registry_fingerprint
     }
 
-    /// Exact Denuo registry version negotiated for this session.
+    /// Exact Shakescape registry version negotiated for this session.
     #[must_use]
     pub const fn registry_version(&self) -> u16 {
         self.registry_version
@@ -177,13 +178,13 @@ impl AuthenticatedPeer {
         self.wire_profile
     }
 
-    /// Validate this peer as an exact canonical Denuo V1 ODoH proxy.
+    /// Validate this peer as an exact canonical Shakescape V1 ODoH proxy.
     ///
     /// This narrow engine handoff checks the policy-resolved concrete profile,
     /// engine-selected network, and canonical genesis independently of the
     /// caller-created peer state, rejects a self-consistent alternate registry,
     /// and pre-admits the ODoH packet so requester readiness cannot be claimed
-    /// without both Denuo-extension and ODoH services.
+    /// without both Shakescape-extension and ODoH services.
     pub fn admit_canonical_odoh_proxy(
         &mut self,
         expected_network: ExperimentalNetwork,
@@ -191,7 +192,7 @@ impl AuthenticatedPeer {
         expected_profile: ExperimentalWireProfile,
     ) -> Result<(), P2pTransportError> {
         if self.wire_profile != expected_profile
-            || expected_profile != ExperimentalWireProfile::DenuoV1
+            || expected_profile != ExperimentalWireProfile::ShakescapeV1
         {
             return Err(P2pTransportError::UnexpectedWireProfile {
                 expected: expected_profile,
@@ -208,8 +209,8 @@ impl AuthenticatedPeer {
                 PeerProtocolError::WrongGenesis,
             ));
         }
-        if self.registry_fingerprint != *DENUO_V1_REGISTRY_FINGERPRINT.as_bytes()
-            || self.registry_version != DENUO_V1_REGISTRY_VERSION
+        if self.registry_fingerprint != *SHAKESCAPE_V1_REGISTRY_FINGERPRINT.as_bytes()
+            || self.registry_version != SHAKESCAPE_V1_REGISTRY_VERSION
             || !self.registry_protocol_negotiated
         {
             return Err(P2pTransportError::InvalidNegotiatedRegistry);
@@ -217,7 +218,7 @@ impl AuthenticatedPeer {
         self.admit(ODOH_PACKET)
     }
 
-    /// Validate this peer as an exact canonical Denuo V1 HNSR relay.
+    /// Validate this peer as an exact canonical Shakescape V1 HNSR relay.
     ///
     /// In addition to the canonical network, genesis, wire profile, registry,
     /// and extension service, the remote peer must advertise an HNSR relay or
@@ -228,7 +229,7 @@ impl AuthenticatedPeer {
         expected_genesis_hash: [u8; 32],
         expected_profile: ExperimentalWireProfile,
     ) -> Result<(), P2pTransportError> {
-        self.validate_canonical_denuo_peer(
+        self.validate_canonical_shakescape_peer(
             expected_network,
             expected_genesis_hash,
             expected_profile,
@@ -236,10 +237,10 @@ impl AuthenticatedPeer {
         self.admit(HNSR_PACKET)
     }
 
-    /// Validate a canonical Denuo V1 HNSR requester or endpoint connection.
+    /// Validate a canonical Shakescape V1 HNSR requester or endpoint connection.
     ///
     /// Requesters and endpoints do not advertise a provider service bit. This
-    /// admission therefore requires the canonical registry and Denuo extension
+    /// admission therefore requires the canonical registry and Shakescape extension
     /// service but intentionally does not pretend the remote is a relay or
     /// rendezvous provider. The local HNSR role decides whether its packet is
     /// accepted after this outer-peer admission succeeds.
@@ -249,22 +250,22 @@ impl AuthenticatedPeer {
         expected_genesis_hash: [u8; 32],
         expected_profile: ExperimentalWireProfile,
     ) -> Result<(), P2pTransportError> {
-        self.validate_canonical_denuo_peer(
+        self.validate_canonical_shakescape_peer(
             expected_network,
             expected_genesis_hash,
             expected_profile,
         )?;
-        self.admit(DENUO_EXTENSION_PACKET)
+        self.admit(SHAKESCAPE_EXTENSION_PACKET)
     }
 
-    fn validate_canonical_denuo_peer(
+    fn validate_canonical_shakescape_peer(
         &self,
         expected_network: ExperimentalNetwork,
         expected_genesis_hash: [u8; 32],
         expected_profile: ExperimentalWireProfile,
     ) -> Result<(), P2pTransportError> {
         if self.wire_profile != expected_profile
-            || expected_profile != ExperimentalWireProfile::DenuoV1
+            || expected_profile != ExperimentalWireProfile::ShakescapeV1
         {
             return Err(P2pTransportError::UnexpectedWireProfile {
                 expected: expected_profile,
@@ -281,8 +282,8 @@ impl AuthenticatedPeer {
                 PeerProtocolError::WrongGenesis,
             ));
         }
-        if self.registry_fingerprint != *DENUO_V1_REGISTRY_FINGERPRINT.as_bytes()
-            || self.registry_version != DENUO_V1_REGISTRY_VERSION
+        if self.registry_fingerprint != *SHAKESCAPE_V1_REGISTRY_FINGERPRINT.as_bytes()
+            || self.registry_version != SHAKESCAPE_V1_REGISTRY_VERSION
             || !self.registry_protocol_negotiated
         {
             return Err(P2pTransportError::InvalidNegotiatedRegistry);
@@ -1050,8 +1051,8 @@ mod tests {
     use hns_odoh_protocol::config::encode_config_list;
     use hns_odoh_protocol::{ClientQuery, open_query};
     use hns_p2p_experimental::{
-        DENUO_EXTENSION_SERVICE, DNS_RELAY_SERVICE, ExperimentalWireProfile, Network, ODOH_SERVICE,
-        ServiceMask,
+        DNS_RELAY_SERVICE, ExperimentalWireProfile, Network, ODOH_SERVICE,
+        SHAKESCAPE_EXTENSION_SERVICE, ServiceMask,
     };
     use hns_primitives::RegistryFingerprint;
     use hpke::kem::X25519HkdfSha256;
@@ -1091,11 +1092,11 @@ mod tests {
         let fingerprint = RegistryFingerprint::new([0x42; 32]);
         let genesis = [0x24; 32];
         let services = ServiceMask::default()
-            .with(DENUO_EXTENSION_SERVICE)
+            .with(SHAKESCAPE_EXTENSION_SERVICE)
             .with(DNS_RELAY_SERVICE)
             .with(ODOH_SERVICE);
         let state = ExperimentalPeerState::new(
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             Network::Regtest,
             genesis,
             fingerprint,
@@ -1125,11 +1126,11 @@ mod tests {
         genesis_hash: [u8; 32],
         fingerprint: RegistryFingerprint,
         advertise_odoh: bool,
-        advertise_denuo: bool,
+        advertise_shakescape: bool,
     ) -> Result<AuthenticatedPeer, P2pTransportError> {
         let mut services = ServiceMask::default();
-        if advertise_denuo {
-            services = services.with(DENUO_EXTENSION_SERVICE);
+        if advertise_shakescape {
+            services = services.with(SHAKESCAPE_EXTENSION_SERVICE);
         }
         if advertise_odoh {
             services = services.with(ODOH_SERVICE);
@@ -1141,7 +1142,7 @@ mod tests {
             state,
             NegotiatedRegistry {
                 fingerprint,
-                registry_version: DENUO_V1_REGISTRY_VERSION,
+                registry_version: SHAKESCAPE_V1_REGISTRY_VERSION,
                 protocols: vec![(
                     REGISTRY_NEGOTIATION_PROTOCOL_ID,
                     REGISTRY_NEGOTIATION_PROTOCOL_VERSION,
@@ -1616,11 +1617,11 @@ mod tests {
     )]
     fn production_followup_canonical_odoh_proxy_rejects_substituted_identity_and_service() {
         let identity = secp_identity(19).1;
-        let canonical_fingerprint = DENUO_V1_REGISTRY_FINGERPRINT;
+        let canonical_fingerprint = SHAKESCAPE_V1_REGISTRY_FINGERPRINT;
         let genesis = [0x31; 32];
         let mut canonical = canonical_odoh_peer(
             identity,
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             Network::Regtest,
             genesis,
             canonical_fingerprint,
@@ -1628,14 +1629,21 @@ mod tests {
             true,
         )
         .unwrap();
-        assert_eq!(canonical.wire_profile(), ExperimentalWireProfile::DenuoV1);
+        assert_eq!(
+            canonical.wire_profile(),
+            ExperimentalWireProfile::ShakescapeV1
+        );
         canonical
-            .admit_canonical_odoh_proxy(Network::Regtest, genesis, ExperimentalWireProfile::DenuoV1)
+            .admit_canonical_odoh_proxy(
+                Network::Regtest,
+                genesis,
+                ExperimentalWireProfile::ShakescapeV1,
+            )
             .unwrap();
 
         let mut wrong_network = canonical_odoh_peer(
             identity,
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             Network::Testnet,
             genesis,
             canonical_fingerprint,
@@ -1647,7 +1655,7 @@ mod tests {
             wrong_network.admit_canonical_odoh_proxy(
                 Network::Regtest,
                 genesis,
-                ExperimentalWireProfile::DenuoV1,
+                ExperimentalWireProfile::ShakescapeV1,
             ),
             Err(P2pTransportError::PeerAdmission(
                 PeerProtocolError::WrongNetwork
@@ -1656,7 +1664,7 @@ mod tests {
 
         let mut wrong_genesis = canonical_odoh_peer(
             identity,
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             Network::Regtest,
             [0x32; 32],
             canonical_fingerprint,
@@ -1668,7 +1676,7 @@ mod tests {
             wrong_genesis.admit_canonical_odoh_proxy(
                 Network::Regtest,
                 genesis,
-                ExperimentalWireProfile::DenuoV1,
+                ExperimentalWireProfile::ShakescapeV1,
             ),
             Err(P2pTransportError::PeerAdmission(
                 PeerProtocolError::WrongGenesis
@@ -1677,7 +1685,7 @@ mod tests {
 
         let mut alternate_registry = canonical_odoh_peer(
             identity,
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             Network::Regtest,
             genesis,
             RegistryFingerprint::new([0x33; 32]),
@@ -1689,14 +1697,14 @@ mod tests {
             alternate_registry.admit_canonical_odoh_proxy(
                 Network::Regtest,
                 genesis,
-                ExperimentalWireProfile::DenuoV1,
+                ExperimentalWireProfile::ShakescapeV1,
             ),
             Err(P2pTransportError::InvalidNegotiatedRegistry)
         ));
 
         let mut missing_service = canonical_odoh_peer(
             identity,
-            ExperimentalWireProfile::DenuoV1,
+            ExperimentalWireProfile::ShakescapeV1,
             Network::Regtest,
             genesis,
             canonical_fingerprint,
@@ -1708,7 +1716,7 @@ mod tests {
             missing_service.admit_canonical_odoh_proxy(
                 Network::Regtest,
                 genesis,
-                ExperimentalWireProfile::DenuoV1,
+                ExperimentalWireProfile::ShakescapeV1,
             ),
             Err(P2pTransportError::PeerAdmission(
                 PeerProtocolError::PacketWithoutService { .. }
@@ -1716,7 +1724,6 @@ mod tests {
         ));
 
         for profile in [
-            ExperimentalWireProfile::DenuoV2,
             ExperimentalWireProfile::LegacyDraftRegtest,
             ExperimentalWireProfile::Official(1),
             ExperimentalWireProfile::Auto,
@@ -1735,10 +1742,10 @@ mod tests {
                 substituted_profile.admit_canonical_odoh_proxy(
                     Network::Regtest,
                     genesis,
-                    ExperimentalWireProfile::DenuoV1,
+                    ExperimentalWireProfile::ShakescapeV1,
                 ),
                 Err(P2pTransportError::UnexpectedWireProfile {
-                    expected: ExperimentalWireProfile::DenuoV1,
+                    expected: ExperimentalWireProfile::ShakescapeV1,
                     actual,
                 }) if actual == profile
             ));
@@ -1747,7 +1754,7 @@ mod tests {
         assert!(matches!(
             canonical_odoh_peer(
                 identity,
-                ExperimentalWireProfile::DenuoV1,
+                ExperimentalWireProfile::ShakescapeV1,
                 Network::Regtest,
                 genesis,
                 canonical_fingerprint,

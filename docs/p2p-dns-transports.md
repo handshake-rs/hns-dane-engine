@@ -1,6 +1,6 @@
 # Authenticated P2P DNS requester boundary
 
-Status: **Denuo Experimental V1 — Not an official Handshake protocol
+Status: **Shakescape Experimental V1 — Not an official Handshake protocol
 assignment**.
 
 `hns-p2p-transport` executes the runtime-independent requester side of draft
@@ -11,7 +11,7 @@ socket runtime or claim that Brontide authenticates DNS content.
 ## Adapter contract
 
 The platform establishes an ordinary Handshake Brontide session and completes
-the Denuo registry negotiation. It then binds the authenticated compressed
+the Shakescape registry negotiation. It then binds the authenticated compressed
 static key, peer service mask, registry fingerprint/version, network, and
 genesis identity into `AuthenticatedPeer`.
 
@@ -86,12 +86,12 @@ non-cloneable request-ID space. The runtime retains the exact engine session,
 runtime generation, policy generation, invalidation watermark, network magic,
 policy wire profile, Brontide proxy identity, exact peer wire profile, registry
 fingerprint/version, and negotiated request bound. Binding resolves policy
-`DenuoV1` or `Auto` to concrete Denuo V1, independently compares that exact
+`ShakescapeV1` or `Auto` to concrete Shakescape V1, independently compares that exact
 profile and the peer's negotiated network and genesis to canonical engine
-parameters, requires the canonical Denuo V1 registry
+parameters, requires the canonical Shakescape V1 registry
 fingerprint/version/negotiation protocol, and pre-admits `ODOH_PACKET` against
-both advertised ODoH and Denuo-extension services before reporting a proxy.
-Official, Denuo V2, legacy-draft, and unresolved `Auto` peer profiles fail
+both advertised ODoH and Shakescape-extension services before reporting a proxy.
+Official, Shakescape V1, legacy-draft, and unresolved `Auto` peer profiles fail
 closed. Requester status schema 4 reports the retained resolved profile and
 monotonic target-cache generation; target-cache wire schema 3 persists that
 generation. It checks the engine before and
@@ -129,7 +129,7 @@ not create either server role.
 
 `HnsrRequesterRuntime` and `HnsrOpaqueRelayRuntime` wrap the canonical bounded
 `hns-hnsr-protocol` state machines. Start binds the current browser admission,
-policy generation, Handshake network/genesis, concrete Denuo V1 peer registry,
+policy generation, Handshake network/genesis, concrete Shakescape V1 peer registry,
 exact HNSR service profile, and a nonzero caller-held role generation. Every
 outer peer is admitted from an exact adapter connection label plus its
 Brontide-authenticated key and negotiated registry. A reconnect cannot inherit
