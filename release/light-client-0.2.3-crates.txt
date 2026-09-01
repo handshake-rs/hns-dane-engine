@@ -1,0 +1,5 @@
+# Compatible light-client patch cohort, in public dependency order.
+hns-light-chain
+hns-light-wallet
+hns-light-p2p
+hns-light-sync

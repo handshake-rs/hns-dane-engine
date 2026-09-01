@@ -142,9 +142,10 @@ must provide or cross-build OpenSSL for its target and run a separate
 cross-target qualification. The adapters deliberately require exactly
 one platform feature, so a workspace-wide `--all-features` invocation is
 invalid rather than stronger coverage. The gate finishes with the release
-validator, execute-argument guards, and an archive-only inspection of all 19
-public packages. Cargo's real publish dry-runs run separately in the
-exact-commit workflow documented in [`releasing.md`](releasing.md).
+validator, execute-argument guards, immutable archive readback, and normalized
+publish dry-runs for every current patch package. The exact-commit workflow
+documented in [`releasing.md`](releasing.md) repeats that release boundary
+before publication.
 
 ## Historical v0.1 evidence
 

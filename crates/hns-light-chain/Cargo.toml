@@ -1,7 +1,7 @@
 [package]
 name = "hns-light-chain"
 description = "Locally validated Handshake header chain and Urkel name-resource anchors"
-version.workspace = true
+version = "0.2.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

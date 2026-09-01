@@ -110,8 +110,11 @@ PREPUBLISHED_SUCCESSOR_PACKAGES = (
     "hns-dane-engine",
 )
 PATCH_RELEASE_VERSION = "0.2.3"
-PATCH_RELEASE_MANIFEST = "release/light-sync-0.2.3-crates.txt"
+PATCH_RELEASE_MANIFEST = "release/light-client-0.2.3-crates.txt"
 PATCH_RELEASE_PACKAGES = (
+    "hns-light-chain",
+    "hns-light-wallet",
+    "hns-light-p2p",
     "hns-light-sync",
 )
 PATCH_RELEASE_VERSIONS = {
@@ -451,11 +454,9 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
 
 def verify_release_workflow(repo: Path) -> None:
     check_script = (repo / "scripts/check.sh").read_text(encoding="utf-8")
-    archive_command = "./scripts/publish.sh --archive-only"
+    archive_command = "./scripts/publish.sh --dry-run"
     if check_script.count(archive_command) != 1:
-        fail("scripts/check.sh must run archive-only release verification once")
-    if "./scripts/publish.sh --dry-run" in check_script:
-        fail("scripts/check.sh must not run the expensive publish dry-run")
+        fail("scripts/check.sh must run normalized publish dry-run verification once")
     if check_script.count("./scripts/check-publish-arguments.sh") != 1:
         fail("scripts/check.sh must run publish argument guards once")
 
@@ -1046,7 +1047,7 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 )
             patch_changelog_url = (
                 "https://github.com/handshake-rs/hns-dane-engine/blob/"
-                f"{name}-v{expected_version}/CHANGELOG.md"
+                f"light-client-v{expected_version}/CHANGELOG.md"
             )
             if patch_changelog_url not in package_changelog_text:
                 fail(f"{name} CHANGELOG.md does not link the patch release tag")

@@ -1220,7 +1220,7 @@ version = "0.2.2"
 
 [[package]]
 name = "hns-light-chain"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "blake2",
  "hns-covenants",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "hns-light-p2p"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "hns-header-consensus",
  "hns-p2p-wire",
@@ -1255,7 +1255,7 @@ dependencies = [
 
 [[package]]
 name = "hns-light-wallet"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "blake2",
  "hex",

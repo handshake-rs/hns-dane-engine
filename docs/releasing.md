@@ -17,10 +17,13 @@ The retained stateless-DANE plan correction was a targeted `0.2.3` patch
 release of `hns-namespace-resolution` and `hns-browser-gateway`, recorded in
 [`release/stateless-dane-0.2.3-crates.txt`](../release/stateless-dane-0.2.3-crates.txt).
 Those immutable archives are now pinned by checksum and source provenance. The
-current targeted `0.2.3` release contains only `hns-light-sync`, as recorded in
-[`release/light-sync-0.2.3-crates.txt`](../release/light-sync-0.2.3-crates.txt).
-It exposes safe recovery from an abandoned, uncommitted header round without
-reissuing unrelated engine crates.
+current targeted `0.2.3` release is the compatible light-client cohort recorded
+in
+[`release/light-client-0.2.3-crates.txt`](../release/light-client-0.2.3-crates.txt).
+It advances `hns-light-chain`, `hns-light-wallet`, `hns-light-p2p`, and
+`hns-light-sync` together so normalized registry packages use one coherent
+`hns-rs 0.4.1` type graph. `hns-light-sync` also exposes safe recovery from an
+abandoned, uncommitted header round.
 
 ## Public package allowlist
 
@@ -102,7 +105,7 @@ and
 [`release/hns-dane-engine-shakescape-successor-crates.sha256`](../release/hns-dane-engine-shakescape-successor-crates.sha256)
 at source `ee222208a7750dcb061c5c3cc16b8cf82d75033e`. Execute mode verifies
 those archives directly and never attempts to rebuild them from the current
-`hns-light-sync` patch source.
+light-client patch source.
 
 Every dependency between public packages carries both a repository path and
 the shared crates.io version. The private repository-only test dependency
@@ -123,12 +126,13 @@ release contract therefore qualifies the normalized engine library, examples,
 and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
-Routine qualification verifies all thirty-one immutable `0.2.2` registry
-archives, the two immutable earlier `0.2.3` archives, and creates a normalized
-`0.2.3` archive only for `hns-light-sync` from
-`release/light-sync-0.2.3-crates.txt`. The separate manual release preflight
-performs Cargo's real normalized `cargo publish --dry-run` only for that update
-while revalidating every recorded immutable artifact.
+Routine qualification verifies every recorded immutable registry archive and
+performs Cargo's normalized `cargo publish --dry-run` for all four current
+`0.2.3` packages from `release/light-client-0.2.3-crates.txt`. This compilation
+uses the normalized dependency declarations that crates.io consumers receive,
+so registry-only version skew cannot be hidden by workspace path dependencies.
+The separate manual release preflight repeats that release boundary for the
+exact candidate commit.
 
 ## Upstream protocol gate
 
@@ -190,13 +194,14 @@ Those runs are retained historical evidence and did not replace the manual
    Execute mode rejects a mismatched version, unsynchronized release file, or
    undated changelog.
 
-2. Run the cheap release checks while preparing source. Archive-only mode does
-   not compile package code:
+2. Run the cheap release checks while preparing source, followed by the real
+   normalized package compilation:
 
    ```bash
    python3 scripts/verify-release.py --toolchain 1.89.0
    ./scripts/check-publish-arguments.sh
    ./scripts/publish.sh --archive-only
+   ./scripts/publish.sh --dry-run
    ```
 
 3. Inspect and commit the exact release source. Execute mode requires a clean
@@ -209,9 +214,9 @@ Those runs are retained historical evidence and did not replace the manual
    ./scripts/check.sh
    ```
 
-   Routine qualification reads back the twenty immutable baseline archives and
-   performs one archive-only packaging pass for the eleven new adapter crates
-   after the normal workspace checks. Confirm
+   Routine qualification reads back every immutable baseline archive and
+   performs normalized publish dry-runs for the current light-client patch
+   cohort after the normal workspace checks. Confirm
    that CI and every configured CodeQL language completed successfully for the
    same exact commit before continuing.
 

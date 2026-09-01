@@ -30,6 +30,17 @@ do
         exit 1
     fi
     case "$package" in
+        hns-browser-observability|hns-dane-engine|hns-gateway|\
+        hns-p2p-transport|hns-resolution-policy)
+            cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
+            cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
+            ;;
+        hns-light-chain|hns-light-wallet|hns-light-p2p|hns-light-sync)
+            cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
+            cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
+            cp -- release/LIGHT-CLIENT-0.2.3-CRATE-CHANGELOG.md \
+                "crates/$package/CHANGELOG.md"
+            ;;
         hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
         hns-browser-gateway|hns-browser-loopback-proxy|hns-browser-p2p|\
         hns-browser-primitives|hns-browser-resolver|hns-browser-sync|\

@@ -73,10 +73,10 @@ hns-header-consensus = { version = "=0.4.1" }
 hns-hnsr-protocol = { version = "=0.4.1" }
 hns-hrm = { version = "=0.4.1" }
 hns-icann-dane = { version = "0.2.2", path = "crates/hns-icann-dane" }
-hns-light-chain = { version = "0.2.2", path = "crates/hns-light-chain" }
-hns-light-p2p = { version = "0.2.2", path = "crates/hns-light-p2p" }
+hns-light-chain = { version = "0.2.3", path = "crates/hns-light-chain" }
+hns-light-p2p = { version = "0.2.3", path = "crates/hns-light-p2p" }
 hns-light-sync = { version = "0.2.3", path = "crates/hns-light-sync" }
-hns-light-wallet = { version = "0.2.2", path = "crates/hns-light-wallet" }
+hns-light-wallet = { version = "0.2.3", path = "crates/hns-light-wallet" }
 hns-loopback-proxy = { version = "0.2.2", path = "crates/hns-loopback-proxy" }
 hns-namespace-resolution = { version = "0.2.3", path = "crates/hns-namespace-resolution" }
 hns-odoh-protocol = { version = "=0.4.1" }

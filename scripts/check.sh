@@ -28,4 +28,4 @@ cmp include/hns_dane_engine.h crates/hns-dane-engine-ffi/include/hns_dane_engine
 cc -std=c11 -Wall -Wextra -Werror -fsyntax-only tests/abi_header_smoke.c
 python3 scripts/verify-release.py --toolchain "$RUST_TOOLCHAIN"
 ./scripts/check-publish-arguments.sh
-./scripts/publish.sh --archive-only
+./scripts/publish.sh --dry-run

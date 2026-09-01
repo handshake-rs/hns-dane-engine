@@ -1,8 +1,14 @@
 # Changelog
 
-This crate uses the shared `hns-dane-engine` workspace version. Complete
-release notes for every public crate are maintained in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/v0.2.2/CHANGELOG.md).
+This crate is part of the compatible `hns-dane-engine` light-client patch
+cohort. Complete release notes are maintained in the repository-level
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/light-client-v0.2.3/CHANGELOG.md).
+
+## 0.2.3 - 2026-09-01
+
+Repinned the public light-client type graph to the coherent `hns-rs 0.4.1`
+protocol cohort. `hns-light-sync` also adds safe abandonment of an uncommitted
+header round while preserving authenticated chain state.
 
 ## 0.2.2 - 2026-08-23
 
