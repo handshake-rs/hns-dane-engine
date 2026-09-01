@@ -3,6 +3,19 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## 0.2.3 (`hns-light-sync`) - 2026-09-01
+
+- Added a bounded recovery operation that abandons only an uncommitted header
+  round while preserving the authenticated chain, durable rollback state, and
+  verified tip. This lets serialized wallet coordinators recover from a
+  controller that was retired between beginning and finishing a header round.
+- Repinned the protocol closure to the coherent nineteen-crate `hns-rs 0.4.1`
+  cohort from source `73611a0d83778e157b35f28ca2197d068e83fc61`.
+  Release execution verifies every non-yanked registry archive, checksum,
+  source revision, and package path before publishing `hns-light-sync 0.2.3`.
+- This targeted patch does not reissue the already published namespace,
+  gateway, policy, transport, or engine crates.
+
 ## 0.3.0 - 2026-08-30
 
 - Replaced the discarded Denuo experimental peer profile with the clean-break

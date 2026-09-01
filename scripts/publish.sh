@@ -17,13 +17,10 @@ require_clean_archive_vcs=no
 package_mode='publish-dry-run'
 release_manifest=release/public-crates.txt
 protocol_repository=https://github.com/handshake-rs/hns-rs.git
-protocol_revision=0e99addca59778b7b7c6fc56291333a97c4c8815
-protocol_version=0.3.1
+protocol_revision=73611a0d83778e157b35f28ca2197d068e83fc61
+protocol_version=0.4.1
 protocol_crates='hns-encoding hns-rollback-journal hns-hrm hns-primitives hns-covenants hns-dns-relay-protocol hns-header-consensus hns-service-authority hns-odoh-protocol hns-p2p-experimental hns-urkel-proof hns-transaction hns-chat-protocol hns-hnsr-protocol hns-script hns-mining hns-swap hns-marketplace-protocol hns-p2p-wire'
-protocol_checksum_manifest=release/hns-rs-0.3.1-crates.sha256
-protocol_successor_revision=c8feb6f90f3e03efbb982a5e33192dda6fd2f37a
-protocol_successor_version=0.4.0
-protocol_successor_checksum_manifest=release/hns-rs-0.4.0-successor-crates.sha256
+protocol_checksum_manifest=release/hns-rs-0.4.1-crates.sha256
 prepublished_engine_version=0.2.2
 prepublished_engine_revision=b7fdf8826c81b77650a0f740d1f05314b74969f9
 prepublished_engine_manifest=release/prepublished-0.2.2-crates.txt
@@ -32,6 +29,10 @@ prepublished_adapter_version=0.2.2
 prepublished_adapter_revision=3907e2a93eb7b10ee7deb1f179ce67824277c82a
 prepublished_adapter_manifest=release/prepublished-browser-adapters-0.2.2-crates.txt
 prepublished_adapter_checksum_manifest=release/hns-dane-engine-browser-adapters-0.2.2-crates.sha256
+prepublished_patch_version=0.2.3
+prepublished_patch_revision=142117058690220b066782d8ff0655cf0a2670b3
+prepublished_patch_manifest=release/prepublished-stateless-dane-0.2.3-crates.txt
+prepublished_patch_checksum_manifest=release/hns-dane-engine-stateless-dane-0.2.3-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -79,6 +80,10 @@ prepublished_adapter_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$prepublished_adapter_manifest")
+prepublished_patch_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_patch_manifest")
 
 last_public_crate=
 for package in $public_crates
@@ -133,9 +138,27 @@ is_prepublished_adapter_package() {
     return 1
 }
 
+is_prepublished_patch_package() {
+    package=$1
+    version=$2
+    if [ "$version" != "$prepublished_patch_version" ]
+    then
+        return 1
+    fi
+    for prepublished_package in $prepublished_patch_crates
+    do
+        if [ "$package" = "$prepublished_package" ]
+        then
+            return 0
+        fi
+    done
+    return 1
+}
+
 is_prepublished_package() {
     is_prepublished_engine_package "$1" "$2" ||
-        is_prepublished_adapter_package "$1" "$2"
+        is_prepublished_adapter_package "$1" "$2" ||
+        is_prepublished_patch_package "$1" "$2"
 }
 
 run_package_operation() {
@@ -547,6 +570,10 @@ verify_prepublished_package() {
     then
         source_revision=$prepublished_adapter_revision
         checksum_manifest=$prepublished_adapter_checksum_manifest
+    elif is_prepublished_patch_package "$package" "$version"
+    then
+        source_revision=$prepublished_patch_revision
+        checksum_manifest=$prepublished_patch_checksum_manifest
     else
         echo "error: $package $version is not a recorded immutable package" >&2
         exit 1
@@ -647,6 +674,11 @@ verify_prepublished_packages() {
         verify_prepublished_package "$package" "$prepublished_adapter_version"
     done
     echo "verified all recorded prepublished browser adapter $prepublished_adapter_version archives and checksums at source $prepublished_adapter_revision"
+    for package in $prepublished_patch_crates
+    do
+        verify_prepublished_package "$package" "$prepublished_patch_version"
+    done
+    echo "verified all recorded prepublished stateless DANE $prepublished_patch_version archives and checksums at source $prepublished_patch_revision"
 }
 
 verify_published_package() {
@@ -706,15 +738,9 @@ verify_protocol_packages_published() {
     ensure_release_tmp
     for package in $protocol_crates
     do
-        protocol_revision=0e99addca59778b7b7c6fc56291333a97c4c8815
-        protocol_version=0.3.1
-        protocol_checksum_manifest=release/hns-rs-0.3.1-crates.sha256
-        if [ "$package" = "hns-p2p-experimental" ]
-        then
-            protocol_revision=$protocol_successor_revision
-            protocol_version=$protocol_successor_version
-            protocol_checksum_manifest=$protocol_successor_checksum_manifest
-        fi
+        protocol_revision=73611a0d83778e157b35f28ca2197d068e83fc61
+        protocol_version=0.4.1
+        protocol_checksum_manifest=release/hns-rs-0.4.1-crates.sha256
         protocol_filename="$package-$protocol_version.crate"
         protocol_expected_checksum=$(awk \
             -v filename="$protocol_filename" \
@@ -801,7 +827,7 @@ verify_protocol_packages_published() {
             exit 1
         fi
     done
-    echo "verified all 19 non-yanked hns-rs baseline and successor archives"
+    echo "verified all 19 non-yanked coherent hns-rs archives"
 }
 
 verify_new_upload() {

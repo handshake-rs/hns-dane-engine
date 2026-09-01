@@ -17,22 +17,15 @@ ROOT = Path(__file__).resolve().parent.parent
 ROOT_MANIFEST = Path("Cargo.toml")
 LOCKFILE = Path("Cargo.lock")
 HNS_RS_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-HNS_RS_REVISION = "0e99addca59778b7b7c6fc56291333a97c4c8815"
-HNS_RS_CRATES_IO_VERSION = "0.3.1"
+HNS_RS_REVISION = "73611a0d83778e157b35f28ca2197d068e83fc61"
+HNS_RS_CRATES_IO_VERSION = "0.4.1"
 HNS_RS_CRATES_IO_REQUIREMENT = f"={HNS_RS_CRATES_IO_VERSION}"
 HNS_RS_REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 HNS_RS_CHECKSUM_MANIFEST = Path(
     f"release/hns-rs-{HNS_RS_CRATES_IO_VERSION}-crates.sha256"
 )
-HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST = Path(
-    "release/hns-rs-0.4.0-successor-crates.sha256"
-)
-HNS_RS_VERSION_OVERRIDES = {
-    "hns-p2p-experimental": "0.4.0",
-}
-HNS_RS_REVISION_OVERRIDES = {
-    "hns-p2p-experimental": "c8feb6f90f3e03efbb982a5e33192dda6fd2f37a",
-}
+HNS_RS_VERSION_OVERRIDES: dict[str, str] = {}
+HNS_RS_REVISION_OVERRIDES: dict[str, str] = {}
 
 HNS_RS_PUBLIC_PACKAGES = (
     "hns-encoding",
@@ -226,31 +219,6 @@ def load_hns_rs_checksums(root: Path) -> dict[str, str]:
             )
         checksums[package] = fields[0]
 
-    successor_path = root / HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST
-    successor_lines = [
-        line.strip()
-        for line in successor_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    if len(successor_lines) != len(HNS_RS_VERSION_OVERRIDES):
-        raise CargoSourcePolicyError(
-            f"{HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST}: expected "
-            f"{len(HNS_RS_VERSION_OVERRIDES)} archive hashes, "
-            f"found {len(successor_lines)}"
-        )
-    for package, line in zip(sorted(HNS_RS_VERSION_OVERRIDES), successor_lines, strict=True):
-        fields = line.split()
-        expected_filename = f"{package}-{hns_rs_package_version(package)}.crate"
-        if (
-            len(fields) != 2
-            or re.fullmatch(r"[0-9a-f]{64}", fields[0]) is None
-            or fields[1] != expected_filename
-        ):
-            raise CargoSourcePolicyError(
-                f"{HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST}: expected '<sha256>  "
-                f"{expected_filename}'"
-            )
-        checksums[package] = fields[0]
     return checksums
 
 
@@ -415,8 +383,7 @@ def main() -> int:
     print(
         "Cargo source policy permits only the reviewed exact hns-rs registry "
         "closure and repository-local path dependencies; "
-        f"{len(HNS_RS_PUBLIC_PACKAGES)} baseline archive hashes plus "
-        f"{len(HNS_RS_VERSION_OVERRIDES)} successor override bind source policy."
+        f"{len(HNS_RS_PUBLIC_PACKAGES)} coherent archive hashes bind source policy."
     )
     return 0
 

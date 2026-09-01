@@ -22,7 +22,6 @@ from verify_cargo_source_policy import (  # noqa: E402
     HNS_RS_REPOSITORY,
     HNS_RS_REVISION_OVERRIDES,
     HNS_RS_REVISION,
-    HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST,
     HNS_RS_VERSION_OVERRIDES,
     LOCKED_HNS_RS_PACKAGES,
     hns_rs_package_requirement,
@@ -69,10 +68,6 @@ class CargoSourcePolicyTests(unittest.TestCase):
         checksum_manifest = root / HNS_RS_CHECKSUM_MANIFEST
         checksum_manifest.parent.mkdir(parents=True, exist_ok=True)
         checksum_manifest.write_bytes((ROOT / HNS_RS_CHECKSUM_MANIFEST).read_bytes())
-        successor_checksum_manifest = root / HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST
-        successor_checksum_manifest.write_bytes(
-            (ROOT / HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST).read_bytes()
-        )
         checksums = load_hns_rs_checksums(root)
         locked_packages = "\n".join(
             "[[package]]\n"
@@ -95,11 +90,8 @@ class CargoSourcePolicyTests(unittest.TestCase):
         self.assertEqual(len(HNS_RS_PUBLIC_PACKAGES), 19)
         self.assertEqual(len(DIRECT_HNS_RS_PACKAGES), 13)
         self.assertEqual(len(LOCKED_HNS_RS_PACKAGES), 16)
-        self.assertEqual(HNS_RS_VERSION_OVERRIDES, {"hns-p2p-experimental": "0.4.0"})
-        self.assertEqual(
-            HNS_RS_REVISION_OVERRIDES,
-            {"hns-p2p-experimental": "c8feb6f90f3e03efbb982a5e33192dda6fd2f37a"},
-        )
+        self.assertEqual(HNS_RS_VERSION_OVERRIDES, {})
+        self.assertEqual(HNS_RS_REVISION_OVERRIDES, {})
         self.assertEqual(
             LOCKED_HNS_RS_PACKAGES - DIRECT_HNS_RS_PACKAGES,
             {
@@ -123,7 +115,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             HNS_RS_REVISION,
-            "0e99addca59778b7b7c6fc56291333a97c4c8815",
+            "73611a0d83778e157b35f28ca2197d068e83fc61",
         )
 
     def test_accepts_exact_registry_source_boundary(self) -> None:

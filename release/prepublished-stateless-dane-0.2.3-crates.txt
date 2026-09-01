@@ -1,0 +1,3 @@
+# Patch crates already published from source 142117058690220b066782d8ff0655cf0a2670b3.
+hns-namespace-resolution
+hns-browser-gateway

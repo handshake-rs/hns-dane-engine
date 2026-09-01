@@ -1,0 +1,2 @@
+# Exact patch-release set prepared by the current source commit.
+hns-light-sync

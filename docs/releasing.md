@@ -1,8 +1,9 @@
 # Releasing
 
-The public `hns-dane-engine` crates use one shared version and are published to
-crates.io as a dependency-ordered cohort. Crates.io uploads are permanent: a
-published version cannot be overwritten or deleted.
+The public `hns-dane-engine` crates are published to crates.io in dependency
+order. Targeted compatible patches may advance only the affected packages;
+crates.io uploads are permanent and a published version cannot be overwritten
+or deleted.
 
 The initial twenty `0.2.2` packages were published from immutable source tag
 `v0.2.2` at `b7fdf8826c81b77650a0f740d1f05314b74969f9`. The eleven browser
@@ -12,12 +13,14 @@ recreate an already published package from the successor adapter commit: it
 verifies the initial artifacts directly by checksum and provenance, then
 packages and publishes only the new names.
 
-The retained stateless-DANE plan correction is a targeted `0.2.3` patch release
-of only `hns-namespace-resolution` and `hns-browser-gateway`. It does not
-reissue the other twenty-nine crates solely to preserve a workspace-wide version
-number. [`release/stateless-dane-0.2.3-crates.txt`](../release/stateless-dane-0.2.3-crates.txt)
-is the exact release set. The runner verifies both immutable `0.2.2`
-inventories before packaging either patch crate.
+The retained stateless-DANE plan correction was a targeted `0.2.3` patch
+release of `hns-namespace-resolution` and `hns-browser-gateway`, recorded in
+[`release/stateless-dane-0.2.3-crates.txt`](../release/stateless-dane-0.2.3-crates.txt).
+Those immutable archives are now pinned by checksum and source provenance. The
+current targeted `0.2.3` release contains only `hns-light-sync`, as recorded in
+[`release/light-sync-0.2.3-crates.txt`](../release/light-sync-0.2.3-crates.txt).
+It exposes safe recovery from an abandoned, uncommitted header round without
+reissuing unrelated engine crates.
 
 ## Public package allowlist
 
@@ -80,6 +83,13 @@ provide the equivalent immutable registry checksum and
 browser adapters. No release operation may reconstruct either `0.2.2` archive
 from a later source commit.
 
+[`release/prepublished-stateless-dane-0.2.3-crates.txt`](../release/prepublished-stateless-dane-0.2.3-crates.txt)
+and
+[`release/hns-dane-engine-stateless-dane-0.2.3-crates.sha256`](../release/hns-dane-engine-stateless-dane-0.2.3-crates.sha256)
+pin the two earlier `0.2.3` stateless-DANE archives to clean source revision
+`142117058690220b066782d8ff0655cf0a2670b3`. They are verified directly and are
+never reconstructed from the current release source.
+
 Every dependency between public packages carries both a repository path and
 the shared crates.io version. The private repository-only test dependency
 remains path-only. Cargo removes repository-local source selectors
@@ -100,37 +110,33 @@ and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
 Routine qualification verifies all thirty-one immutable `0.2.2` registry
-archives and creates normalized `0.2.3` archives only for the two crates in
-`release/stateless-dane-0.2.3-crates.txt`. The separate manual release
-preflight performs Cargo's real normalized `cargo publish --dry-run` only for
-those two updates while revalidating every recorded immutable artifact.
+archives, the two immutable earlier `0.2.3` archives, and creates a normalized
+`0.2.3` archive only for `hns-light-sync` from
+`release/light-sync-0.2.3-crates.txt`. The separate manual release preflight
+performs Cargo's real normalized `cargo publish --dry-run` only for that update
+while revalidating every recorded immutable artifact.
 
 ## Upstream protocol gate
 
-This source consumes twelve direct `hns-rs` packages with exact crates.io
-requirement `=0.3.1` and `hns-p2p-experimental` with exact requirement
-`=0.4.0`; the lockfile contains the reviewed sixteen-package closure.
-Before any engine upload, execute mode reads back the nineteen-package 0.3.1
-baseline and the selected 0.4.0 successor archive from the crates.io API and
-archive endpoint. It requires non-yanked status, the baseline checksums in
-[`../release/hns-rs-0.3.1-crates.sha256`](../release/hns-rs-0.3.1-crates.sha256),
-the selected successor checksum in
-[`../release/hns-rs-0.4.0-successor-crates.sha256`](../release/hns-rs-0.4.0-successor-crates.sha256),
-and clean `.cargo_vcs_info.json` provenance at source revisions
-`0e99addca59778b7b7c6fc56291333a97c4c8815` and
-`c8feb6f90f3e03efbb982a5e33192dda6fd2f37a`, respectively, with each package's
-expected `crates/<name>` path. Any mismatch stops the release before an engine
-upload.
+This source consumes thirteen direct `hns-rs` packages with one exact
+crates.io requirement, `=0.4.1`; the lockfile contains the reviewed protocol
+closure. Before any engine upload, execute mode reads back all nineteen
+packages in the coherent `0.4.1` cohort from the crates.io API and archive
+endpoint. It requires non-yanked status, the checksums in
+[`../release/hns-rs-0.4.1-crates.sha256`](../release/hns-rs-0.4.1-crates.sha256),
+and clean `.cargo_vcs_info.json` provenance at source revision
+`73611a0d83778e157b35f28ca2197d068e83fc61`, with each package's expected
+`crates/<name>` path. Any mismatch stops the release before an engine upload.
 
 The protocol source passed exact CI run
-[`32637180489`](https://github.com/handshake-rs/hns-rs/actions/runs/32637180489),
+[`33492052293`](https://github.com/handshake-rs/hns-rs/actions/runs/33492052293),
 CodeQL run
-[`32637186016`](https://github.com/handshake-rs/hns-rs/actions/runs/32637186016),
+[`33492052309`](https://github.com/handshake-rs/hns-rs/actions/runs/33492052309),
 and the nineteen-package credential-free release preflight in
-[`32637182502`](https://github.com/handshake-rs/hns-rs/actions/runs/32637182502).
-All nineteen 0.3.1 packages are published and non-yanked, exact archive
-readback passed, and source tag `v0.3.1` exists. This is upstream dependency
-evidence and does not satisfy any engine gate.
+[`33492499333`](https://github.com/handshake-rs/hns-rs/actions/runs/33492499333).
+All nineteen `0.4.1` packages must be published, non-yanked, and pass exact
+archive readback before engine publication. This upstream evidence does not
+satisfy any engine gate.
 
 The exact dated engine source at
 `2b23bd55d14d36fe60073606869d75b4796c54f7` passed the complete locked CI gate
