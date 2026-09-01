@@ -90,6 +90,25 @@ PREPUBLISHED_PATCH_PACKAGES = (
     "hns-namespace-resolution",
     "hns-browser-gateway",
 )
+PREPUBLISHED_POLICY_REVISION = "2e06af3489bd40e0ef90b847101e4f6a7aeebe71"
+PREPUBLISHED_POLICY_MANIFEST = "release/prepublished-policy-0.3.0-crates.txt"
+PREPUBLISHED_POLICY_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-policy-0.3.0-crates.sha256"
+)
+PREPUBLISHED_POLICY_PACKAGES = ("hns-resolution-policy",)
+PREPUBLISHED_SUCCESSOR_REVISION = "ee222208a7750dcb061c5c3cc16b8cf82d75033e"
+PREPUBLISHED_SUCCESSOR_MANIFEST = (
+    "release/prepublished-shakescape-successor-crates.txt"
+)
+PREPUBLISHED_SUCCESSOR_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-shakescape-successor-crates.sha256"
+)
+PREPUBLISHED_SUCCESSOR_PACKAGES = (
+    "hns-gateway",
+    "hns-browser-observability",
+    "hns-p2p-transport",
+    "hns-dane-engine",
+)
 PATCH_RELEASE_VERSION = "0.2.3"
 PATCH_RELEASE_MANIFEST = "release/light-sync-0.2.3-crates.txt"
 PATCH_RELEASE_PACKAGES = (
@@ -298,6 +317,39 @@ def verify_prepublished_patch_inventory(repo: Path) -> None:
         )
 
 
+def verify_named_prepublished_inventory(
+    repo: Path,
+    manifest_path: str,
+    checksum_path: str,
+    expected_packages: tuple[str, ...],
+    expected_versions: dict[str, str],
+) -> None:
+    packages = tuple(
+        line.strip()
+        for line in (repo / manifest_path).read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    if packages != expected_packages:
+        fail(f"{manifest_path} must contain exactly {list(expected_packages)}")
+    expected_filenames = {
+        f"{package}-{expected_versions[package]}.crate" for package in packages
+    }
+    observed: set[str] = set()
+    for line in (repo / checksum_path).read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(
+            r"[0-9a-f]{64}  (hns-[a-z0-9-]+-[0-9]+[.][0-9]+[.][0-9]+[.]crate)",
+            line,
+        )
+        if match is None:
+            fail(f"invalid checksum entry in {checksum_path}: {line!r}")
+        filename = match.group(1)
+        if filename in observed:
+            fail(f"duplicate checksum entry for {filename}")
+        observed.add(filename)
+    if observed != expected_filenames:
+        fail(f"{checksum_path} must cover exactly {sorted(expected_filenames)}")
+
+
 def patch_release_order(repo: Path) -> tuple[str, ...]:
     packages = tuple(
         line.strip()
@@ -368,6 +420,12 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         PREPUBLISHED_PATCH_MANIFEST,
         PREPUBLISHED_PATCH_CHECKSUM_MANIFEST,
         PREPUBLISHED_PATCH_REVISION,
+        PREPUBLISHED_POLICY_MANIFEST,
+        PREPUBLISHED_POLICY_CHECKSUM_MANIFEST,
+        PREPUBLISHED_POLICY_REVISION,
+        PREPUBLISHED_SUCCESSOR_MANIFEST,
+        PREPUBLISHED_SUCCESSOR_CHECKSUM_MANIFEST,
+        PREPUBLISHED_SUCCESSOR_REVISION,
         PATCH_RELEASE_MANIFEST,
         PATCH_RELEASE_VERSION,
         "./scripts/publish.sh --archive-only",
@@ -626,11 +684,19 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"prepublished_patch_revision={PREPUBLISHED_PATCH_REVISION}",
         f"prepublished_patch_manifest={PREPUBLISHED_PATCH_MANIFEST}",
         f"prepublished_patch_checksum_manifest={PREPUBLISHED_PATCH_CHECKSUM_MANIFEST}",
+        f"prepublished_policy_revision={PREPUBLISHED_POLICY_REVISION}",
+        f"prepublished_policy_manifest={PREPUBLISHED_POLICY_MANIFEST}",
+        f"prepublished_policy_checksum_manifest={PREPUBLISHED_POLICY_CHECKSUM_MANIFEST}",
+        f"prepublished_successor_revision={PREPUBLISHED_SUCCESSOR_REVISION}",
+        f"prepublished_successor_manifest={PREPUBLISHED_SUCCESSOR_MANIFEST}",
+        f"prepublished_successor_checksum_manifest={PREPUBLISHED_SUCCESSOR_CHECKSUM_MANIFEST}",
         "verify_prepublished_packages",
         'is_prepublished_package "$package" "$version"',
         'is_prepublished_engine_package "$package" "$version"',
         'is_prepublished_adapter_package "$package" "$version"',
         'is_prepublished_patch_package "$package" "$version"',
+        'is_prepublished_policy_package "$package" "$version"',
+        'is_prepublished_successor_package "$package" "$version"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
         'if [ "$api_checksum" != "$expected_checksum" ]',
         'if [ "$archive_checksum" != "$expected_checksum" ]',
@@ -1055,6 +1121,20 @@ def main() -> None:
     verify_prepublished_engine_inventory(repo, order)
     verify_prepublished_adapter_inventory(repo, order)
     verify_prepublished_patch_inventory(repo)
+    verify_named_prepublished_inventory(
+        repo,
+        PREPUBLISHED_POLICY_MANIFEST,
+        PREPUBLISHED_POLICY_CHECKSUM_MANIFEST,
+        PREPUBLISHED_POLICY_PACKAGES,
+        {"hns-resolution-policy": "0.3.0"},
+    )
+    verify_named_prepublished_inventory(
+        repo,
+        PREPUBLISHED_SUCCESSOR_MANIFEST,
+        PREPUBLISHED_SUCCESSOR_CHECKSUM_MANIFEST,
+        PREPUBLISHED_SUCCESSOR_PACKAGES,
+        SUCCESSOR_RELEASE_VERSIONS,
+    )
     patch_release_order(repo)
     version, release_label = verify_workspace(
         repo, cargo_metadata(repo, args.toolchain), order

@@ -90,6 +90,20 @@ pin the two earlier `0.2.3` stateless-DANE archives to clean source revision
 `142117058690220b066782d8ff0655cf0a2670b3`. They are verified directly and are
 never reconstructed from the current release source.
 
+The already-published Shakescape policy and successor engine crates are also
+immutable inputs to this patch release. The policy archive is recorded in
+[`release/prepublished-policy-0.3.0-crates.txt`](../release/prepublished-policy-0.3.0-crates.txt)
+and
+[`release/hns-dane-engine-policy-0.3.0-crates.sha256`](../release/hns-dane-engine-policy-0.3.0-crates.sha256)
+at source `2e06af3489bd40e0ef90b847101e4f6a7aeebe71`. The remaining four
+successor archives are recorded in
+[`release/prepublished-shakescape-successor-crates.txt`](../release/prepublished-shakescape-successor-crates.txt)
+and
+[`release/hns-dane-engine-shakescape-successor-crates.sha256`](../release/hns-dane-engine-shakescape-successor-crates.sha256)
+at source `ee222208a7750dcb061c5c3cc16b8cf82d75033e`. Execute mode verifies
+those archives directly and never attempts to rebuild them from the current
+`hns-light-sync` patch source.
+
 Every dependency between public packages carries both a repository path and
 the shared crates.io version. The private repository-only test dependency
 remains path-only. Cargo removes repository-local source selectors

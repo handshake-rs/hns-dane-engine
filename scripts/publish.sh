@@ -33,6 +33,13 @@ prepublished_patch_version=0.2.3
 prepublished_patch_revision=142117058690220b066782d8ff0655cf0a2670b3
 prepublished_patch_manifest=release/prepublished-stateless-dane-0.2.3-crates.txt
 prepublished_patch_checksum_manifest=release/hns-dane-engine-stateless-dane-0.2.3-crates.sha256
+prepublished_policy_version=0.3.0
+prepublished_policy_revision=2e06af3489bd40e0ef90b847101e4f6a7aeebe71
+prepublished_policy_manifest=release/prepublished-policy-0.3.0-crates.txt
+prepublished_policy_checksum_manifest=release/hns-dane-engine-policy-0.3.0-crates.sha256
+prepublished_successor_revision=ee222208a7750dcb061c5c3cc16b8cf82d75033e
+prepublished_successor_manifest=release/prepublished-shakescape-successor-crates.txt
+prepublished_successor_checksum_manifest=release/hns-dane-engine-shakescape-successor-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -84,6 +91,14 @@ prepublished_patch_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$prepublished_patch_manifest")
+prepublished_policy_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_policy_manifest")
+prepublished_successor_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_successor_manifest")
 
 last_public_crate=
 for package in $public_crates
@@ -155,10 +170,31 @@ is_prepublished_patch_package() {
     return 1
 }
 
+is_prepublished_policy_package() {
+    package=$1
+    version=$2
+    [ "$version" = "$prepublished_policy_version" ] || return 1
+    [ "$package" = "hns-resolution-policy" ]
+}
+
+is_prepublished_successor_package() {
+    package=$1
+    version=$2
+    case "$package:$version" in
+        hns-gateway:0.3.0|hns-browser-observability:0.3.0|\
+            hns-p2p-transport:0.3.1|hns-dane-engine:0.3.0)
+            return 0
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 is_prepublished_package() {
     is_prepublished_engine_package "$1" "$2" ||
         is_prepublished_adapter_package "$1" "$2" ||
-        is_prepublished_patch_package "$1" "$2"
+        is_prepublished_patch_package "$1" "$2" ||
+        is_prepublished_policy_package "$1" "$2" ||
+        is_prepublished_successor_package "$1" "$2"
 }
 
 run_package_operation() {
@@ -574,6 +610,14 @@ verify_prepublished_package() {
     then
         source_revision=$prepublished_patch_revision
         checksum_manifest=$prepublished_patch_checksum_manifest
+    elif is_prepublished_policy_package "$package" "$version"
+    then
+        source_revision=$prepublished_policy_revision
+        checksum_manifest=$prepublished_policy_checksum_manifest
+    elif is_prepublished_successor_package "$package" "$version"
+    then
+        source_revision=$prepublished_successor_revision
+        checksum_manifest=$prepublished_successor_checksum_manifest
     else
         echo "error: $package $version is not a recorded immutable package" >&2
         exit 1
@@ -679,6 +723,16 @@ verify_prepublished_packages() {
         verify_prepublished_package "$package" "$prepublished_patch_version"
     done
     echo "verified all recorded prepublished stateless DANE $prepublished_patch_version archives and checksums at source $prepublished_patch_revision"
+    for package in $prepublished_policy_crates
+    do
+        verify_prepublished_package "$package" "$(package_version "$package")"
+    done
+    echo "verified the recorded prepublished policy archive at source $prepublished_policy_revision"
+    for package in $prepublished_successor_crates
+    do
+        verify_prepublished_package "$package" "$(package_version "$package")"
+    done
+    echo "verified all recorded prepublished Shakescape successor archives at source $prepublished_successor_revision"
 }
 
 verify_published_package() {
