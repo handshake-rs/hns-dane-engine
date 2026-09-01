@@ -336,6 +336,19 @@ impl HeaderSync {
         Ok(request)
     }
 
+    /// Discard one in-flight agreement round without changing authenticated
+    /// chain state, peer scores, or the last committed synchronization state.
+    ///
+    /// Round responses are connection-local, untrusted input until
+    /// `finish_round_with_headers` commits an agreed extension. A transport
+    /// owner may therefore use this only when it has lost the metadata needed
+    /// to finish that round (for example, after controller retirement) and
+    /// must begin a fresh, fully authenticated peer agreement.
+    #[must_use]
+    pub fn abandon_uncommitted_round(&mut self) -> bool {
+        self.round.take().is_some()
+    }
+
     /// Submit one bounded response for the active round.
     pub fn submit_headers(
         &mut self,
@@ -787,6 +800,28 @@ mod tests {
             Err(SyncError::InsufficientResponses)
         ));
         assert_eq!(timed.status().state, SyncState::Degraded);
+    }
+
+    #[test]
+    fn abandoning_an_uncommitted_round_preserves_chain_state_and_allows_replacement() {
+        let now = Network::Regtest.parameters().genesis_time.get() + 100;
+        let mut sync = test_sync(1, 3, now);
+        sync.add_peer(peer(1), 1).unwrap();
+        let original_tip = sync.chain().tip();
+        let original_state = sync.status().state;
+
+        let first = sync.begin_round(&[peer(1)], now).unwrap();
+        let extension = mine(original_tip, 1);
+        sync.submit_headers(first.generation, peer(1), vec![extension], now)
+            .unwrap();
+        assert!(sync.abandon_uncommitted_round());
+        assert!(!sync.status().round_active);
+        assert_eq!(sync.chain().tip(), original_tip);
+        assert_eq!(sync.status().state, original_state);
+        assert!(!sync.abandon_uncommitted_round());
+
+        let replacement = sync.begin_round(&[peer(1)], now + 1).unwrap();
+        assert!(replacement.generation > first.generation);
     }
 
     #[test]
