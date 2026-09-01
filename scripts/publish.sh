@@ -21,6 +21,9 @@ protocol_revision=0e99addca59778b7b7c6fc56291333a97c4c8815
 protocol_version=0.3.1
 protocol_crates='hns-encoding hns-rollback-journal hns-hrm hns-primitives hns-covenants hns-dns-relay-protocol hns-header-consensus hns-service-authority hns-odoh-protocol hns-p2p-experimental hns-urkel-proof hns-transaction hns-chat-protocol hns-hnsr-protocol hns-script hns-mining hns-swap hns-marketplace-protocol hns-p2p-wire'
 protocol_checksum_manifest=release/hns-rs-0.3.1-crates.sha256
+protocol_successor_revision=c8feb6f90f3e03efbb982a5e33192dda6fd2f37a
+protocol_successor_version=0.4.0
+protocol_successor_checksum_manifest=release/hns-rs-0.4.0-successor-crates.sha256
 prepublished_engine_version=0.2.2
 prepublished_engine_revision=b7fdf8826c81b77650a0f740d1f05314b74969f9
 prepublished_engine_manifest=release/prepublished-0.2.2-crates.txt
@@ -703,6 +706,15 @@ verify_protocol_packages_published() {
     ensure_release_tmp
     for package in $protocol_crates
     do
+        protocol_revision=0e99addca59778b7b7c6fc56291333a97c4c8815
+        protocol_version=0.3.1
+        protocol_checksum_manifest=release/hns-rs-0.3.1-crates.sha256
+        if [ "$package" = "hns-p2p-experimental" ]
+        then
+            protocol_revision=$protocol_successor_revision
+            protocol_version=$protocol_successor_version
+            protocol_checksum_manifest=$protocol_successor_checksum_manifest
+        fi
         protocol_filename="$package-$protocol_version.crate"
         protocol_expected_checksum=$(awk \
             -v filename="$protocol_filename" \
@@ -789,7 +801,7 @@ verify_protocol_packages_published() {
             exit 1
         fi
     done
-    echo "verified all 19 non-yanked hns-rs $protocol_version archives and checksums at source $protocol_revision"
+    echo "verified all 19 non-yanked hns-rs baseline and successor archives"
 }
 
 verify_new_upload() {

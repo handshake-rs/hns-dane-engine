@@ -24,6 +24,15 @@ HNS_RS_REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 HNS_RS_CHECKSUM_MANIFEST = Path(
     f"release/hns-rs-{HNS_RS_CRATES_IO_VERSION}-crates.sha256"
 )
+HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST = Path(
+    "release/hns-rs-0.4.0-successor-crates.sha256"
+)
+HNS_RS_VERSION_OVERRIDES = {
+    "hns-p2p-experimental": "0.4.0",
+}
+HNS_RS_REVISION_OVERRIDES = {
+    "hns-p2p-experimental": "c8feb6f90f3e03efbb982a5e33192dda6fd2f37a",
+}
 
 HNS_RS_PUBLIC_PACKAGES = (
     "hns-encoding",
@@ -69,6 +78,14 @@ LOCKED_HNS_RS_PACKAGES = DIRECT_HNS_RS_PACKAGES | {
     "hns-mining",
     "hns-transaction",
 }
+
+
+def hns_rs_package_version(package: str) -> str:
+    return HNS_RS_VERSION_OVERRIDES.get(package, HNS_RS_CRATES_IO_VERSION)
+
+
+def hns_rs_package_requirement(package: str) -> str:
+    return f"={hns_rs_package_version(package)}"
 
 EXPECTED_CONSUMERS = {
     Path("crates/hns-browser-testkit/Cargo.toml"): frozenset(
@@ -208,6 +225,32 @@ def load_hns_rs_checksums(root: Path) -> dict[str, str]:
                 f"{expected_filename}'"
             )
         checksums[package] = fields[0]
+
+    successor_path = root / HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST
+    successor_lines = [
+        line.strip()
+        for line in successor_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if len(successor_lines) != len(HNS_RS_VERSION_OVERRIDES):
+        raise CargoSourcePolicyError(
+            f"{HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST}: expected "
+            f"{len(HNS_RS_VERSION_OVERRIDES)} archive hashes, "
+            f"found {len(successor_lines)}"
+        )
+    for package, line in zip(sorted(HNS_RS_VERSION_OVERRIDES), successor_lines, strict=True):
+        fields = line.split()
+        expected_filename = f"{package}-{hns_rs_package_version(package)}.crate"
+        if (
+            len(fields) != 2
+            or re.fullmatch(r"[0-9a-f]{64}", fields[0]) is None
+            or fields[1] != expected_filename
+        ):
+            raise CargoSourcePolicyError(
+                f"{HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST}: expected '<sha256>  "
+                f"{expected_filename}'"
+            )
+        checksums[package] = fields[0]
     return checksums
 
 
@@ -256,11 +299,12 @@ def validate_manifests(root: Path, manifests: list[Path]) -> None:
 
             root_location = ("workspace", "dependencies", dependency)
             if relative_path == ROOT_MANIFEST and location == root_location:
-                if specification != {"version": HNS_RS_CRATES_IO_REQUIREMENT}:
+                expected_requirement = hns_rs_package_requirement(dependency)
+                if specification != {"version": expected_requirement}:
                     raise CargoSourcePolicyError(
                         f"{relative_path}:{rendered_location}: expected "
                         f"exact crates.io requirement "
-                        f"{HNS_RS_CRATES_IO_REQUIREMENT!r} with no source override"
+                        f"{expected_requirement!r} with no source override"
                     )
                 root_declarations[dependency] += 1
                 continue
@@ -321,10 +365,11 @@ def validate_lockfile(root: Path) -> None:
             raise CargoSourcePolicyError(
                 f"{LOCKFILE}: unexpected hns-rs package {name!r} entered the closure"
             )
-        if package.get("version") != HNS_RS_CRATES_IO_VERSION:
+        expected_version = hns_rs_package_version(name)
+        if package.get("version") != expected_version:
             raise CargoSourcePolicyError(
                 f"{LOCKFILE}: {name} must lock to version "
-                f"{HNS_RS_CRATES_IO_VERSION}, found {package.get('version')!r}"
+                f"{expected_version}, found {package.get('version')!r}"
             )
         if source != HNS_RS_REGISTRY_SOURCE:
             raise CargoSourcePolicyError(
@@ -333,8 +378,8 @@ def validate_lockfile(root: Path) -> None:
             )
         if package.get("checksum") != checksums[name]:
             raise CargoSourcePolicyError(
-                f"{LOCKFILE}: {name} checksum differs from "
-                f"{HNS_RS_CHECKSUM_MANIFEST}"
+                f"{LOCKFILE}: {name} checksum differs from the reviewed "
+                "hns-rs checksum manifests"
             )
         counts[name] += 1
 
@@ -368,10 +413,10 @@ def main() -> int:
         print(f"Cargo source policy failed: {error}", file=sys.stderr)
         return 1
     print(
-        "Cargo source policy permits only the reviewed exact hns-rs "
-        f"{HNS_RS_CRATES_IO_REQUIREMENT} registry closure and repository-local "
-        f"path dependencies; {len(HNS_RS_PUBLIC_PACKAGES)} archive hashes bind "
-        f"source {HNS_RS_REVISION}."
+        "Cargo source policy permits only the reviewed exact hns-rs registry "
+        "closure and repository-local path dependencies; "
+        f"{len(HNS_RS_PUBLIC_PACKAGES)} baseline archive hashes plus "
+        f"{len(HNS_RS_VERSION_OVERRIDES)} successor override bind source policy."
     )
     return 0
 

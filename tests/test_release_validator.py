@@ -20,6 +20,26 @@ SPEC.loader.exec_module(verify_release)
 
 
 class ReleaseValidatorMutationTests(unittest.TestCase):
+    def test_successor_versions_override_patch_and_workspace_versions(self) -> None:
+        versions = verify_release.expected_workspace_versions(
+            {
+                "hns-browser-chain",
+                "hns-browser-gateway",
+                "hns-dane-engine",
+                "hns-gateway",
+                "hns-namespace-resolution",
+                "hns-p2p-transport",
+            },
+            "0.2.2",
+        )
+
+        self.assertEqual(versions["hns-browser-chain"], "0.2.2")
+        self.assertEqual(versions["hns-browser-gateway"], "0.2.3")
+        self.assertEqual(versions["hns-namespace-resolution"], "0.2.3")
+        self.assertEqual(versions["hns-dane-engine"], "0.3.0")
+        self.assertEqual(versions["hns-gateway"], "0.3.0")
+        self.assertEqual(versions["hns-p2p-transport"], "0.3.1")
+
     def create_fixture(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name) / "engine"

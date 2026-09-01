@@ -1,14 +1,19 @@
 # Foundation qualification
 
-## Current 0.2.2 protocol-source pin
+## Current protocol-source pins
 
-The current source consumes thirteen direct `hns-rs` packages at exact
-crates.io version `=0.3.1`; the lockfile contains the reviewed sixteen-package
-dependency closure. The archive-checksum authority
+The current source consumes twelve direct `hns-rs` packages at exact crates.io
+version `=0.3.1` and `hns-p2p-experimental` at exact version `=0.4.0`; the
+lockfile contains the reviewed sixteen-package dependency closure. The baseline
+archive-checksum authority
 [`../release/hns-rs-0.3.1-crates.sha256`](../release/hns-rs-0.3.1-crates.sha256)
 covers all nineteen published, non-yanked 0.3.1 packages. Exact archive
 readback established clean per-package VCS provenance and source paths at
 `0e99addca59778b7b7c6fc56291333a97c4c8815`.
+The selected `hns-p2p-experimental 0.4.0` successor archive is separately
+bound by
+[`../release/hns-rs-0.4.0-successor-crates.sha256`](../release/hns-rs-0.4.0-successor-crates.sha256)
+to clean source `c8feb6f90f3e03efbb982a5e33192dda6fd2f37a`.
 
 That upstream source passed CI run
 [`32637180489`](https://github.com/handshake-rs/hns-rs/actions/runs/32637180489),
@@ -265,9 +270,10 @@ lockfile is committed with this continuation.
 Recorded foundation coverage and dated source status:
 
 - independently cloneable Cargo resolution with thirteen reviewed direct
-  `hns-rs` packages and the exact sixteen-package locked crates.io closure at
-  `=0.3.1`; checksum and clean source/path readback for all nineteen public
-  packages at `0e99addca59778b7b7c6fc56291333a97c4c8815`; and rejection of Git
+  `hns-rs` packages and the exact sixteen-package locked crates.io closure:
+  twelve direct packages at `=0.3.1` and `hns-p2p-experimental` at `=0.4.0`;
+  checksum and clean source/path authority for the baseline nineteen-package
+  cohort and the selected successor archive; and rejection of Git
   sources, non-exact versions, aliases, unreviewed consumers/packages, lock or
   checksum drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;

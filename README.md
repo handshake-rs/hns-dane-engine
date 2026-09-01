@@ -222,18 +222,22 @@ degradation, revocation, stop, policy/runtime invalidation, or expiry does.
 Same-origin navigation or namespace-decision replacement must synchronously revoke or replace the
 exact publication; the engine deliberately does not retain an unbounded per-origin navigation map.
 
-The repository is a standalone Cargo checkout. Its thirteen direct `hns-rs`
-packages use exact crates.io requirement `=0.3.1`; the lockfile binds their
-sixteen-package closure to registry checksums independently read back from
-release source `0e99addca59778b7b7c6fc56291333a97c4c8815`. No sibling
+The repository is a standalone Cargo checkout. Twelve of its thirteen direct
+`hns-rs` packages use exact crates.io requirement `=0.3.1`; the clean-break
+`hns-p2p-experimental` edge uses exact requirement `=0.4.0`. The lockfile binds
+the sixteen-package closure to reviewed registry checksums. The baseline cohort
+comes from release source `0e99addca59778b7b7c6fc56291333a97c4c8815`, while
+the successor transport registry comes from
+`c8feb6f90f3e03efbb982a5e33192dda6fd2f37a`. No sibling
 `hns-rs` checkout or Cargo Git source is required. `hns-hrm`,
 `hns-service-authority`, and `hns-rollback-journal` now back the native
 `HrmHnsaAuthorityBroker`; the existing `hsa1` HNSA-v2 path remains unchanged.
-A checked-in manifest pins all nineteen upstream 0.3.1 archives,
-including the three packages outside the engine's locked closure. A tested
-repository policy rejects Git dependencies, non-exact protocol requirements,
-unreviewed registry sources or checksums, dependency aliases, lockfile drift,
-and path dependencies that escape this repository. See
+A checked-in baseline manifest pins all nineteen upstream 0.3.1 archives,
+including the three packages outside the engine's locked closure; a separate
+successor manifest pins the exact `hns-p2p-experimental 0.4.0` archive selected
+by the lockfile. A tested repository policy rejects Git dependencies, non-exact
+protocol requirements, unreviewed registry sources or checksums, dependency
+aliases, lockfile drift, and path dependencies that escape this repository. See
 `docs/supply-chain.md`.
 
 ## Build
@@ -251,14 +255,16 @@ compatibility inputs, exact coverage, and remaining work.
 
 ## Qualification status
 
-The current 0.2.2 dependency source consumes the published, non-yanked
-`hns-rs` 0.3.1 cohort from exact release-source commit
+The current dependency source retains the published, non-yanked `hns-rs`
+0.3.1 cohort from exact release-source commit
 `0e99addca59778b7b7c6fc56291333a97c4c8815`. That upstream source passed CI
 run `32637180489`, CodeQL run `32637186016`, and the 19-package release
 preflight in run `32637182502`; all nineteen downloaded archives were
 independently matched to their crates.io checksums and clean VCS source. The
-engine migration is a successor source and must pass its own exact-commit CI,
-CodeQL, and release preflight before publication.
+Shakescape migration replaces only `hns-p2p-experimental` with the published
+0.4.0 archive from `c8feb6f90f3e03efbb982a5e33192dda6fd2f37a`; its
+checksum is pinned separately. The engine migration must pass its own
+exact-commit CI, CodeQL, and release preflight before publication.
 
 Historically, the exact dated 0.2.0 source candidate at
 `2b23bd55d14d36fe60073606869d75b4796c54f7` passed the complete locked

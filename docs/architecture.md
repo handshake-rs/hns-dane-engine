@@ -412,11 +412,13 @@ SQLite, operating-system DNS, or a particular network stack. Callers can execute
 state machines under their native runtime.
 
 The `hns-rs` edge is canonical and immutable rather than a workspace-layout
-assumption. Thirteen direct packages inherit exact crates.io requirement
-`=0.3.1` from the root manifest; Cargo resolves their three additional
-transitive packages from the same registry release. The lockfile and checked-in
-archive-hash manifest bind those packages to the clean `hns-rs` release source
-`0e99addca59778b7b7c6fc56291333a97c4c8815`. All other path dependencies must
+assumption. Twelve direct packages inherit exact crates.io requirement
+`=0.3.1` from the root manifest; `hns-p2p-experimental` alone uses the
+clean-break `=0.4.0` registry release, and Cargo resolves three additional
+transitive packages. The lockfile and checked-in archive-hash manifests bind
+the baseline packages to clean `hns-rs` release source
+`0e99addca59778b7b7c6fc56291333a97c4c8815` and the successor registry package
+to `c8feb6f90f3e03efbb982a5e33192dda6fd2f37a`. All other path dependencies must
 remain inside this repository, and Cargo Git dependencies are forbidden.
 Consequently, the dependency direction is independently cloneable
 `hns-rs -> hns-dane-engine -> platform shells`; the engine neither imports

@@ -18,6 +18,10 @@ REPOSITORY = "https://github.com/handshake-rs/hns-dane-engine"
 PROTOCOL_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
 PROTOCOL_REVISION = "0e99addca59778b7b7c6fc56291333a97c4c8815"
 PROTOCOL_VERSION = "=0.3.1"
+PROTOCOL_VERSION_OVERRIDES = {
+    "hns-p2p-experimental": "=0.4.0",
+}
+PROTOCOL_SUCCESSOR_REVISION = "c8feb6f90f3e03efbb982a5e33192dda6fd2f37a"
 PROTOCOL_PUBLIC_PACKAGES = (
     "hns-encoding",
     "hns-rollback-journal",
@@ -87,6 +91,14 @@ PATCH_RELEASE_PACKAGES = (
 )
 PATCH_RELEASE_VERSIONS = {
     package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
+}
+SUCCESSOR_RELEASE_VERSION = "0.3.0"
+SUCCESSOR_RELEASE_VERSIONS = {
+    "hns-browser-observability": SUCCESSOR_RELEASE_VERSION,
+    "hns-dane-engine": SUCCESSOR_RELEASE_VERSION,
+    "hns-gateway": SUCCESSOR_RELEASE_VERSION,
+    "hns-p2p-transport": "0.3.1",
+    "hns-resolution-policy": SUCCESSOR_RELEASE_VERSION,
 }
 PRIVATE_PACKAGES = {"hns-browser-testkit"}
 PACKAGE_FIXTURES = {
@@ -313,8 +325,11 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         ".github/workflows/release-preflight.yml",
         "expected_commit",
         PROTOCOL_REVISION,
-        f"`hns-rs` `{PROTOCOL_VERSION.removeprefix('=')}`",
+        f"`={PROTOCOL_VERSION.removeprefix('=')}`",
         str(verify_cargo_source_policy.HNS_RS_CHECKSUM_MANIFEST),
+        PROTOCOL_SUCCESSOR_REVISION,
+        f"`={PROTOCOL_VERSION_OVERRIDES['hns-p2p-experimental'].removeprefix('=')}`",
+        str(verify_cargo_source_policy.HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST),
     )
     for required in required_text:
         if required not in document:
@@ -397,6 +412,10 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"protocol_crates='{' '.join(PROTOCOL_PUBLIC_PACKAGES)}'",
         "protocol_checksum_manifest="
         f"{verify_cargo_source_policy.HNS_RS_CHECKSUM_MANIFEST}",
+        f"protocol_successor_revision={PROTOCOL_SUCCESSOR_REVISION}",
+        "protocol_successor_version=0.4.0",
+        "protocol_successor_checksum_manifest="
+        f"{verify_cargo_source_policy.HNS_RS_SUCCESSOR_CHECKSUM_MANIFEST}",
     }
     missing_lines = required_script_lines - set(script.splitlines())
     if missing_lines:
@@ -634,6 +653,15 @@ def verify_protocol_source(repo: Path) -> None:
         != PROTOCOL_VERSION
     ):
         fail("release and Cargo source-policy hns-rs versions differ")
+    if verify_cargo_source_policy.HNS_RS_VERSION_OVERRIDES != {
+        package: requirement.removeprefix("=")
+        for package, requirement in PROTOCOL_VERSION_OVERRIDES.items()
+    }:
+        fail("release and Cargo source-policy hns-rs version overrides differ")
+    if verify_cargo_source_policy.HNS_RS_REVISION_OVERRIDES != {
+        "hns-p2p-experimental": PROTOCOL_SUCCESSOR_REVISION
+    }:
+        fail("release and Cargo source-policy hns-rs revision overrides differ")
     if (
         tuple(verify_cargo_source_policy.HNS_RS_PUBLIC_PACKAGES)
         != PROTOCOL_PUBLIC_PACKAGES
@@ -648,12 +676,15 @@ def verify_protocol_source(repo: Path) -> None:
     dependencies = manifest["workspace"]["dependencies"]
     for package in sorted(PROTOCOL_DIRECT_PACKAGES):
         dependency = dependencies.get(package)
+        expected_requirement = PROTOCOL_VERSION_OVERRIDES.get(
+            package, PROTOCOL_VERSION
+        )
         if not isinstance(dependency, dict):
             fail(f"workspace protocol dependency {package} is not an exact table")
-        if dependency != {"version": PROTOCOL_VERSION}:
+        if dependency != {"version": expected_requirement}:
             fail(
                 f"workspace protocol dependency {package} must use only exact "
-                f"registry requirement {PROTOCOL_VERSION}"
+                f"registry requirement {expected_requirement}"
             )
 
     lock = tomllib.loads((repo / "Cargo.lock").read_text(encoding="utf-8"))
@@ -664,7 +695,10 @@ def verify_protocol_source(repo: Path) -> None:
         if name not in verify_cargo_source_policy.LOCKED_HNS_RS_PACKAGES:
             continue
         observed_protocol_dependencies.add(name)
-        if package.get("version") != PROTOCOL_VERSION.removeprefix("="):
+        expected_version = PROTOCOL_VERSION_OVERRIDES.get(
+            name, PROTOCOL_VERSION
+        ).removeprefix("=")
+        if package.get("version") != expected_version:
             fail(f"Cargo.lock has the wrong version for protocol package {name}")
         if (
             package.get("source")
@@ -684,6 +718,17 @@ def verify_protocol_source(repo: Path) -> None:
         )
 
 
+def expected_workspace_versions(
+    package_names: set[str], workspace_version: str
+) -> dict[str, str]:
+    return {
+        name: SUCCESSOR_RELEASE_VERSIONS.get(
+            name, PATCH_RELEASE_VERSIONS.get(name, workspace_version)
+        )
+        for name in package_names
+    }
+
+
 def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str, str]:
     root_manifest = tomllib.loads((repo / "Cargo.toml").read_text(encoding="utf-8"))
     workspace_package = root_manifest["workspace"]["package"]
@@ -691,9 +736,7 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
     expected_publish = ["crates-io"]
 
     packages = {package["name"]: package for package in metadata["packages"]}
-    expected_versions = {
-        name: PATCH_RELEASE_VERSIONS.get(name, version) for name in packages
-    }
+    expected_versions = expected_workspace_versions(set(packages), version)
     expected_packages = set(order) | PRIVATE_PACKAGES
     if set(packages) != expected_packages:
         fail(
@@ -859,7 +902,23 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             if name in PUBLIC_ADAPTER_PACKAGES
             else "release/CRATE-CHANGELOG.md"
         )
-        if (package_root / "CHANGELOG.md").read_bytes() != expected_template:
+        package_changelog = (package_root / "CHANGELOG.md").read_bytes()
+        if name in SUCCESSOR_RELEASE_VERSIONS:
+            package_changelog_text = package_changelog.decode("utf-8")
+            successor_heading = rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
+            if re.search(successor_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(
+                    f"{name} CHANGELOG.md lacks a dated {expected_version} release heading"
+                )
+            successor_changelog_url = (
+                "https://github.com/handshake-rs/hns-dane-engine/blob/"
+                f"v{SUCCESSOR_RELEASE_VERSION}/CHANGELOG.md"
+            )
+            if successor_changelog_url not in package_changelog_text:
+                fail(
+                    f"{name} CHANGELOG.md does not link the successor release tag"
+                )
+        elif package_changelog != expected_template:
             fail(f"{name} CHANGELOG.md differs from {expected_template_name}")
 
         for fixture in PACKAGE_FIXTURES.get(name, ()):
