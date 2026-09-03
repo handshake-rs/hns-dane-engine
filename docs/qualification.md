@@ -2,32 +2,20 @@
 
 ## Current protocol-source pins
 
-The current source consumes twelve direct `hns-rs` packages at exact crates.io
-version `=0.3.1` and `hns-p2p-experimental` at exact version `=0.4.0`; the
-lockfile contains the reviewed sixteen-package dependency closure. The baseline
-archive-checksum authority
-[`../release/hns-rs-0.3.1-crates.sha256`](../release/hns-rs-0.3.1-crates.sha256)
-covers all nineteen published, non-yanked 0.3.1 packages. Exact archive
+The current source consumes fourteen direct `hns-rs` packages at exact
+crates.io version `=0.4.1`; the lockfile contains the reviewed sixteen-package
+dependency closure. The archive-checksum authority
+[`../release/hns-rs-0.4.1-crates.sha256`](../release/hns-rs-0.4.1-crates.sha256)
+covers all nineteen packages in the coherent upstream cohort. Exact archive
 readback established clean per-package VCS provenance and source paths at
-`0e99addca59778b7b7c6fc56291333a97c4c8815`.
-The selected `hns-p2p-experimental 0.4.0` successor archive is separately
-bound by
-[`../release/hns-rs-0.4.0-successor-crates.sha256`](../release/hns-rs-0.4.0-successor-crates.sha256)
-to clean source `c8feb6f90f3e03efbb982a5e33192dda6fd2f37a`.
+`73611a0d83778e157b35f28ca2197d068e83fc61`, and annotated tag `v0.4.1`
+peels directly to that source.
 
-That upstream source passed CI run
-[`32637180489`](https://github.com/handshake-rs/hns-rs/actions/runs/32637180489),
-CodeQL run
-[`32637186016`](https://github.com/handshake-rs/hns-rs/actions/runs/32637186016),
-and the credential-free release preflight in
-[`32637182502`](https://github.com/handshake-rs/hns-rs/actions/runs/32637182502).
-All nineteen packages were subsequently read back from crates.io and the
-`v0.3.1` source tag exists. This is upstream dependency evidence, not
-qualification of the successor engine source. Those facade dependencies now
-back the synchronous `HrmHnsaAuthorityBroker` and its dual-fenced
-`HrmHnsaHnsrRequesterBroker` composition; the legacy `hnsa_route` v2 runtime
-path remains unchanged. The successor must pass its own exact-commit engine
-gates before publication.
+This is upstream dependency evidence, not qualification of the successor
+engine source. Those facade dependencies back the synchronous
+`HrmHnsaAuthorityBroker` and its dual-fenced `HrmHnsaHnsrRequesterBroker`
+composition; the legacy `hnsa_route` v2 runtime path remains unchanged. Every
+successor must pass its own exact-commit engine gates before publication.
 
 Focused native HRM/HNSA broker evidence on 2026-08-20 covers six deterministic
 tests: active authority ordering, withdrawal, durable time advancement before a
@@ -270,11 +258,10 @@ lockfile is committed with this continuation.
 
 Recorded foundation coverage and dated source status:
 
-- independently cloneable Cargo resolution with thirteen reviewed direct
-  `hns-rs` packages and the exact sixteen-package locked crates.io closure:
-  twelve direct packages at `=0.3.1` and `hns-p2p-experimental` at `=0.4.0`;
-  checksum and clean source/path authority for the baseline nineteen-package
-  cohort and the selected successor archive; and rejection of Git
+- independently cloneable Cargo resolution with fourteen reviewed direct
+  `hns-rs` packages at `=0.4.1` and the exact sixteen-package locked crates.io
+  closure; checksum and clean source/path authority for the coherent
+  nineteen-package cohort; and rejection of Git
   sources, non-exact versions, aliases, unreviewed consumers/packages, lock or
   checksum drift, and external path dependencies;
 - hard 65,535-byte DNS message bound and configurable tighter limits;
