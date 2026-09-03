@@ -5,7 +5,7 @@ on the surrounding ecosystem workspace layout.
 
 ## Canonical `hns-rs` source
 
-Thirteen packages are declared once in the root `[workspace.dependencies]`
+Fourteen packages are declared once in the root `[workspace.dependencies]`
 table:
 
 - `hns-covenants`
@@ -20,22 +20,23 @@ table:
 - `hns-primitives`
 - `hns-rollback-journal`
 - `hns-service-authority`
+- `hns-transaction`
 - `hns-urkel-proof`
 
-Every declaration requires the exact crates.io version `=0.3.1`. The lockfile
-resolves those packages plus transitive `hns-chat-protocol`, `hns-mining`, and
-`hns-transaction` from the crates.io registry, for a fixed sixteen-package
+Every declaration requires the exact crates.io version `=0.4.1`. The lockfile
+resolves those packages plus transitive `hns-chat-protocol` and `hns-mining`
+from the crates.io registry, for a fixed sixteen-package
 closure. No Git package is permitted in a tracked manifest or the lockfile.
 
-[`../release/hns-rs-0.3.1-crates.sha256`](../release/hns-rs-0.3.1-crates.sha256)
-records the crates.io archive checksum for all nineteen public `hns-rs` 0.3.1
+[`../release/hns-rs-0.4.1-crates.sha256`](../release/hns-rs-0.4.1-crates.sha256)
+records the crates.io archive checksum for all nineteen public `hns-rs 0.4.1`
 packages. Each archive identifies clean source revision
-`0e99addca59778b7b7c6fc56291333a97c4c8815` and its expected `crates/<name>`
+`73611a0d83778e157b35f28ca2197d068e83fc61` and its expected `crates/<name>`
 source path. `hns-script`, `hns-swap`, and `hns-marketplace-protocol` are
 verified release-cohort members but are outside this engine's dependency
-closure. The newly declared `hns-hrm` and `hns-rollback-journal` dependencies
-are dormant facade dependencies reserved for later broker work; this migration
-does not alter the legacy `hnsa_route` v2 runtime path.
+closure. `hns-hrm` and `hns-rollback-journal` back the current broker facade;
+this dependency migration does not reinterpret the legacy `hnsa_route` v2
+runtime path.
 
 Engine crates inherit these declarations with `workspace = true`. Other local
 crate dependencies remain repository-local paths.
@@ -44,12 +45,12 @@ crate dependencies remain repository-local paths.
 
 `scripts/verify_cargo_source_policy.py` fails if:
 
-- any direct `hns-rs` package is not an exact `=0.3.1` crates.io dependency or
+- any direct `hns-rs` package is not an exact `=0.4.1` crates.io dependency or
   uses a Git, path, branch, tag, revision, or alias override;
 - a consumer bypasses the root declaration or appears outside the reviewed
   manifest and dependency section;
 - any Git package enters a tracked manifest or the lockfile;
-- the direct thirteen-package, locked sixteen-package, or public
+- the direct fourteen-package, locked sixteen-package, or public
   nineteen-package set changes;
 - a locked package checksum differs from the reviewed archive manifest; or
 - any path dependency escapes the engine repository.
@@ -82,6 +83,6 @@ dry-runs remain isolated in the exact-commit manual workflow documented in
 clone with no sibling `hns-rs` directory.
 
 Before an upload, release execute mode independently reads back all nineteen
-crates.io API records and archives. It requires exact version 0.3.1, non-yanked
+crates.io API records and archives. It requires exact version 0.4.1, non-yanked
 status, the reviewed archive checksums, and clean per-package VCS provenance at
 the reviewed source revision and paths.
