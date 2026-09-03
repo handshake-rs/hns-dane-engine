@@ -55,7 +55,7 @@ hns-browser-p2p = { version = "0.2.2", path = "crates/hns-browser-p2p" }
 hns-browser-primitives = { version = "0.2.2", path = "crates/hns-browser-primitives" }
 hns-browser-resolver = { version = "0.2.2", path = "crates/hns-browser-resolver" }
 hns-browser-runtime = { version = "0.2.2", path = "crates/hns-browser-runtime" }
-hns-browser-loopback-proxy = { version = "0.2.2", path = "crates/hns-browser-loopback-proxy" }
+hns-browser-loopback-proxy = { version = "0.2.3", path = "crates/hns-browser-loopback-proxy" }
 hns-browser-sync = { version = "0.2.2", path = "crates/hns-browser-sync" }
 hns-browser-urkel = { version = "0.2.2", path = "crates/hns-browser-urkel" }
 hns-browser-transport = { version = "0.2.2", path = "crates/hns-browser-transport" }

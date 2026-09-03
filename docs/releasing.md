@@ -17,13 +17,17 @@ The retained stateless-DANE plan correction was a targeted `0.2.3` patch
 release of `hns-namespace-resolution` and `hns-browser-gateway`, recorded in
 [`release/stateless-dane-0.2.3-crates.txt`](../release/stateless-dane-0.2.3-crates.txt).
 Those immutable archives are now pinned by checksum and source provenance. The
-current targeted `0.2.3` release is the compatible light-client cohort recorded
-in
-[`release/light-client-0.2.3-crates.txt`](../release/light-client-0.2.3-crates.txt).
-It advances `hns-light-chain`, `hns-light-wallet`, `hns-light-p2p`, and
-`hns-light-sync` together so normalized registry packages use one coherent
-`hns-rs 0.4.1` type graph. `hns-light-sync` also exposes safe recovery from an
-abandoned, uncommitted header round.
+four light-client `0.2.3` crates are likewise immutable inputs recorded in
+[`release/prepublished-light-client-0.2.3-crates.txt`](../release/prepublished-light-client-0.2.3-crates.txt)
+and
+[`release/hns-dane-engine-light-client-0.2.3-crates.sha256`](../release/hns-dane-engine-light-client-0.2.3-crates.sha256)
+at source `87d2346c13ade4987801e0f1367bd604fd77c9f0`.
+
+The current targeted `0.2.3` release advances only
+`hns-browser-loopback-proxy`, as recorded in
+[`release/loopback-proxy-0.2.3-crates.txt`](../release/loopback-proxy-0.2.3-crates.txt).
+It raises the hard, bounded browser-burst admission envelope without changing
+the public API or reissuing any prior archive.
 
 ## Public package allowlist
 
@@ -127,8 +131,9 @@ and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
 Routine qualification verifies every recorded immutable registry archive and
-performs Cargo's normalized `cargo publish --dry-run` for all four current
-`0.2.3` packages from `release/light-client-0.2.3-crates.txt`. This compilation
+performs Cargo's normalized `cargo publish --dry-run` for the current
+`hns-browser-loopback-proxy 0.2.3` package from
+`release/loopback-proxy-0.2.3-crates.txt`. This compilation
 uses the normalized dependency declarations that crates.io consumers receive,
 so registry-only version skew cannot be hidden by workspace path dependencies.
 The separate manual release preflight repeats that release boundary for the
@@ -273,16 +278,16 @@ Those runs are retained historical evidence and did not replace the manual
    ./scripts/publish.sh --execute --confirm-publish 0.2.3
    ```
 
-Execute mode validates the clean, dated adapter source, all upstream protocol
-archives, and the twenty initial engine archives before it can reach the first
+Execute mode validates the clean, dated targeted source, all upstream protocol
+archives, and every recorded immutable engine archive before it can reach the
 upload. It reads those prepublished archives directly from crates.io, requiring
-their pinned API/download checksums and clean `v0.2.2` provenance rather than
-incorrectly recreating them from the successor source. For every new adapter,
+their pinned API/download checksums and clean source provenance rather than
+incorrectly recreating them from successor source. For the new proxy version,
 the runner creates and inspects the exact local normalized archive before
-checking the registry. An HTTP 200 is never sufficient to skip an adapter:
+checking the registry. An HTTP 200 is never sufficient to skip the package:
 the script downloads the published archive, requires byte-for-byte SHA-256
 identity with the local archive, and requires both archives to identify the
-current clean adapter release commit. This makes a partially completed adapter
+current clean targeted release commit. This makes a partially completed
 release safely resumable without accepting another artifact under the same
 package and version.
 
@@ -309,7 +314,7 @@ command exits safely; rerun the identical execute command after propagation so
 resume verification can continue without republishing.
 
 After publication, create and push the annotated
-`browser-adapters-v0.2.2` tag from the exact qualified adapter release commit,
-then confirm every new package page and docs.rs build. The historical `v0.2.2`
-tag remains the source record for the initial twenty packages.
+`loopback-proxy-v0.2.3` tag from the exact qualified release commit, then
+confirm the package page and docs.rs build. Historical tags remain the source
+records for their immutable packages.
 Yanking can discourage new resolution but cannot delete or replace an upload.

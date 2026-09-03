@@ -42,7 +42,11 @@ do
                 "crates/$package/CHANGELOG.md"
             ;;
         hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
-        hns-browser-gateway|hns-browser-loopback-proxy|hns-browser-p2p|\
+        hns-browser-loopback-proxy)
+            cp -- LICENSE-POLYFORM-NONCOMMERCIAL \
+                "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"
+            ;;
+        hns-browser-gateway|hns-browser-p2p|\
         hns-browser-primitives|hns-browser-resolver|hns-browser-sync|\
         hns-browser-transport|hns-browser-urkel)
             cp -- LICENSE-POLYFORM-NONCOMMERCIAL \

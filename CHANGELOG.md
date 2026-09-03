@@ -3,6 +3,23 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## 0.2.3 (loopback proxy) - 2026-09-03
+
+- Raised the bounded browser loopback-proxy defaults to 128 concurrent clients,
+  2,048 aggregate requests per 10 seconds, and 1,024 requests per host per 10
+  seconds. This prevents modern page and overlapping navigation bursts from
+  receiving an HTTP 429 during CONNECT, which Chromium surfaces as
+  `ERR_TUNNEL_CONNECTION_FAILED`, while retaining hard concurrency, aggregate,
+  per-host, tracked-host, and time-window ceilings.
+- Added regression coverage for two simultaneous 1,024-request origin bursts
+  and retained exact rejection at the aggregate boundary. HTTP does not define
+  a universal numeric connection ceiling; the 128-client bound leaves room
+  above HTTP/2's recommended minimum capacity of 100 concurrent streams while
+  preserving explicit resource control for CONNECT traffic.
+- This targeted compatible patch advances only
+  `hns-browser-loopback-proxy`; the already published light-client `0.2.3`
+  crates remain immutable inputs verified by checksum and source provenance.
+
 ## 0.2.3 (light-client cohort) - 2026-09-01
 
 - Added a bounded recovery operation that abandons only an uncommitted header

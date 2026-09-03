@@ -1,0 +1,5 @@
+# Light-client crates already published from source 87d2346c13ade4987801e0f1367bd604fd77c9f0.
+hns-light-chain
+hns-light-wallet
+hns-light-p2p
+hns-light-sync

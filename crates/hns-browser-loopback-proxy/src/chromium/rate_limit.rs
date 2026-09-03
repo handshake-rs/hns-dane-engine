@@ -7,9 +7,15 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-pub const DEFAULT_MAX_ACTIVE_CLIENTS: usize = 64;
-pub const DEFAULT_GLOBAL_REQUESTS_PER_WINDOW: usize = 240;
-pub const DEFAULT_HOST_REQUESTS_PER_WINDOW: usize = DEFAULT_GLOBAL_REQUESTS_PER_WINDOW;
+/// Hard concurrent-client ceiling for one loopback proxy generation.
+///
+/// This remains bounded while leaving headroom above HTTP/2's recommended
+/// minimum of 100 concurrent streams for modern browser page bursts.
+pub const DEFAULT_MAX_ACTIVE_CLIENTS: usize = 128;
+/// Hard aggregate admission ceiling for one ten-second window.
+pub const DEFAULT_GLOBAL_REQUESTS_PER_WINDOW: usize = 2_048;
+/// Hard per-origin admission ceiling for one ten-second window.
+pub const DEFAULT_HOST_REQUESTS_PER_WINDOW: usize = 1_024;
 pub const DEFAULT_MAX_TRACKED_HOSTS: usize = 256;
 pub const DEFAULT_RATE_WINDOW: Duration = Duration::from_secs(10);
 
@@ -320,13 +326,13 @@ mod tests {
         assert_eq!(
             RateLimitConfig::default(),
             RateLimitConfig {
-                global_requests: 240,
-                per_host_requests: 240,
+                global_requests: 2_048,
+                per_host_requests: 1_024,
                 window: Duration::from_secs(10),
                 max_tracked_hosts: 256,
             }
         );
-        assert_eq!(DEFAULT_MAX_ACTIVE_CLIENTS, 64);
+        assert_eq!(DEFAULT_MAX_ACTIVE_CLIENTS, 128);
     }
 
     #[test]
@@ -408,15 +414,35 @@ mod tests {
     }
 
     #[test]
-    fn default_window_allows_same_host_asset_bursts_up_to_global_limit() {
+    fn default_window_allows_same_host_asset_bursts_up_to_host_limit() {
         let limiter = RequestRateLimiter::new(RateLimitConfig::default()).expect("valid config");
         let now = Instant::now();
 
-        for _ in 0..DEFAULT_GLOBAL_REQUESTS_PER_WINDOW {
+        for _ in 0..DEFAULT_HOST_REQUESTS_PER_WINDOW {
             assert_eq!(limiter.check("app.example", now), RateLimitDecision::Allowed);
         }
         assert_eq!(
             limiter.check("app.example", now),
+            RateLimitDecision::Limited {
+                scope: RateLimitScope::Host,
+                retry_after: DEFAULT_RATE_WINDOW,
+            }
+        );
+    }
+
+    #[test]
+    fn default_window_allows_two_overlapping_modern_page_bursts() {
+        let limiter = RequestRateLimiter::new(RateLimitConfig::default()).expect("valid config");
+        let now = Instant::now();
+
+        for _ in 0..DEFAULT_HOST_REQUESTS_PER_WINDOW {
+            assert_eq!(limiter.check("first.example", now), RateLimitDecision::Allowed);
+        }
+        for _ in 0..DEFAULT_HOST_REQUESTS_PER_WINDOW {
+            assert_eq!(limiter.check("second.example", now), RateLimitDecision::Allowed);
+        }
+        assert_eq!(
+            limiter.check("third.example", now),
             RateLimitDecision::Limited {
                 scope: RateLimitScope::Global,
                 retry_after: DEFAULT_RATE_WINDOW,

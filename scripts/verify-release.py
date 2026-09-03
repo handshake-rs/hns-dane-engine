@@ -90,6 +90,18 @@ PREPUBLISHED_PATCH_PACKAGES = (
     "hns-namespace-resolution",
     "hns-browser-gateway",
 )
+PREPUBLISHED_LIGHT_CLIENT_VERSION = "0.2.3"
+PREPUBLISHED_LIGHT_CLIENT_REVISION = "87d2346c13ade4987801e0f1367bd604fd77c9f0"
+PREPUBLISHED_LIGHT_CLIENT_MANIFEST = "release/prepublished-light-client-0.2.3-crates.txt"
+PREPUBLISHED_LIGHT_CLIENT_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-light-client-0.2.3-crates.sha256"
+)
+PREPUBLISHED_LIGHT_CLIENT_PACKAGES = (
+    "hns-light-chain",
+    "hns-light-wallet",
+    "hns-light-p2p",
+    "hns-light-sync",
+)
 PREPUBLISHED_POLICY_REVISION = "2e06af3489bd40e0ef90b847101e4f6a7aeebe71"
 PREPUBLISHED_POLICY_MANIFEST = "release/prepublished-policy-0.3.0-crates.txt"
 PREPUBLISHED_POLICY_CHECKSUM_MANIFEST = (
@@ -110,13 +122,11 @@ PREPUBLISHED_SUCCESSOR_PACKAGES = (
     "hns-dane-engine",
 )
 PATCH_RELEASE_VERSION = "0.2.3"
-PATCH_RELEASE_MANIFEST = "release/light-client-0.2.3-crates.txt"
+PATCH_RELEASE_MANIFEST = "release/loopback-proxy-0.2.3-crates.txt"
 PATCH_RELEASE_PACKAGES = (
-    "hns-light-chain",
-    "hns-light-wallet",
-    "hns-light-p2p",
-    "hns-light-sync",
+    "hns-browser-loopback-proxy",
 )
+PATCH_RELEASE_TAG = "loopback-proxy-v0.2.3"
 PATCH_RELEASE_VERSIONS = {
     package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
 }
@@ -423,6 +433,9 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         PREPUBLISHED_PATCH_MANIFEST,
         PREPUBLISHED_PATCH_CHECKSUM_MANIFEST,
         PREPUBLISHED_PATCH_REVISION,
+        PREPUBLISHED_LIGHT_CLIENT_MANIFEST,
+        PREPUBLISHED_LIGHT_CLIENT_CHECKSUM_MANIFEST,
+        PREPUBLISHED_LIGHT_CLIENT_REVISION,
         PREPUBLISHED_POLICY_MANIFEST,
         PREPUBLISHED_POLICY_CHECKSUM_MANIFEST,
         PREPUBLISHED_POLICY_REVISION,
@@ -685,6 +698,10 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"prepublished_patch_revision={PREPUBLISHED_PATCH_REVISION}",
         f"prepublished_patch_manifest={PREPUBLISHED_PATCH_MANIFEST}",
         f"prepublished_patch_checksum_manifest={PREPUBLISHED_PATCH_CHECKSUM_MANIFEST}",
+        f"prepublished_light_client_version={PREPUBLISHED_LIGHT_CLIENT_VERSION}",
+        f"prepublished_light_client_revision={PREPUBLISHED_LIGHT_CLIENT_REVISION}",
+        f"prepublished_light_client_manifest={PREPUBLISHED_LIGHT_CLIENT_MANIFEST}",
+        f"prepublished_light_client_checksum_manifest={PREPUBLISHED_LIGHT_CLIENT_CHECKSUM_MANIFEST}",
         f"prepublished_policy_revision={PREPUBLISHED_POLICY_REVISION}",
         f"prepublished_policy_manifest={PREPUBLISHED_POLICY_MANIFEST}",
         f"prepublished_policy_checksum_manifest={PREPUBLISHED_POLICY_CHECKSUM_MANIFEST}",
@@ -696,6 +713,7 @@ def verify_publish_script_safety(repo: Path) -> None:
         'is_prepublished_engine_package "$package" "$version"',
         'is_prepublished_adapter_package "$package" "$version"',
         'is_prepublished_patch_package "$package" "$version"',
+        'is_prepublished_light_client_package "$package" "$version"',
         'is_prepublished_policy_package "$package" "$version"',
         'is_prepublished_successor_package "$package" "$version"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
@@ -838,9 +856,13 @@ def expected_workspace_versions(
             name,
             PATCH_RELEASE_VERSIONS.get(
                 name,
-                PREPUBLISHED_PATCH_VERSION
-                if name in PREPUBLISHED_PATCH_PACKAGES
-                else workspace_version,
+                (
+                    PREPUBLISHED_PATCH_VERSION
+                    if name in PREPUBLISHED_PATCH_PACKAGES
+                    else PREPUBLISHED_LIGHT_CLIENT_VERSION
+                    if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
+                    else workspace_version
+                ),
             ),
         )
         for name in package_names
@@ -937,6 +959,9 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
 
     template = (repo / "release/CRATE-CHANGELOG.md").read_bytes()
     adapter_template = (repo / "release/ADAPTER-CRATE-CHANGELOG.md").read_bytes()
+    light_client_template = (
+        repo / "release/LIGHT-CLIENT-0.2.3-CRATE-CHANGELOG.md"
+    ).read_bytes()
     template_text = template.decode("utf-8")
     adapter_template_text = adapter_template.decode("utf-8")
     if expected_heading not in template_text:
@@ -1021,7 +1046,13 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             else "release/CRATE-CHANGELOG.md"
         )
         package_changelog = (package_root / "CHANGELOG.md").read_bytes()
-        if name in SUCCESSOR_RELEASE_VERSIONS:
+        if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES:
+            if package_changelog != light_client_template:
+                fail(
+                    f"{name} CHANGELOG.md differs from "
+                    "release/LIGHT-CLIENT-0.2.3-CRATE-CHANGELOG.md"
+                )
+        elif name in SUCCESSOR_RELEASE_VERSIONS:
             package_changelog_text = package_changelog.decode("utf-8")
             successor_heading = rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
             if re.search(successor_heading, package_changelog_text, re.MULTILINE) is None:
@@ -1047,7 +1078,7 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 )
             patch_changelog_url = (
                 "https://github.com/handshake-rs/hns-dane-engine/blob/"
-                f"light-client-v{expected_version}/CHANGELOG.md"
+                f"{PATCH_RELEASE_TAG}/CHANGELOG.md"
             )
             if patch_changelog_url not in package_changelog_text:
                 fail(f"{name} CHANGELOG.md does not link the patch release tag")
@@ -1122,6 +1153,16 @@ def main() -> None:
     verify_prepublished_engine_inventory(repo, order)
     verify_prepublished_adapter_inventory(repo, order)
     verify_prepublished_patch_inventory(repo)
+    verify_named_prepublished_inventory(
+        repo,
+        PREPUBLISHED_LIGHT_CLIENT_MANIFEST,
+        PREPUBLISHED_LIGHT_CLIENT_CHECKSUM_MANIFEST,
+        PREPUBLISHED_LIGHT_CLIENT_PACKAGES,
+        {
+            package: PREPUBLISHED_LIGHT_CLIENT_VERSION
+            for package in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
+        },
+    )
     verify_named_prepublished_inventory(
         repo,
         PREPUBLISHED_POLICY_MANIFEST,

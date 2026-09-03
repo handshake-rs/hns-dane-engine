@@ -33,6 +33,10 @@ prepublished_patch_version=0.2.3
 prepublished_patch_revision=142117058690220b066782d8ff0655cf0a2670b3
 prepublished_patch_manifest=release/prepublished-stateless-dane-0.2.3-crates.txt
 prepublished_patch_checksum_manifest=release/hns-dane-engine-stateless-dane-0.2.3-crates.sha256
+prepublished_light_client_version=0.2.3
+prepublished_light_client_revision=87d2346c13ade4987801e0f1367bd604fd77c9f0
+prepublished_light_client_manifest=release/prepublished-light-client-0.2.3-crates.txt
+prepublished_light_client_checksum_manifest=release/hns-dane-engine-light-client-0.2.3-crates.sha256
 prepublished_policy_version=0.3.0
 prepublished_policy_revision=2e06af3489bd40e0ef90b847101e4f6a7aeebe71
 prepublished_policy_manifest=release/prepublished-policy-0.3.0-crates.txt
@@ -91,6 +95,10 @@ prepublished_patch_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$prepublished_patch_manifest")
+prepublished_light_client_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_light_client_manifest")
 prepublished_policy_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
@@ -170,6 +178,23 @@ is_prepublished_patch_package() {
     return 1
 }
 
+is_prepublished_light_client_package() {
+    package=$1
+    version=$2
+    if [ "$version" != "$prepublished_light_client_version" ]
+    then
+        return 1
+    fi
+    for prepublished_package in $prepublished_light_client_crates
+    do
+        if [ "$package" = "$prepublished_package" ]
+        then
+            return 0
+        fi
+    done
+    return 1
+}
+
 is_prepublished_policy_package() {
     package=$1
     version=$2
@@ -193,6 +218,7 @@ is_prepublished_package() {
     is_prepublished_engine_package "$1" "$2" ||
         is_prepublished_adapter_package "$1" "$2" ||
         is_prepublished_patch_package "$1" "$2" ||
+        is_prepublished_light_client_package "$1" "$2" ||
         is_prepublished_policy_package "$1" "$2" ||
         is_prepublished_successor_package "$1" "$2"
 }
@@ -610,6 +636,10 @@ verify_prepublished_package() {
     then
         source_revision=$prepublished_patch_revision
         checksum_manifest=$prepublished_patch_checksum_manifest
+    elif is_prepublished_light_client_package "$package" "$version"
+    then
+        source_revision=$prepublished_light_client_revision
+        checksum_manifest=$prepublished_light_client_checksum_manifest
     elif is_prepublished_policy_package "$package" "$version"
     then
         source_revision=$prepublished_policy_revision
@@ -723,6 +753,11 @@ verify_prepublished_packages() {
         verify_prepublished_package "$package" "$prepublished_patch_version"
     done
     echo "verified all recorded prepublished stateless DANE $prepublished_patch_version archives and checksums at source $prepublished_patch_revision"
+    for package in $prepublished_light_client_crates
+    do
+        verify_prepublished_package "$package" "$prepublished_light_client_version"
+    done
+    echo "verified all recorded prepublished light-client $prepublished_light_client_version archives and checksums at source $prepublished_light_client_revision"
     for package in $prepublished_policy_crates
     do
         verify_prepublished_package "$package" "$(package_version "$package")"
