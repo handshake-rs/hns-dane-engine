@@ -187,6 +187,18 @@ pub enum PeerEvent {
     Proof(ProofPacket),
     /// Bounded standard peer addresses supplied for discovery.
     Addresses(Vec<NetAddress>),
+    /// The remote peer requested bounded address gossip from a serving
+    /// connection. The transport does not invent a response; its owner must
+    /// supply addresses from its own validated, privacy-bounded host list.
+    GetAddresses,
+    /// The remote peer requested canonical block inventory after one locator.
+    /// Serving peers retain the complete request so locally verified chain
+    /// storage can select the response without reparsing untrusted bytes.
+    GetBlocks(LocatorPacket),
+    /// The remote peer requested canonical headers after one locator.
+    /// Serving peers retain the complete request so locally verified chain
+    /// storage can construct a standard bounded `headers` response.
+    GetHeaders(LocatorPacket),
     /// Matching pong arrived.
     Pong([u8; 8]),
     /// Peer rejected a request.
@@ -552,6 +564,9 @@ impl PeerSession {
                 Ok(PeerEvent::Proof(proof))
             }
             Packet::Addr(addresses) => Ok(PeerEvent::Addresses(addresses)),
+            Packet::GetAddr => Ok(PeerEvent::GetAddresses),
+            Packet::GetBlocks(locator) => Ok(PeerEvent::GetBlocks(locator)),
+            Packet::GetHeaders(locator) => Ok(PeerEvent::GetHeaders(locator)),
             Packet::Reject(reject) => Ok(PeerEvent::Rejected(reject)),
             Packet::Inv(inventory) => Ok(PeerEvent::Wallet(WalletPeerEvent::Inventory(inventory))),
             Packet::GetData(inventory) => {
@@ -670,6 +685,9 @@ impl<T: Read + Write> PeerConnection<T> {
                 PeerEvent::Ready(metadata) => return Ok(metadata),
                 PeerEvent::Ignored(_) | PeerEvent::Addresses(_) => {}
                 PeerEvent::Send(_)
+                | PeerEvent::GetAddresses
+                | PeerEvent::GetBlocks(_)
+                | PeerEvent::GetHeaders(_)
                 | PeerEvent::Headers(_)
                 | PeerEvent::Proof(_)
                 | PeerEvent::Pong(_)
@@ -1255,6 +1273,31 @@ mod tests {
             session.handle_frame(&headers, now + DEFAULT_REQUEST_TIMEOUT_SECONDS + 1),
             Err(PeerError::UnsolicitedHeaders)
         ));
+    }
+
+    #[test]
+    fn serving_requests_preserve_locators_and_getaddr() {
+        let now = 1_700_000_000;
+        let mut session = ready(now);
+        let request = LocatorPacket {
+            locator: vec![BlockHash::new([9; 32])],
+            stop: BlockHash::new([8; 32]),
+        };
+        let get_headers = Frame::from_packet(&Packet::GetHeaders(request.clone())).unwrap();
+        assert_eq!(
+            session.handle_frame(&get_headers, now).unwrap(),
+            PeerEvent::GetHeaders(request.clone())
+        );
+        let get_blocks = Frame::from_packet(&Packet::GetBlocks(request.clone())).unwrap();
+        assert_eq!(
+            session.handle_frame(&get_blocks, now).unwrap(),
+            PeerEvent::GetBlocks(request)
+        );
+        let get_addr = Frame::from_packet(&Packet::GetAddr).unwrap();
+        assert_eq!(
+            session.handle_frame(&get_addr, now).unwrap(),
+            PeerEvent::GetAddresses
+        );
     }
 
     #[test]
