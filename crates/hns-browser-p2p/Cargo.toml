@@ -1,7 +1,7 @@
 [package]
 name = "hns-browser-p2p"
 description = "Bounded HSD peer and DNS-relay adapter for browser runtimes"
-version.workspace = true
+version = "0.2.3"
 edition.workspace = true
 rust-version.workspace = true
 license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"
@@ -16,7 +16,7 @@ documentation = "https://docs.rs/hns-browser-p2p"
 getrandom = "0.3.4"
 hns-core.workspace = true
 hns-urkel.workspace = true
-rusqlite = { version = "0.39.0", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 thiserror = "2.0.19"
 
 [dev-dependencies]

@@ -2,7 +2,13 @@
 
 This crate uses the shared `hns-dane-engine` workspace version. Complete
 release notes for every public crate are maintained in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/browser-adapters-v0.2.2/CHANGELOG.md).
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/main/CHANGELOG.md).
+
+## 0.2.3 - 2026-09-07
+
+Advanced the shared SQLite dependency to `rusqlite 0.40.2` and
+`libsqlite3-sys 0.38.2`. This is a dependency-only compatible patch with no
+adapter API or persistence-schema change.
 
 ## 0.2.2 - 2026-08-23
 

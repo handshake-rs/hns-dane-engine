@@ -3,6 +3,17 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## 0.2.3 (browser SQLite adapters) - 2026-09-07
+
+- Advanced `hns-browser-chain`, `hns-browser-p2p`, and
+  `hns-browser-resolver` to `rusqlite 0.40.2` and the matching single
+  `libsqlite3-sys 0.38.2` native-link cohort.
+- Prepared the three affected browser adapters as compatible `0.2.3` patch
+  releases so downstream mobile and wallet workspaces can migrate without
+  attempting to link two SQLite native-library versions into one binary.
+- No adapter API or persistence-schema change is introduced by this dependency
+  migration.
+
 ## 0.2.3 (loopback proxy) - 2026-09-03
 
 - Raised the bounded browser loopback-proxy defaults to 128 concurrent clients,
