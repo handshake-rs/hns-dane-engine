@@ -44,6 +44,10 @@ prepublished_policy_checksum_manifest=release/hns-dane-engine-policy-0.3.0-crate
 prepublished_successor_revision=ee222208a7750dcb061c5c3cc16b8cf82d75033e
 prepublished_successor_manifest=release/prepublished-shakescape-successor-crates.txt
 prepublished_successor_checksum_manifest=release/hns-dane-engine-shakescape-successor-crates.sha256
+prepublished_loopback_version=0.2.3
+prepublished_loopback_revision=9aa1b1ef48cd3628fbd579f208a865255301eb03
+prepublished_loopback_manifest=release/prepublished-loopback-proxy-0.2.3-crates.txt
+prepublished_loopback_checksum_manifest=release/hns-dane-engine-loopback-proxy-0.2.3-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -107,6 +111,10 @@ prepublished_successor_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$prepublished_successor_manifest")
+prepublished_loopback_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_loopback_manifest")
 
 last_public_crate=
 for package in $public_crates
@@ -214,13 +222,21 @@ is_prepublished_successor_package() {
     esac
 }
 
+is_prepublished_loopback_package() {
+    package=$1
+    version=$2
+    [ "$version" = "$prepublished_loopback_version" ] || return 1
+    [ "$package" = "hns-browser-loopback-proxy" ]
+}
+
 is_prepublished_package() {
     is_prepublished_engine_package "$1" "$2" ||
         is_prepublished_adapter_package "$1" "$2" ||
         is_prepublished_patch_package "$1" "$2" ||
         is_prepublished_light_client_package "$1" "$2" ||
         is_prepublished_policy_package "$1" "$2" ||
-        is_prepublished_successor_package "$1" "$2"
+        is_prepublished_successor_package "$1" "$2" ||
+        is_prepublished_loopback_package "$1" "$2"
 }
 
 run_package_operation() {
@@ -648,6 +664,10 @@ verify_prepublished_package() {
     then
         source_revision=$prepublished_successor_revision
         checksum_manifest=$prepublished_successor_checksum_manifest
+    elif is_prepublished_loopback_package "$package" "$version"
+    then
+        source_revision=$prepublished_loopback_revision
+        checksum_manifest=$prepublished_loopback_checksum_manifest
     else
         echo "error: $package $version is not a recorded immutable package" >&2
         exit 1
@@ -768,6 +788,11 @@ verify_prepublished_packages() {
         verify_prepublished_package "$package" "$(package_version "$package")"
     done
     echo "verified all recorded prepublished Shakescape successor archives at source $prepublished_successor_revision"
+    for package in $prepublished_loopback_crates
+    do
+        verify_prepublished_package "$package" "$prepublished_loopback_version"
+    done
+    echo "verified the recorded prepublished loopback proxy archive at source $prepublished_loopback_revision"
 }
 
 verify_published_package() {

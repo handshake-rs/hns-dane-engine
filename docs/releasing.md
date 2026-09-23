@@ -23,11 +23,14 @@ and
 [`release/hns-dane-engine-light-client-0.2.3-crates.sha256`](../release/hns-dane-engine-light-client-0.2.3-crates.sha256)
 at source `87d2346c13ade4987801e0f1367bd604fd77c9f0`.
 
-The current targeted `0.2.3` release advances only
-`hns-browser-loopback-proxy`, as recorded in
-[`release/loopback-proxy-0.2.3-crates.txt`](../release/loopback-proxy-0.2.3-crates.txt).
-It raises the hard, bounded browser-burst admission envelope without changing
-the public API or reissuing any prior archive.
+The loopback-proxy `0.2.3` patch is now an immutable input recorded in
+[`release/prepublished-loopback-proxy-0.2.3-crates.txt`](../release/prepublished-loopback-proxy-0.2.3-crates.txt)
+and its checksum manifest. The current targeted `0.2.4` mobile-network cohort
+advances only `hns-light-p2p`, `hns-browser-chain`, `hns-browser-p2p`, and
+`hns-browser-resolver`, as recorded in
+[`release/mobile-network-0.2.4-crates.txt`](../release/mobile-network-0.2.4-crates.txt).
+It publishes the typed inbound Handshake request events and one coherent
+SQLite native-link graph without reissuing any other archive.
 
 ## Public package allowlist
 
@@ -131,9 +134,9 @@ and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
 Routine qualification verifies every recorded immutable registry archive and
-performs Cargo's normalized `cargo publish --dry-run` for the current
-`hns-browser-loopback-proxy 0.2.3` package from
-`release/loopback-proxy-0.2.3-crates.txt`. This compilation
+performs Cargo's normalized `cargo publish --dry-run` for the four current
+mobile-network `0.2.4` packages from
+`release/mobile-network-0.2.4-crates.txt`. This compilation
 uses the normalized dependency declarations that crates.io consumers receive,
 so registry-only version skew cannot be hidden by workspace path dependencies.
 The separate manual release preflight repeats that release boundary for the
@@ -220,7 +223,7 @@ Those runs are retained historical evidence and did not replace the manual
    ```
 
    Routine qualification reads back every immutable baseline archive and
-   performs normalized publish dry-runs for the current light-client patch
+   performs normalized publish dry-runs for the current mobile-network patch
    cohort after the normal workspace checks. Confirm
    that CI and every configured CodeQL language completed successfully for the
    same exact commit before continuing.
@@ -275,14 +278,14 @@ Those runs are retained historical evidence and did not replace the manual
    The confirmation must equal the exact patch-release version:
 
    ```bash
-   ./scripts/publish.sh --execute --confirm-publish 0.2.3
+   ./scripts/publish.sh --execute --confirm-publish 0.2.4
    ```
 
 Execute mode validates the clean, dated targeted source, all upstream protocol
 archives, and every recorded immutable engine archive before it can reach the
 upload. It reads those prepublished archives directly from crates.io, requiring
 their pinned API/download checksums and clean source provenance rather than
-incorrectly recreating them from successor source. For the new proxy version,
+incorrectly recreating them from successor source. For each new cohort version,
 the runner creates and inspects the exact local normalized archive before
 checking the registry. An HTTP 200 is never sufficient to skip the package:
 the script downloads the published archive, requires byte-for-byte SHA-256
@@ -302,7 +305,7 @@ interval only when crates.io communicates a different non-negative limit:
 ```bash
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish 0.2.3
+  ./scripts/publish.sh --execute --confirm-publish 0.2.4
 ```
 
 After each applicable cooldown, the script downloads the new archive and
@@ -314,7 +317,7 @@ command exits safely; rerun the identical execute command after propagation so
 resume verification can continue without republishing.
 
 After publication, create and push the annotated
-`loopback-proxy-v0.2.3` tag from the exact qualified release commit, then
-confirm the package page and docs.rs build. Historical tags remain the source
-records for their immutable packages.
+`mobile-network-v0.2.4` tag from the exact qualified release commit, then
+confirm all four package pages and docs.rs builds. Historical tags remain the
+source records for their immutable packages.
 Yanking can discourage new resolution but cannot delete or replace an upload.

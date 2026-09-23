@@ -121,12 +121,22 @@ PREPUBLISHED_SUCCESSOR_PACKAGES = (
     "hns-p2p-transport",
     "hns-dane-engine",
 )
-PATCH_RELEASE_VERSION = "0.2.3"
-PATCH_RELEASE_MANIFEST = "release/loopback-proxy-0.2.3-crates.txt"
-PATCH_RELEASE_PACKAGES = (
-    "hns-browser-loopback-proxy",
+PREPUBLISHED_LOOPBACK_VERSION = "0.2.3"
+PREPUBLISHED_LOOPBACK_REVISION = "9aa1b1ef48cd3628fbd579f208a865255301eb03"
+PREPUBLISHED_LOOPBACK_MANIFEST = "release/prepublished-loopback-proxy-0.2.3-crates.txt"
+PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-loopback-proxy-0.2.3-crates.sha256"
 )
-PATCH_RELEASE_TAG = "loopback-proxy-v0.2.3"
+PREPUBLISHED_LOOPBACK_PACKAGES = ("hns-browser-loopback-proxy",)
+PATCH_RELEASE_VERSION = "0.2.4"
+PATCH_RELEASE_MANIFEST = "release/mobile-network-0.2.4-crates.txt"
+PATCH_RELEASE_PACKAGES = (
+    "hns-light-p2p",
+    "hns-browser-chain",
+    "hns-browser-p2p",
+    "hns-browser-resolver",
+)
+PATCH_RELEASE_TAG = "mobile-network-v0.2.4"
 PATCH_RELEASE_VERSIONS = {
     package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
 }
@@ -708,6 +718,10 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"prepublished_successor_revision={PREPUBLISHED_SUCCESSOR_REVISION}",
         f"prepublished_successor_manifest={PREPUBLISHED_SUCCESSOR_MANIFEST}",
         f"prepublished_successor_checksum_manifest={PREPUBLISHED_SUCCESSOR_CHECKSUM_MANIFEST}",
+        f"prepublished_loopback_version={PREPUBLISHED_LOOPBACK_VERSION}",
+        f"prepublished_loopback_revision={PREPUBLISHED_LOOPBACK_REVISION}",
+        f"prepublished_loopback_manifest={PREPUBLISHED_LOOPBACK_MANIFEST}",
+        f"prepublished_loopback_checksum_manifest={PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST}",
         "verify_prepublished_packages",
         'is_prepublished_package "$package" "$version"',
         'is_prepublished_engine_package "$package" "$version"',
@@ -716,6 +730,7 @@ def verify_publish_script_safety(repo: Path) -> None:
         'is_prepublished_light_client_package "$package" "$version"',
         'is_prepublished_policy_package "$package" "$version"',
         'is_prepublished_successor_package "$package" "$version"',
+        'is_prepublished_loopback_package "$package" "$version"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
         'if [ "$api_checksum" != "$expected_checksum" ]',
         'if [ "$archive_checksum" != "$expected_checksum" ]',
@@ -859,6 +874,8 @@ def expected_workspace_versions(
                 (
                     PREPUBLISHED_PATCH_VERSION
                     if name in PREPUBLISHED_PATCH_PACKAGES
+                    else PREPUBLISHED_LOOPBACK_VERSION
+                    if name in PREPUBLISHED_LOOPBACK_PACKAGES
                     else PREPUBLISHED_LIGHT_CLIENT_VERSION
                     if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
                     else workspace_version
@@ -1046,12 +1063,40 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             else "release/CRATE-CHANGELOG.md"
         )
         package_changelog = (package_root / "CHANGELOG.md").read_bytes()
-        if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES:
+        if name in PATCH_RELEASE_VERSIONS:
+            package_changelog_text = package_changelog.decode("utf-8")
+            patch_heading = (
+                rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
+            )
+            if re.search(patch_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(
+                    f"{name} CHANGELOG.md lacks a dated {expected_version} patch heading"
+                )
+            patch_changelog_url = (
+                "https://github.com/handshake-rs/hns-dane-engine/blob/"
+                f"{PATCH_RELEASE_TAG}/CHANGELOG.md"
+            )
+            if patch_changelog_url not in package_changelog_text:
+                fail(f"{name} CHANGELOG.md does not link the patch release tag")
+        elif name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES:
             if package_changelog != light_client_template:
                 fail(
                     f"{name} CHANGELOG.md differs from "
                     "release/LIGHT-CLIENT-0.2.3-CRATE-CHANGELOG.md"
                 )
+        elif name in PREPUBLISHED_LOOPBACK_PACKAGES:
+            package_changelog_text = package_changelog.decode("utf-8")
+            loopback_heading = (
+                rf"^## {re.escape(PREPUBLISHED_LOOPBACK_VERSION)} - "
+                r"\d{4}-\d{2}-\d{2}$"
+            )
+            if re.search(loopback_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(
+                    f"{name} CHANGELOG.md lacks the recorded "
+                    f"{PREPUBLISHED_LOOPBACK_VERSION} release heading"
+                )
+            if "loopback-proxy-v0.2.3/CHANGELOG.md" not in package_changelog_text:
+                fail(f"{name} CHANGELOG.md does not link its immutable release tag")
         elif name in SUCCESSOR_RELEASE_VERSIONS:
             package_changelog_text = package_changelog.decode("utf-8")
             successor_heading = rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
@@ -1067,21 +1112,6 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 fail(
                     f"{name} CHANGELOG.md does not link the successor release tag"
                 )
-        elif name in PATCH_RELEASE_VERSIONS:
-            package_changelog_text = package_changelog.decode("utf-8")
-            patch_heading = (
-                rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
-            )
-            if re.search(patch_heading, package_changelog_text, re.MULTILINE) is None:
-                fail(
-                    f"{name} CHANGELOG.md lacks a dated {expected_version} patch heading"
-                )
-            patch_changelog_url = (
-                "https://github.com/handshake-rs/hns-dane-engine/blob/"
-                f"{PATCH_RELEASE_TAG}/CHANGELOG.md"
-            )
-            if patch_changelog_url not in package_changelog_text:
-                fail(f"{name} CHANGELOG.md does not link the patch release tag")
         elif package_changelog != expected_template:
             fail(f"{name} CHANGELOG.md differs from {expected_template_name}")
 
@@ -1105,10 +1135,22 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 continue
             expected_requirement = f"^{expected_versions[dependency_name]}"
             if dependency["req"] != expected_requirement:
-                fail(
-                    f"{name} requires internal {dependency_name} at "
-                    f"{dependency['req']}, expected {expected_requirement}"
+                # Immutable previously published consumers retain their
+                # original compatible lower bound. Rewriting those manifests
+                # would create unpublishable local source that no longer
+                # matches the recorded archive; Cargo's 0.2 caret range still
+                # admits the targeted 0.2.4 dependency.
+                compatible_immutable_consumer = (
+                    name not in PATCH_RELEASE_VERSIONS
+                    and dependency_name in PATCH_RELEASE_VERSIONS
+                    and dependency["req"] in {"^0.2.2", "^0.2.3"}
+                    and expected_requirement == "^0.2.4"
                 )
+                if not compatible_immutable_consumer:
+                    fail(
+                        f"{name} requires internal {dependency_name} at "
+                        f"{dependency['req']}, expected {expected_requirement}"
+                    )
             if positions[dependency_name] >= positions[name]:
                 fail(f"{dependency_name} must precede dependent package {name}")
 
@@ -1176,6 +1218,13 @@ def main() -> None:
         PREPUBLISHED_SUCCESSOR_CHECKSUM_MANIFEST,
         PREPUBLISHED_SUCCESSOR_PACKAGES,
         SUCCESSOR_RELEASE_VERSIONS,
+    )
+    verify_named_prepublished_inventory(
+        repo,
+        PREPUBLISHED_LOOPBACK_MANIFEST,
+        PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST,
+        PREPUBLISHED_LOOPBACK_PACKAGES,
+        {"hns-browser-loopback-proxy": PREPUBLISHED_LOOPBACK_VERSION},
     )
     patch_release_order(repo)
     version, release_label = verify_workspace(

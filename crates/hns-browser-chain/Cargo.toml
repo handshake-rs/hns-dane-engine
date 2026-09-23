@@ -1,7 +1,7 @@
 [package]
 name = "hns-browser-chain"
 description = "Durable validated Handshake header-chain adapter for browser runtimes"
-version = "0.2.3"
+version = "0.2.4"
 edition.workspace = true
 rust-version.workspace = true
 license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"

@@ -2,7 +2,13 @@
 
 This crate is part of the compatible `hns-dane-engine` light-client patch
 cohort. Complete release notes are maintained in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/light-client-v0.2.3/CHANGELOG.md).
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/mobile-network-v0.2.4/CHANGELOG.md).
+
+## 0.2.4 - 2026-09-23
+
+Expose standard Handshake `GETADDR`, `GETBLOCKS`, and `GETHEADERS` requests as
+typed peer events so an embedding mobile `NETWORK` listener can answer them
+from its own validated, bounded address and chain state.
 
 ## 0.2.3 - 2026-09-01
 

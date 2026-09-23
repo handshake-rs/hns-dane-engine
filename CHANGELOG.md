@@ -3,6 +3,20 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## 0.2.4 (mobile network cohort) - 2026-09-23
+
+- Publish `hns-browser-chain`, `hns-browser-p2p`, and
+  `hns-browser-resolver` with the coordinated `rusqlite 0.40.2` /
+  `libsqlite3-sys 0.38.2` native-link graph used by the mobile application.
+- Publish `hns-light-p2p` with typed `GETADDR`, `GETBLOCKS`, and `GETHEADERS`
+  peer events so a mobile `NETWORK` listener can serve standard Handshake
+  requests instead of discarding their locators.
+- Advance the locked TLS implementation to `rustls 0.23.45` and
+  `rustls-webpki 0.103.15` so the qualified workspace excludes
+  `RUSTSEC-2026-0285`.
+- This is a targeted compatible patch cohort. No other immutable engine crate
+  is reissued.
+
 ## 0.2.3 (browser SQLite adapters) - 2026-09-07
 
 - Advanced `hns-browser-chain`, `hns-browser-p2p`, and
