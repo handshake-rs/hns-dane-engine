@@ -88,7 +88,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
 
     def test_reviewed_package_sets_are_explicit(self) -> None:
         self.assertEqual(len(HNS_RS_PUBLIC_PACKAGES), 19)
-        self.assertEqual(len(DIRECT_HNS_RS_PACKAGES), 13)
+        self.assertEqual(len(DIRECT_HNS_RS_PACKAGES), 14)
         self.assertEqual(len(LOCKED_HNS_RS_PACKAGES), 16)
         self.assertEqual(HNS_RS_VERSION_OVERRIDES, {})
         self.assertEqual(HNS_RS_REVISION_OVERRIDES, {})
@@ -97,7 +97,6 @@ class CargoSourcePolicyTests(unittest.TestCase):
             {
                 "hns-chat-protocol",
                 "hns-mining",
-                "hns-transaction",
             },
         )
         self.assertEqual(
@@ -115,7 +114,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             HNS_RS_REVISION,
-            "73611a0d83778e157b35f28ca2197d068e83fc61",
+            "1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b",
         )
 
     def test_accepts_exact_registry_source_boundary(self) -> None:

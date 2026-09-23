@@ -1,4 +1,7 @@
+hns-light-chain
+hns-light-wallet
 hns-light-p2p
+hns-light-sync
 hns-browser-chain
 hns-browser-p2p
 hns-browser-resolver

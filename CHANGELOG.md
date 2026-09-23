@@ -3,6 +3,25 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## 0.2.5 (mobile wallet cohort) - 2026-09-23
+
+- Repin `hns-light-chain`, `hns-light-wallet`, `hns-light-p2p`, and
+  `hns-light-sync` to the coherent nineteen-crate `hns-rs 0.4.2` protocol
+  cohort, including the corrected Handshake FINALIZE lifecycle semantics.
+- Carry the typed `GETADDR`, `GETBLOCKS`, and `GETHEADERS` peer events forward
+  in `hns-light-p2p` so a mobile `NETWORK` listener can serve ordinary
+  Handshake requests from its validated bounded state.
+- Publish `hns-browser-chain`, `hns-browser-p2p`, and `hns-browser-resolver`
+  with the coordinated `rusqlite 0.40.2` / `libsqlite3-sys 0.38.2` native-link
+  graph used by the mobile application.
+- Make the canonical experimental DNS-relay vectors package-local, embed them
+  in the `hns-browser-p2p` test binary, and verify every packaged copy against
+  the repository fixtures so tests are reproducible across moved worktrees.
+- Retain `rustls 0.23.45` and `rustls-webpki 0.103.15`, excluding
+  `RUSTSEC-2026-0285` from the qualified closure.
+- This seven-package cohort supersedes the prepared but unpublished 0.2.4
+  mobile-network cohort; no 0.2.4 archive was uploaded to crates.io.
+
 ## 0.2.4 (mobile network cohort) - 2026-09-23
 
 - Publish `hns-browser-chain`, `hns-browser-p2p`, and

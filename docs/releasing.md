@@ -25,12 +25,15 @@ at source `87d2346c13ade4987801e0f1367bd604fd77c9f0`.
 
 The loopback-proxy `0.2.3` patch is now an immutable input recorded in
 [`release/prepublished-loopback-proxy-0.2.3-crates.txt`](../release/prepublished-loopback-proxy-0.2.3-crates.txt)
-and its checksum manifest. The current targeted `0.2.4` mobile-network cohort
-advances only `hns-light-p2p`, `hns-browser-chain`, `hns-browser-p2p`, and
+and its checksum manifest. The current targeted `0.2.5` mobile-wallet cohort
+advances `hns-light-chain`, `hns-light-wallet`, `hns-light-p2p`,
+`hns-light-sync`, `hns-browser-chain`, `hns-browser-p2p`, and
 `hns-browser-resolver`, as recorded in
-[`release/mobile-network-0.2.4-crates.txt`](../release/mobile-network-0.2.4-crates.txt).
-It publishes the typed inbound Handshake request events and one coherent
-SQLite native-link graph without reissuing any other archive.
+[`release/mobile-wallet-0.2.5-crates.txt`](../release/mobile-wallet-0.2.5-crates.txt).
+It publishes one hns-rs 0.4.2 light-client type graph, the typed inbound
+Handshake request events, and one coherent SQLite native-link graph. The
+prepared 0.2.4 mobile-network sources were never uploaded and are superseded
+by this cohort.
 
 ## Public package allowlist
 
@@ -134,9 +137,9 @@ and embedded package data; it does not claim that `cargo test` against the
 downloaded engine archive recreates the private repository test harness.
 
 Routine qualification verifies every recorded immutable registry archive and
-performs Cargo's normalized `cargo publish --dry-run` for the four current
-mobile-network `0.2.4` packages from
-`release/mobile-network-0.2.4-crates.txt`. This compilation
+performs Cargo's normalized `cargo publish --dry-run` for the seven current
+mobile-wallet `0.2.5` packages from
+`release/mobile-wallet-0.2.5-crates.txt`. This compilation
 uses the normalized dependency declarations that crates.io consumers receive,
 so registry-only version skew cannot be hidden by workspace path dependencies.
 The separate manual release preflight repeats that release boundary for the
@@ -144,23 +147,23 @@ exact candidate commit.
 
 ## Upstream protocol gate
 
-This source consumes thirteen direct `hns-rs` packages with one exact
-crates.io requirement, `=0.4.1`; the lockfile contains the reviewed protocol
+This source consumes fourteen direct `hns-rs` packages with one exact
+crates.io requirement, `=0.4.2`; the lockfile contains the reviewed protocol
 closure. Before any engine upload, execute mode reads back all nineteen
-packages in the coherent `0.4.1` cohort from the crates.io API and archive
+packages in the coherent `0.4.2` cohort from the crates.io API and archive
 endpoint. It requires non-yanked status, the checksums in
-[`../release/hns-rs-0.4.1-crates.sha256`](../release/hns-rs-0.4.1-crates.sha256),
+[`../release/hns-rs-0.4.2-crates.sha256`](../release/hns-rs-0.4.2-crates.sha256),
 and clean `.cargo_vcs_info.json` provenance at source revision
-`73611a0d83778e157b35f28ca2197d068e83fc61`, with each package's expected
+`1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b`, with each package's expected
 `crates/<name>` path. Any mismatch stops the release before an engine upload.
 
 The protocol source passed exact CI run
-[`33492052293`](https://github.com/handshake-rs/hns-rs/actions/runs/33492052293),
+[`35824037121`](https://github.com/handshake-rs/hns-rs/actions/runs/35824037121),
 CodeQL run
-[`33492052309`](https://github.com/handshake-rs/hns-rs/actions/runs/33492052309),
+[`35824036592`](https://github.com/handshake-rs/hns-rs/actions/runs/35824036592),
 and the nineteen-package credential-free release preflight in
-[`33492499333`](https://github.com/handshake-rs/hns-rs/actions/runs/33492499333).
-All nineteen `0.4.1` packages must be published, non-yanked, and pass exact
+[`35824426005`](https://github.com/handshake-rs/hns-rs/actions/runs/35824426005).
+All nineteen `0.4.2` packages must be published, non-yanked, and pass exact
 archive readback before engine publication. This upstream evidence does not
 satisfy any engine gate.
 
@@ -223,7 +226,7 @@ Those runs are retained historical evidence and did not replace the manual
    ```
 
    Routine qualification reads back every immutable baseline archive and
-   performs normalized publish dry-runs for the current mobile-network patch
+   performs normalized publish dry-runs for the current mobile-wallet patch
    cohort after the normal workspace checks. Confirm
    that CI and every configured CodeQL language completed successfully for the
    same exact commit before continuing.
@@ -278,7 +281,7 @@ Those runs are retained historical evidence and did not replace the manual
    The confirmation must equal the exact patch-release version:
 
    ```bash
-   ./scripts/publish.sh --execute --confirm-publish 0.2.4
+   ./scripts/publish.sh --execute --confirm-publish 0.2.5
    ```
 
 Execute mode validates the clean, dated targeted source, all upstream protocol
@@ -305,7 +308,7 @@ interval only when crates.io communicates a different non-negative limit:
 ```bash
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish 0.2.4
+  ./scripts/publish.sh --execute --confirm-publish 0.2.5
 ```
 
 After each applicable cooldown, the script downloads the new archive and
@@ -317,7 +320,7 @@ command exits safely; rerun the identical execute command after propagation so
 resume verification can continue without republishing.
 
 After publication, create and push the annotated
-`mobile-network-v0.2.4` tag from the exact qualified release commit, then
-confirm all four package pages and docs.rs builds. Historical tags remain the
+`mobile-wallet-v0.2.5` tag from the exact qualified release commit, then
+confirm all seven package pages and docs.rs builds. Historical tags remain the
 source records for their immutable packages.
 Yanking can discourage new resolution but cannot delete or replace an upload.

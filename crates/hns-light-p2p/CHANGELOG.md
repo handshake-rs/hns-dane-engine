@@ -2,7 +2,12 @@
 
 This crate is part of the compatible `hns-dane-engine` light-client patch
 cohort. Complete release notes are maintained in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/mobile-network-v0.2.4/CHANGELOG.md).
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/mobile-wallet-v0.2.5/CHANGELOG.md).
+
+## 0.2.5 - 2026-09-23
+
+Carries the typed standard Handshake serving events forward while repinning
+the complete public light-client type graph to `hns-rs 0.4.2`.
 
 ## 0.2.4 - 2026-09-23
 

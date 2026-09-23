@@ -2,7 +2,12 @@
 
 This crate uses the shared `hns-dane-engine` workspace version. Complete
 release notes for every public crate are maintained in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/mobile-network-v0.2.4/CHANGELOG.md).
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/mobile-wallet-v0.2.5/CHANGELOG.md).
+
+## 0.2.5 - 2026-09-23
+
+Publishes the coordinated SQLite graph as part of the coherent mobile-wallet
+engine release.
 
 ## 0.2.4 - 2026-09-23
 

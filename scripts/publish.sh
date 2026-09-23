@@ -17,10 +17,10 @@ require_clean_archive_vcs=no
 package_mode='publish-dry-run'
 release_manifest=release/public-crates.txt
 protocol_repository=https://github.com/handshake-rs/hns-rs.git
-protocol_revision=73611a0d83778e157b35f28ca2197d068e83fc61
-protocol_version=0.4.1
+protocol_revision=1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b
+protocol_version=0.4.2
 protocol_crates='hns-encoding hns-rollback-journal hns-hrm hns-primitives hns-covenants hns-dns-relay-protocol hns-header-consensus hns-service-authority hns-odoh-protocol hns-p2p-experimental hns-urkel-proof hns-transaction hns-chat-protocol hns-hnsr-protocol hns-script hns-mining hns-swap hns-marketplace-protocol hns-p2p-wire'
-protocol_checksum_manifest=release/hns-rs-0.4.1-crates.sha256
+protocol_checksum_manifest=release/hns-rs-0.4.2-crates.sha256
 prepublished_engine_version=0.2.2
 prepublished_engine_revision=b7fdf8826c81b77650a0f740d1f05314b74969f9
 prepublished_engine_manifest=release/prepublished-0.2.2-crates.txt
@@ -556,6 +556,27 @@ verify_fixture_source_package() {
     archive_root="$package-$version"
 
     case "$package" in
+        hns-browser-p2p)
+            for fixture in \
+                malformed-length.hex \
+                manifest.json \
+                oversized-request.hex \
+                oversized-response.hex \
+                request-basic.hex \
+                request-max-qname.hex \
+                request-max.hex \
+                response-error.hex \
+                response-max.hex \
+                response-ok.hex \
+                trailing-bytes.hex \
+                unknown-status.hex \
+                zero-request-id.hex
+            do
+                relative_path="fixtures/experimental-dns-relay/$fixture"
+                verify_archive_copy "$package" "$archive" "$archive_root" \
+                    "$relative_path" "crates/$package/$relative_path"
+            done
+            ;;
         hns-dns-wire)
             for fixture in \
                 basic-query.hex \
@@ -852,9 +873,9 @@ verify_protocol_packages_published() {
     ensure_release_tmp
     for package in $protocol_crates
     do
-        protocol_revision=73611a0d83778e157b35f28ca2197d068e83fc61
-        protocol_version=0.4.1
-        protocol_checksum_manifest=release/hns-rs-0.4.1-crates.sha256
+        protocol_revision=1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b
+        protocol_version=0.4.2
+        protocol_checksum_manifest=release/hns-rs-0.4.2-crates.sha256
         protocol_filename="$package-$protocol_version.crate"
         protocol_expected_checksum=$(awk \
             -v filename="$protocol_filename" \

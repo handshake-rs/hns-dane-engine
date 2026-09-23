@@ -1,7 +1,7 @@
 [package]
 name = "hns-browser-p2p"
 description = "Bounded HSD peer and DNS-relay adapter for browser runtimes"
-version = "0.2.4"
+version = "0.2.5"
 edition.workspace = true
 rust-version.workspace = true
 license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"

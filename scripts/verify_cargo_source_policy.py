@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 ROOT_MANIFEST = Path("Cargo.toml")
 LOCKFILE = Path("Cargo.lock")
 HNS_RS_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-HNS_RS_REVISION = "73611a0d83778e157b35f28ca2197d068e83fc61"
-HNS_RS_CRATES_IO_VERSION = "0.4.1"
+HNS_RS_REVISION = "1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b"
+HNS_RS_CRATES_IO_VERSION = "0.4.2"
 HNS_RS_CRATES_IO_REQUIREMENT = f"={HNS_RS_CRATES_IO_VERSION}"
 HNS_RS_REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 HNS_RS_CHECKSUM_MANIFEST = Path(
@@ -63,13 +63,13 @@ DIRECT_HNS_RS_PACKAGES = frozenset(
         "hns-primitives",
         "hns-rollback-journal",
         "hns-service-authority",
+        "hns-transaction",
         "hns-urkel-proof",
     }
 )
 LOCKED_HNS_RS_PACKAGES = DIRECT_HNS_RS_PACKAGES | {
     "hns-chat-protocol",
     "hns-mining",
-    "hns-transaction",
 }
 
 
@@ -112,6 +112,7 @@ EXPECTED_CONSUMERS = {
             ("dependencies", "hns-header-consensus"),
             ("dependencies", "hns-p2p-wire"),
             ("dependencies", "hns-primitives"),
+            ("dependencies", "hns-transaction"),
         }
     ),
     Path("crates/hns-light-sync/Cargo.toml"): frozenset(
@@ -127,6 +128,7 @@ EXPECTED_CONSUMERS = {
             ("dependencies", "hns-header-consensus"),
             ("dependencies", "hns-p2p-wire"),
             ("dependencies", "hns-primitives"),
+            ("dependencies", "hns-transaction"),
         }
     ),
     Path("crates/hns-p2p-transport/Cargo.toml"): frozenset(

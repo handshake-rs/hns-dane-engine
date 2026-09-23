@@ -16,8 +16,8 @@ import verify_cargo_source_policy
 
 REPOSITORY = "https://github.com/handshake-rs/hns-dane-engine"
 PROTOCOL_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-PROTOCOL_REVISION = "73611a0d83778e157b35f28ca2197d068e83fc61"
-PROTOCOL_VERSION = "=0.4.1"
+PROTOCOL_REVISION = "1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b"
+PROTOCOL_VERSION = "=0.4.2"
 PROTOCOL_VERSION_OVERRIDES: dict[str, str] = {}
 PROTOCOL_PUBLIC_PACKAGES = (
     "hns-encoding",
@@ -53,6 +53,7 @@ PROTOCOL_DIRECT_PACKAGES = {
     "hns-primitives",
     "hns-rollback-journal",
     "hns-service-authority",
+    "hns-transaction",
     "hns-urkel-proof",
 }
 PUBLIC_ADAPTER_PACKAGES = {
@@ -128,15 +129,18 @@ PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST = (
     "release/hns-dane-engine-loopback-proxy-0.2.3-crates.sha256"
 )
 PREPUBLISHED_LOOPBACK_PACKAGES = ("hns-browser-loopback-proxy",)
-PATCH_RELEASE_VERSION = "0.2.4"
-PATCH_RELEASE_MANIFEST = "release/mobile-network-0.2.4-crates.txt"
+PATCH_RELEASE_VERSION = "0.2.5"
+PATCH_RELEASE_MANIFEST = "release/mobile-wallet-0.2.5-crates.txt"
 PATCH_RELEASE_PACKAGES = (
+    "hns-light-chain",
+    "hns-light-wallet",
     "hns-light-p2p",
+    "hns-light-sync",
     "hns-browser-chain",
     "hns-browser-p2p",
     "hns-browser-resolver",
 )
-PATCH_RELEASE_TAG = "mobile-network-v0.2.4"
+PATCH_RELEASE_TAG = "mobile-wallet-v0.2.5"
 PATCH_RELEASE_VERSIONS = {
     package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
 }
@@ -150,6 +154,21 @@ SUCCESSOR_RELEASE_VERSIONS = {
 }
 PRIVATE_PACKAGES = {"hns-browser-testkit"}
 PACKAGE_FIXTURES = {
+    "hns-browser-p2p": (
+        "experimental-dns-relay/malformed-length.hex",
+        "experimental-dns-relay/manifest.json",
+        "experimental-dns-relay/oversized-request.hex",
+        "experimental-dns-relay/oversized-response.hex",
+        "experimental-dns-relay/request-basic.hex",
+        "experimental-dns-relay/request-max-qname.hex",
+        "experimental-dns-relay/request-max.hex",
+        "experimental-dns-relay/response-error.hex",
+        "experimental-dns-relay/response-max.hex",
+        "experimental-dns-relay/response-ok.hex",
+        "experimental-dns-relay/trailing-bytes.hex",
+        "experimental-dns-relay/unknown-status.hex",
+        "experimental-dns-relay/zero-request-id.hex",
+    ),
     "hns-dns-wire": (
         "dns/basic-query.hex",
         "dns/compressed-a-response-ad.hex",
@@ -1139,12 +1158,12 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 # original compatible lower bound. Rewriting those manifests
                 # would create unpublishable local source that no longer
                 # matches the recorded archive; Cargo's 0.2 caret range still
-                # admits the targeted 0.2.4 dependency.
+                # admits the targeted 0.2.5 dependency.
                 compatible_immutable_consumer = (
                     name not in PATCH_RELEASE_VERSIONS
                     and dependency_name in PATCH_RELEASE_VERSIONS
-                    and dependency["req"] in {"^0.2.2", "^0.2.3"}
-                    and expected_requirement == "^0.2.4"
+                    and dependency["req"] in {"^0.2.2", "^0.2.3", "^0.2.4"}
+                    and expected_requirement == "^0.2.5"
                 )
                 if not compatible_immutable_consumer:
                     fail(

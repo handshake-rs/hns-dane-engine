@@ -1173,18 +1173,45 @@ mod tests {
     use std::collections::VecDeque;
     use std::net::{IpAddr, Ipv4Addr};
 
-    const FIXTURE_DIRECTORY: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../fixtures/experimental-dns-relay"
-    );
-
     fn fixture(name: &str) -> Vec<u8> {
-        let path = format!("{FIXTURE_DIRECTORY}/{name}");
-        let encoded: String = std::fs::read_to_string(path)
-            .unwrap()
-            .chars()
-            .filter(|character| !character.is_ascii_whitespace())
-            .collect();
+        let encoded: String = match name {
+            "malformed-length.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/malformed-length.hex")
+            }
+            "oversized-request.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/oversized-request.hex")
+            }
+            "oversized-response.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/oversized-response.hex")
+            }
+            "request-basic.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/request-basic.hex")
+            }
+            "request-max-qname.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/request-max-qname.hex")
+            }
+            "request-max.hex" => include_str!("../fixtures/experimental-dns-relay/request-max.hex"),
+            "response-error.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/response-error.hex")
+            }
+            "response-max.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/response-max.hex")
+            }
+            "response-ok.hex" => include_str!("../fixtures/experimental-dns-relay/response-ok.hex"),
+            "trailing-bytes.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/trailing-bytes.hex")
+            }
+            "unknown-status.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/unknown-status.hex")
+            }
+            "zero-request-id.hex" => {
+                include_str!("../fixtures/experimental-dns-relay/zero-request-id.hex")
+            }
+            _ => panic!("unknown DNS-relay fixture {name}"),
+        }
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect();
         hex::decode(encoded).unwrap()
     }
 

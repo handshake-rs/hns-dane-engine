@@ -3,12 +3,12 @@
 ## Current protocol-source pins
 
 The current source consumes fourteen direct `hns-rs` packages at exact
-crates.io version `=0.4.1`; the lockfile contains the reviewed sixteen-package
+crates.io version `=0.4.2`; the lockfile contains the reviewed sixteen-package
 dependency closure. The archive-checksum authority
-[`../release/hns-rs-0.4.1-crates.sha256`](../release/hns-rs-0.4.1-crates.sha256)
+[`../release/hns-rs-0.4.2-crates.sha256`](../release/hns-rs-0.4.2-crates.sha256)
 covers all nineteen packages in the coherent upstream cohort. Exact archive
 readback established clean per-package VCS provenance and source paths at
-`73611a0d83778e157b35f28ca2197d068e83fc61`, and annotated tag `v0.4.1`
+`1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b`, and annotated tag `v0.4.2`
 peels directly to that source.
 
 This is upstream dependency evidence, not qualification of the successor
@@ -259,7 +259,7 @@ lockfile is committed with this continuation.
 Recorded foundation coverage and dated source status:
 
 - independently cloneable Cargo resolution with fourteen reviewed direct
-  `hns-rs` packages at `=0.4.1` and the exact sixteen-package locked crates.io
+  `hns-rs` packages at `=0.4.2` and the exact sixteen-package locked crates.io
   closure; checksum and clean source/path authority for the coherent
   nineteen-package cohort; and rejection of Git
   sources, non-exact versions, aliases, unreviewed consumers/packages, lock or
