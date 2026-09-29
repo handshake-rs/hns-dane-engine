@@ -98,6 +98,10 @@ resolver graph on one compatible release line. It supersedes the prepared but
 unpublished `0.2.4` mobile-network cohort and does not republish unrelated
 immutable crates. The machine-readable release set is
 [`release/mobile-wallet-0.2.6-crates.txt`](release/mobile-wallet-0.2.6-crates.txt).
+All seven archives were published from
+[`mobile-wallet-v0.2.6`](https://github.com/handshake-rs/hns-dane-engine/releases/tag/mobile-wallet-v0.2.6)
+and their registry checksums are recorded in
+[`release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256`](release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256).
 
 The workspace intentionally contains compatible mixed versions. Previously
 published archives and their checksums are recorded under [`release/`](release/)

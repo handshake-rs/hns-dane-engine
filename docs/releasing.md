@@ -30,6 +30,9 @@ advances `hns-light-chain`, `hns-light-wallet`, `hns-light-p2p`,
 `hns-light-sync`, `hns-browser-chain`, `hns-browser-p2p`, and
 `hns-browser-resolver`, as recorded in
 [`release/mobile-wallet-0.2.6-crates.txt`](../release/mobile-wallet-0.2.6-crates.txt).
+The seven published archives are pinned in
+[`release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256`](../release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256)
+from tagged source `90a5dfeb5b7c00e8fea010e79f82076de4263fd6`.
 It publishes one hns-rs 0.5.0 light-client type graph, the typed inbound
 Handshake request events, and one coherent SQLite native-link graph. The
 prepared 0.2.4 mobile-network sources were never uploaded and are superseded
