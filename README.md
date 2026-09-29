@@ -81,7 +81,7 @@ published.
 
 ## Current mobile-wallet cohort
 
-The current targeted compatible patch cohort is `0.2.5`:
+The current targeted compatible patch cohort is `0.2.6`:
 
 - `hns-light-chain`
 - `hns-light-wallet`
@@ -91,13 +91,13 @@ The current targeted compatible patch cohort is `0.2.5`:
 - `hns-browser-p2p`
 - `hns-browser-resolver`
 
-This cohort moves the complete light-client type graph to `hns-rs 0.4.2`,
+This cohort moves the complete light-client type graph to `hns-rs 0.5.0`,
 retains the typed inbound Handshake request events needed by a native
 peer-serving adapter, and keeps the SQLite-backed browser chain, peer, and
 resolver graph on one compatible release line. It supersedes the prepared but
 unpublished `0.2.4` mobile-network cohort and does not republish unrelated
 immutable crates. The machine-readable release set is
-[`release/mobile-wallet-0.2.5-crates.txt`](release/mobile-wallet-0.2.5-crates.txt).
+[`release/mobile-wallet-0.2.6-crates.txt`](release/mobile-wallet-0.2.6-crates.txt).
 
 The workspace intentionally contains compatible mixed versions. Previously
 published archives and their checksums are recorded under [`release/`](release/)
@@ -106,13 +106,13 @@ instead of being rebuilt from newer source. See
 
 ## Upstream Handshake protocol cohort
 
-The current mobile-wallet cohort consumes the coherent `hns-rs 0.4.2` protocol
+The current mobile-wallet cohort consumes the coherent `hns-rs 0.5.0` protocol
 cohort. Direct
 protocol dependencies use exact crates.io requirements, and all nineteen
 upstream archive checksums are pinned in
-[`release/hns-rs-0.4.2-crates.sha256`](release/hns-rs-0.4.2-crates.sha256).
+[`release/hns-rs-0.5.0-crates.sha256`](release/hns-rs-0.5.0-crates.sha256).
 The reviewed upstream source revision is
-`1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b`.
+`60eb912d615243a6bfb9741b17f16833c5a9181a`.
 
 Repository policy rejects Git dependencies, unreviewed registry sources,
 escaping path dependencies, dependency aliases that hide protocol identities,

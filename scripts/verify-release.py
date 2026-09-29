@@ -16,8 +16,8 @@ import verify_cargo_source_policy
 
 REPOSITORY = "https://github.com/handshake-rs/hns-dane-engine"
 PROTOCOL_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-PROTOCOL_REVISION = "1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b"
-PROTOCOL_VERSION = "=0.4.2"
+PROTOCOL_REVISION = "60eb912d615243a6bfb9741b17f16833c5a9181a"
+PROTOCOL_VERSION = "=0.5.0"
 PROTOCOL_VERSION_OVERRIDES: dict[str, str] = {}
 PROTOCOL_PUBLIC_PACKAGES = (
     "hns-encoding",
@@ -129,8 +129,8 @@ PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST = (
     "release/hns-dane-engine-loopback-proxy-0.2.3-crates.sha256"
 )
 PREPUBLISHED_LOOPBACK_PACKAGES = ("hns-browser-loopback-proxy",)
-PATCH_RELEASE_VERSION = "0.2.5"
-PATCH_RELEASE_MANIFEST = "release/mobile-wallet-0.2.5-crates.txt"
+PATCH_RELEASE_VERSION = "0.2.6"
+PATCH_RELEASE_MANIFEST = "release/mobile-wallet-0.2.6-crates.txt"
 PATCH_RELEASE_PACKAGES = (
     "hns-light-chain",
     "hns-light-wallet",
@@ -140,7 +140,7 @@ PATCH_RELEASE_PACKAGES = (
     "hns-browser-p2p",
     "hns-browser-resolver",
 )
-PATCH_RELEASE_TAG = "mobile-wallet-v0.2.5"
+PATCH_RELEASE_TAG = "mobile-wallet-v0.2.6"
 PATCH_RELEASE_VERSIONS = {
     package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
 }
@@ -1158,12 +1158,12 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 # original compatible lower bound. Rewriting those manifests
                 # would create unpublishable local source that no longer
                 # matches the recorded archive; Cargo's 0.2 caret range still
-                # admits the targeted 0.2.5 dependency.
+                # admits the targeted 0.2.6 dependency.
                 compatible_immutable_consumer = (
                     name not in PATCH_RELEASE_VERSIONS
                     and dependency_name in PATCH_RELEASE_VERSIONS
                     and dependency["req"] in {"^0.2.2", "^0.2.3", "^0.2.4"}
-                    and expected_requirement == "^0.2.5"
+                    and expected_requirement == "^0.2.6"
                 )
                 if not compatible_immutable_consumer:
                     fail(

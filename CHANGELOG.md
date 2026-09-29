@@ -3,6 +3,15 @@
 All notable changes to the `hns-dane-engine` workspace are documented in this
 file. The public crates use a shared version and follow Semantic Versioning.
 
+## 0.2.6 (mobile wallet cohort) - 2026-09-28
+
+- Repin the four public Handshake light-client crates and three browser
+  adapters to the coherent `hns-rs 0.5.0` protocol cohort.
+- Preserve the existing light-client and SQLite behavior while providing one
+  protocol generation for wallet `0.3.0` and mobile builds.
+- Reissue only the seven affected packages; unrelated published engine
+  archives remain immutable inputs to this targeted release.
+
 ## 0.2.5 (mobile wallet cohort) - 2026-09-23
 
 - Repin `hns-light-chain`, `hns-light-wallet`, `hns-light-p2p`, and

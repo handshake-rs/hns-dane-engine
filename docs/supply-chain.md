@@ -23,15 +23,15 @@ table:
 - `hns-transaction`
 - `hns-urkel-proof`
 
-Every declaration requires the exact crates.io version `=0.4.2`. The lockfile
+Every declaration requires the exact crates.io version `=0.5.0`. The lockfile
 resolves those packages plus transitive `hns-chat-protocol` and `hns-mining`
 from the crates.io registry, for a fixed sixteen-package
 closure. No Git package is permitted in a tracked manifest or the lockfile.
 
-[`../release/hns-rs-0.4.2-crates.sha256`](../release/hns-rs-0.4.2-crates.sha256)
-records the crates.io archive checksum for all nineteen public `hns-rs 0.4.2`
+[`../release/hns-rs-0.5.0-crates.sha256`](../release/hns-rs-0.5.0-crates.sha256)
+records the crates.io archive checksum for all nineteen public `hns-rs 0.5.0`
 packages. Each archive identifies clean source revision
-`1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b` and its expected `crates/<name>`
+`60eb912d615243a6bfb9741b17f16833c5a9181a` and its expected `crates/<name>`
 source path. `hns-script`, `hns-swap`, and `hns-marketplace-protocol` are
 verified release-cohort members but are outside this engine's dependency
 closure. `hns-hrm` and `hns-rollback-journal` back the current broker facade;
@@ -45,7 +45,7 @@ crate dependencies remain repository-local paths.
 
 `scripts/verify_cargo_source_policy.py` fails if:
 
-- any direct `hns-rs` package is not an exact `=0.4.2` crates.io dependency or
+- any direct `hns-rs` package is not an exact `=0.5.0` crates.io dependency or
   uses a Git, path, branch, tag, revision, or alias override;
 - a consumer bypasses the root declaration or appears outside the reviewed
   manifest and dependency section;

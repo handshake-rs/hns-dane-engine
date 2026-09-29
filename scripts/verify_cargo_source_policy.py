@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 ROOT_MANIFEST = Path("Cargo.toml")
 LOCKFILE = Path("Cargo.lock")
 HNS_RS_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-HNS_RS_REVISION = "1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b"
-HNS_RS_CRATES_IO_VERSION = "0.4.2"
+HNS_RS_REVISION = "60eb912d615243a6bfb9741b17f16833c5a9181a"
+HNS_RS_CRATES_IO_VERSION = "0.5.0"
 HNS_RS_CRATES_IO_REQUIREMENT = f"={HNS_RS_CRATES_IO_VERSION}"
 HNS_RS_REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 HNS_RS_CHECKSUM_MANIFEST = Path(
