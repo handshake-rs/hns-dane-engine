@@ -58,11 +58,9 @@ limits normally constrain each association to less than 64 KiB.
 
 The policy blob remains a 32-byte versioned representation with a CRC-32
 corruption check. Schema 3 stores recursive-HNS-DoH consent in settings bit 2.
-Schema 1 and schema 2 blobs remain accepted with that field forced to false;
-the decoder rejects bit 2 if a blob is mislabeled as either older schema. CRC
-is not an authentication mechanism: platform adapters must store the blob in
-their normal integrity-protected settings or secure storage and use optimistic
-generation matching on updates.
+Platform adapters must store the blob in integrity-protected settings or secure
+storage and use optimistic generation matching on updates. CRC is a corruption
+check and does not authenticate the stored policy.
 
 Existing `ResolutionTransport` values 0 through 5 retain their meanings.
 Value 6 names TLS-authenticated validating ICANN DoH for shared status
@@ -117,8 +115,6 @@ origin contexts, or strict HNS completions, and does not expose the trusted
 ICANN authenticator callback. A native integration that does not contain the
 trusted Rust minting host must therefore keep provider authority unavailable.
 No product provider, wallet permission, signing, value, or marketplace path is
-enabled by this ABI source. The exact dated source at `2b23bd5` passed the
-complete locked engine gate, CodeQL, and the separate 19-crate release
-preflight, superseding the intermediate `97cbeb2` source evidence. No installed
-provider path has been qualified, and exact-commit source qualification is
-never inherited by a successor commit.
+enabled by this ABI source. Source qualification must run on the exact candidate commit. Installed products
+must independently qualify provider wiring and lifecycle revocation before
+enabling provider, wallet permission, signing, value, or marketplace paths.

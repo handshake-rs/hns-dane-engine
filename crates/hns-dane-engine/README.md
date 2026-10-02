@@ -69,15 +69,6 @@ Android, Apple, or Chromium implementation of those services and does not yet
 establish the profile-authenticated inner session. Platform availability and
 release gates therefore remain false.
 
-The legacy `hsa1` HNSA selector and HNSR requester/opaque-relay cores described
-here are also implemented, but no reviewed mobile-safe authority boundary
-currently exposes either authority path across a platform bridge. Such a
-boundary must preserve the non-forgeable HNS authority, the one
-`BrowserRuntime` and requester authority, authenticated rollback-resistant
-state and floors, and trusted-time checks; JNI, C, Swift, or UI code must not
-reconstruct those authorities. This mobile integration boundary is remaining
-platform work, not an absence of the Rust core capabilities.
-
 `Engine::verify_and_select_hnsa_named_routes` accepts only a non-forgeable
 `VerifiedHnsResource` and one complete response of at most 16 encoded records.
 It requires the exact application-selected HNS name, canonical service name,

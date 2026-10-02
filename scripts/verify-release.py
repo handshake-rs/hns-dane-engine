@@ -453,24 +453,6 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
 
     required_text = (
         "release/public-crates.txt",
-        PREPUBLISHED_ENGINE_MANIFEST,
-        PREPUBLISHED_ENGINE_CHECKSUM_MANIFEST,
-        PREPUBLISHED_ENGINE_REVISION,
-        PREPUBLISHED_ADAPTER_MANIFEST,
-        PREPUBLISHED_ADAPTER_CHECKSUM_MANIFEST,
-        PREPUBLISHED_ADAPTER_REVISION,
-        PREPUBLISHED_PATCH_MANIFEST,
-        PREPUBLISHED_PATCH_CHECKSUM_MANIFEST,
-        PREPUBLISHED_PATCH_REVISION,
-        PREPUBLISHED_LIGHT_CLIENT_MANIFEST,
-        PREPUBLISHED_LIGHT_CLIENT_CHECKSUM_MANIFEST,
-        PREPUBLISHED_LIGHT_CLIENT_REVISION,
-        PREPUBLISHED_POLICY_MANIFEST,
-        PREPUBLISHED_POLICY_CHECKSUM_MANIFEST,
-        PREPUBLISHED_POLICY_REVISION,
-        PREPUBLISHED_SUCCESSOR_MANIFEST,
-        PREPUBLISHED_SUCCESSOR_CHECKSUM_MANIFEST,
-        PREPUBLISHED_SUCCESSOR_REVISION,
         PATCH_RELEASE_MANIFEST,
         PATCH_RELEASE_VERSION,
         "./scripts/publish.sh --archive-only",
@@ -995,9 +977,6 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
 
     template = (repo / "release/CRATE-CHANGELOG.md").read_bytes()
     adapter_template = (repo / "release/ADAPTER-CRATE-CHANGELOG.md").read_bytes()
-    light_client_template = (
-        repo / "release/LIGHT-CLIENT-0.2.3-CRATE-CHANGELOG.md"
-    ).read_bytes()
     template_text = template.decode("utf-8")
     adapter_template_text = adapter_template.decode("utf-8")
     if expected_heading not in template_text:
@@ -1097,12 +1076,6 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             )
             if patch_changelog_url not in package_changelog_text:
                 fail(f"{name} CHANGELOG.md does not link the patch release tag")
-        elif name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES:
-            if package_changelog != light_client_template:
-                fail(
-                    f"{name} CHANGELOG.md differs from "
-                    "release/LIGHT-CLIENT-0.2.3-CRATE-CHANGELOG.md"
-                )
         elif name in PREPUBLISHED_LOOPBACK_PACKAGES:
             package_changelog_text = package_changelog.decode("utf-8")
             loopback_heading = (

@@ -8,20 +8,3 @@ release notes for every public crate are maintained in the repository-level
 
 Corrected the packaged gateway dependency edge so registry consumers resolve
 only the Shakescape V1 policy type graph.
-
-## 0.3.0 - 2026-08-30
-
-Migrated authenticated experimental registry admission to the canonical
-Shakescape V1 wire boundary. See the canonical workspace changelog.
-
-## 0.2.2 - 2026-08-23
-
-See the canonical workspace changelog for the complete shared release scope
-and qualification status. A source archive alone does not qualify a browser,
-mobile adapter, live network path, wallet provider, or marketplace product.
-
-## 0.2.0 - 2026-08-10
-
-See the canonical workspace changelog for the complete shared release scope
-and qualification status. A source archive alone does not qualify a browser,
-mobile adapter, live network path, wallet provider, or marketplace product.

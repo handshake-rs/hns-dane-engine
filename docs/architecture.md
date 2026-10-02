@@ -27,7 +27,7 @@ hns-browser-sync - - bounded browser header/proof synchronization - - -+
 hns-browser-transport - mobile streaming / Chromium CONNECT adapters -+
 hns-browser-gateway - - strict platform gateway adapters - - - - - - -+
 hns-browser-loopback-proxy - authenticated platform proxy adapters - -+
-hns-browser-urkel - - - - exact legacy proof adapter consolidation - -+
+hns-browser-urkel - - - - exact-root proof adapter - -+
 hns-transport ---------------------------------------------------------+
 hns-p2p-transport -----------------------------------------------------+
                                                                                   |
@@ -183,7 +183,7 @@ Proxy installation independently requires the canonical engine network and
 genesis, the concrete Shakescape V1 profile resolved by policy and retained from
 peer admission, the Shakescape V1 registry identity and negotiation protocol, and
 both Shakescape-extension and ODoH service advertisements. Official, Shakescape V1,
-legacy-draft, unresolved automatic, and caller-self-consistent alternate peer
+unsupported, unresolved automatic, and caller-self-consistent alternate peer
 states are insufficient.
 Pre/post-adapter checks discard results if that epoch changes. The 16-locator
 cache persists only signed public target records, configuration selections,
@@ -318,37 +318,32 @@ diagnostic slot is not completion or provider authority.
 results. Its opaque keys include a runtime secret, network, runtime/policy generations, exact chain
 height/tree root, qtype, and canonical wire name. Reads remove TTL-expired or generation-mismatched
 entries before returning them; metrics contain only counts and byte totals.
-`hns-browser-chain` is the published durable adapter used while browser products migrate their
-SQLite header state into `hns-light-chain`. It validates proof of work, difficulty transitions,
-checkpoints, chainwork selection, reorg publication, and restart snapshots before exposing a
-canonical tip; persisted or peer-claimed heights alone never authorize name state.
-`hns-browser-dnssec` and `hns-browser-dane` centralize the products' strict legacy validation APIs
-while callers migrate to the engine 0.2 validators. They fail closed on malformed or unauthenticated
-DNSSEC material, require locally matched TLSA for HNS HTTPS, and intentionally expose no HNS-to-
-WebPKI compatibility mode.
-`hns-browser-p2p` is the published socket/session adapter used while products migrate to
-`hns-light-p2p` and `hns-p2p-transport`. It bounds framing, handshakes, requests, advisory traffic,
-relay retries, discovery persistence, and peer penalties. Peer service flags and claimed heights
-remain untrusted inputs until the local chain and proof verifiers accept their results.
-`hns-browser-sync` is the published orchestration adapter shared by the mobile and Chromium
-products while their callers migrate to `hns-light-sync`. It races a bounded peer set under finite
-deadlines, validates downloaded headers through the local chain, and stores name values only after
-exact-root Urkel verification. Resource persistence is supplied through a narrow sink so sync does
-not depend on or authorize either product's legacy resolver implementation.
-`hns-browser-primitives` is an unpublished consolidation boundary for the mobile and Chromium
-adapters while they move to the canonical `hns-rs` and engine 0.2 types. It owns the single shared
-implementation of their legacy header, DNS-wire, resource, proof-of-work, and network-policy
-types; product repositories must not carry private copies. New engine trust decisions must use the
-canonical private tokens above rather than accepting these compatibility types as authority.
-`hns-browser-resolver` is the unpublished light-client adapter for browser-specific proof-backed
-resolution, direct authoritative DNS/DoH, interception detection, and persistent verified-resource
-storage. It retains exact tree-root lineage and feeds complete HNS and ICANN plans into the shared
-dual-root classifier. The full-node `hns-resolverd` remains the canonical daemon resolver and now
-shares the same `hns-covenants` resource decoder; its RPC/server process boundary is intentionally
-not embedded in mobile or Chromium.
-`hns-browser-urkel` centralizes the products' exact-root legacy proof decoder and verifier while
-their callers migrate to `hns-urkel-proof`. It remains an unpublished adapter and cannot establish
-name authority without the separately authenticated current tree root supplied by the runtime.
+`hns-browser-chain` supplies durable SQLite header state backed by
+`hns-light-chain`. It validates proof of work, difficulty transitions,
+checkpoints, chainwork selection, reorg publication, and restart snapshots
+before exposing a canonical tip. Persisted or peer-claimed heights alone never
+authorize name state.
+`hns-browser-dnssec` and `hns-browser-dane` expose strict browser validation
+interfaces. They fail closed on malformed or unauthenticated DNSSEC material,
+require locally matched TLSA for HNS HTTPS, and expose no HNS-to-WebPKI mode.
+`hns-browser-p2p` bounds socket/session framing, handshakes, requests, advisory
+traffic, relay retries, discovery persistence, and peer penalties. Peer service
+flags and claimed heights remain untrusted until local verification succeeds.
+`hns-browser-sync` races a bounded peer set under finite deadlines, validates
+headers through the local chain, and stores name values only after exact-root
+Urkel verification. Resource persistence uses a narrow sink; sync does not grant
+resolver authority.
+`hns-browser-primitives` owns shared header, DNS-wire, resource, proof-of-work,
+and network-policy types used by mobile and Chromium adapters. Product
+repositories consume these types rather than copying them. Engine trust
+decisions require the private tokens described above.
+`hns-browser-resolver` supplies proof-backed resolution, direct authoritative
+DNS/DoH, interception detection, and persistent verified-resource storage. It
+retains exact tree-root lineage and feeds complete HNS and ICANN plans into the
+shared dual-root classifier. The full-node `hns-resolverd` remains a separate
+daemon and shares the canonical `hns-covenants` resource decoder.
+`hns-browser-urkel` verifies proofs against the separately authenticated current
+tree root supplied by the runtime. It cannot establish name authority by itself.
 `hns-transport` derives immutable direct-DNS endpoints only from a current private HNS resource
 token. Mainnet/testnet accept globally routable in-bailiwick glue or synth addresses on port 53;
 nonstandard loopback ports require an explicit regtest-fixture policy. Connected UDP and
@@ -413,7 +408,7 @@ state machines under their native runtime.
 
 The `hns-rs` edge is canonical and immutable rather than a workspace-layout
 assumption. Fourteen direct packages inherit exact crates.io requirement
-`=0.4.2` from the root manifest, and Cargo resolves two additional transitive
+`=0.5.0` from the root manifest, and Cargo resolves two additional transitive
 packages. The lockfile and checked-in archive-hash manifest bind that coherent
 Shakescape V1 graph to clean `hns-rs` release source
 `1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b`. All other path dependencies must
@@ -426,11 +421,8 @@ The shared published adapter cohort now contains, and mobile/Chromium shells con
 request-surface wiring, validating ICANN DoH, origin TLS transport, native loopback listener and
 HTTP/TLS handling, local CA and exact-host leaf management, and browser platform bridges. These
 eleven packages retain their PolyForm Noncommercial license and are published at their existing
-`0.2.2` version so consumers resolve one crates.io source identity. This remains source
-composition only: historical exact dated source at `2b23bd5` passed the complete locked engine
-gate, CodeQL, and the separate 19-crate release preflight, superseding the intermediate `97cbeb2`
-source evidence. The successor adapter-publication commit requires its own exact-commit gates and
-neither source qualification establishes installed-product or live-network behavior.
+`0.2.2` version so consumers resolve one crates.io source identity. Each selected source requires its current qualification gates; library checks
+do not establish installed-product or live-network behavior.
 Still absent are platform implementations of the canonical HRM/HNSA broker's
 lease, authenticated snapshot/initialized-marker/external-floor, trusted-time,
 current-chain retrieval, and durable CAS contracts; their Android, Apple, and
@@ -445,7 +437,7 @@ the implemented HIP-76/77 and HNSR requester/opaque-relay state machines to its 
 Brontide runtime and authenticated rollback-resistant storage. Platform-owned `BrowserRuntime`
 integrations use a borrowed `PrivateTransportAuthority` view rather than a second engine runtime.
 Header sync currently selects only among bounded candidates extending the same validated base.
-PKIX usages 0/1 intentionally have no WebPKI path. The legacy C resolution ABI still exposes the earlier
+PKIX usages 0/1 intentionally have no WebPKI path. The C resolution ABI exposes a
 single-response DANE-EE entry point; the full header-to-Urkel-to-DNSSEC Rust path is pending ABI
 v2/mobile integration. The provider-authority consumer ABI can carry a context
 already minted by trusted Rust, but pure-C namespace decisions, authenticated

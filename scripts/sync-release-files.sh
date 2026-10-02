@@ -38,16 +38,14 @@ do
         hns-light-chain|hns-light-wallet|hns-light-p2p|hns-light-sync)
             cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
             cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
-            cp -- release/LIGHT-CLIENT-0.2.3-CRATE-CHANGELOG.md \
-                "crates/$package/CHANGELOG.md"
             ;;
         hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
-        hns-browser-loopback-proxy)
+        hns-browser-loopback-proxy|hns-browser-p2p|hns-browser-resolver|\
+        hns-browser-gateway)
             cp -- LICENSE-POLYFORM-NONCOMMERCIAL \
                 "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"
             ;;
-        hns-browser-gateway|hns-browser-p2p|\
-        hns-browser-primitives|hns-browser-resolver|hns-browser-sync|\
+        hns-browser-primitives|hns-browser-sync|\
         hns-browser-transport|hns-browser-urkel)
             cp -- LICENSE-POLYFORM-NONCOMMERCIAL \
                 "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"

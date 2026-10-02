@@ -2,16 +2,16 @@
 
 This repository is independently implemented and dual-licensed `MIT OR Apache-2.0`.
 
-Compatibility was inspected against these immutable inputs:
+Build and conformance inputs are pinned as follows:
 
 | Input | Commit | License | Relevant paths |
 | --- | --- | --- | --- |
-| handshake-rs/hns-rs | `1a4a937a8b8367b8b96d0445b9aa2b7e6fdd7c6b` | MIT OR Apache-2.0 | Fourteen exact crates.io `=0.4.2` workspace dependencies and their sixteen-package locked closure; all nineteen published archive hashes retained in `release/hns-rs-0.4.2-crates.sha256`, including the coherent Shakescape V1, HRM, durable HNSA/HNSR, marketplace, and external rollback-journal contracts |
+| handshake-rs/hns-rs | `60eb912d615243a6bfb9741b17f16833c5a9181a` | MIT OR Apache-2.0 | Fourteen exact crates.io `=0.5.0` workspace dependencies and their sixteen-package locked closure; all nineteen published archive hashes retained in `release/hns-rs-0.5.0-crates.sha256`, including the coherent Shakescape V1, HRM, durable HNSA/HNSR, marketplace, and external rollback-journal contracts |
 | handshake-org/hsd | `698e252ebc7b5c1dd0a9587e342fdd153d020ae4` | MIT | `test/dns-test.js`, `test/resource-test.js` |
 | Denuo-Web/hns-dane-browser | `a71f9ea8dd2e697df6059e8840907f96e6eea2c9` | PolyForm Noncommercial 1.0.0 | `rust/crates/hns-core/src/dns.rs`, `fixtures/experimental-dns-relay/manifest.json` |
 
 The `hns-rs` input is executable source, not only a compatibility reference.
-The root manifest requires exact crates.io `=0.4.2`; `Cargo.lock` pins the
+The root manifest requires exact crates.io `=0.5.0`; `Cargo.lock` pins the
 registry checksums of the exact sixteen-package engine closure.
 `scripts/verify_cargo_source_policy.py` independently verifies the direct and
 transitive package sets, consumer locations, versions, registry sources,

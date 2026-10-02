@@ -94,18 +94,16 @@ The current targeted compatible patch cohort is `0.2.6`:
 This cohort moves the complete light-client type graph to `hns-rs 0.5.0`,
 retains the typed inbound Handshake request events needed by a native
 peer-serving adapter, and keeps the SQLite-backed browser chain, peer, and
-resolver graph on one compatible release line. It supersedes the prepared but
-unpublished `0.2.4` mobile-network cohort and does not republish unrelated
-immutable crates. The machine-readable release set is
+resolver graph on one compatible release line. Release selection is limited to
+affected packages. The machine-readable release set is
 [`release/mobile-wallet-0.2.6-crates.txt`](release/mobile-wallet-0.2.6-crates.txt).
 All seven archives were published from
 [`mobile-wallet-v0.2.6`](https://github.com/handshake-rs/hns-dane-engine/releases/tag/mobile-wallet-v0.2.6)
 and their registry checksums are recorded in
 [`release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256`](release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256).
 
-The workspace intentionally contains compatible mixed versions. Previously
-published archives and their checksums are recorded under [`release/`](release/)
-instead of being rebuilt from newer source. See
+The workspace intentionally contains compatible mixed versions. Immutable
+dependency archives and their checksums are pinned under [`release/`](release/). See
 [`docs/releasing.md`](docs/releasing.md) for the exact release contract.
 
 ## Upstream Handshake protocol cohort

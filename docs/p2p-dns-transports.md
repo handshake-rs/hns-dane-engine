@@ -91,7 +91,7 @@ profile and the peer's negotiated network and genesis to canonical engine
 parameters, requires the canonical Shakescape V1 registry
 fingerprint/version/negotiation protocol, and pre-admits `ODOH_PACKET` against
 both advertised ODoH and Shakescape-extension services before reporting a proxy.
-Official, Shakescape V1, legacy-draft, and unresolved `Auto` peer profiles fail
+Unsupported, unnegotiated, and unresolved `Auto` peer profiles fail
 closed. Requester status schema 4 reports the retained resolved profile and
 monotonic target-cache generation; target-cache wire schema 3 persists that
 generation. It checks the engine before and

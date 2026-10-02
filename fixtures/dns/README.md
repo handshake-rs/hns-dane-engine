@@ -8,4 +8,3 @@ The positive corpus covers a strict query, compressed response correlation with 
 and TLSA RDATA. Mutation-derived negatives cover self/forward compression pointers, out-of-bounds
 pointers, and section-count bombs. Additional in-crate negatives cover truncation, oversized RDATA,
 name limits, reserved label bits, response correlation, and malformed DNSSEC bitmaps.
-

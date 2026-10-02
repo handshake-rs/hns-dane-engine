@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -20,6 +22,43 @@ SPEC.loader.exec_module(verify_release)
 
 
 class ReleaseValidatorMutationTests(unittest.TestCase):
+    def test_source_synchronization_preserves_selected_package_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = [
+                ROOT / "scripts/sync-release-files.sh",
+                ROOT / "release/public-crates.txt",
+                ROOT / "release/CRATE-CHANGELOG.md",
+                ROOT / "release/ADAPTER-CRATE-CHANGELOG.md",
+                *ROOT.glob("LICENSE-*"),
+                *ROOT.glob("crates/*/Cargo.toml"),
+                *ROOT.glob("crates/*/CHANGELOG.md"),
+                *ROOT.glob("fixtures/dns/*.hex"),
+                *ROOT.glob("fixtures/dane/*.hex"),
+            ]
+            for source in paths:
+                destination = root / source.relative_to(ROOT)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+            before = {
+                path.relative_to(root): path.read_bytes()
+                for path in root.glob("crates/*/CHANGELOG.md")
+            }
+            subprocess.run(
+                [str(root / "scripts/sync-release-files.sh")],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(
+                before,
+                {
+                    path.relative_to(root): path.read_bytes()
+                    for path in root.glob("crates/*/CHANGELOG.md")
+                },
+                "synchronizing release files must not roll back selected package versions",
+            )
+
     def test_targeted_and_successor_versions_override_workspace_versions(self) -> None:
         versions = verify_release.expected_workspace_versions(
             {

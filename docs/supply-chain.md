@@ -35,8 +35,7 @@ packages. Each archive identifies clean source revision
 source path. `hns-script`, `hns-swap`, and `hns-marketplace-protocol` are
 verified release-cohort members but are outside this engine's dependency
 closure. `hns-hrm` and `hns-rollback-journal` back the current broker facade;
-this dependency migration does not reinterpret the legacy `hnsa_route` v2
-runtime path.
+the broker requires current authenticated HRM/HNSA authority.
 
 Engine crates inherit these declarations with `workspace = true`. Other local
 crate dependencies remain repository-local paths.
@@ -83,6 +82,6 @@ dry-runs remain isolated in the exact-commit manual workflow documented in
 clone with no sibling `hns-rs` directory.
 
 Before an upload, release execute mode independently reads back all nineteen
-crates.io API records and archives. It requires exact version 0.4.1, non-yanked
+crates.io API records and archives. It requires exact version 0.5.0, non-yanked
 status, the reviewed archive checksums, and clean per-package VCS provenance at
 the reviewed source revision and paths.

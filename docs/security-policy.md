@@ -14,8 +14,7 @@ Opening a browser tunnel additionally requires an engine-issued
 any strict completion whose private admission stamp remains valid in the current security epoch can
 authenticate its exact namespace decision. Unrelated completions do not revoke it. The publication
 binds the complete provider, runtime, policy, event, decision, lifetime, registry, process, and
-listener tuple. Legacy completions based on
-caller-supplied prerequisite verdicts cannot authorize this path.
+listener tuple. Caller-supplied prerequisite verdicts cannot authorize this path.
 
 For an ICANN HTTPS or WSS origin, the shared policy derives
 `_<effective-port>._<transport>.<canonical-host>.` without a hostname allowlist. The browser adapter
@@ -186,7 +185,7 @@ wire profile equals the policy-resolved concrete Shakescape V1 profile. Its regi
 must be the canonical Shakescape V1 fingerprint/version/negotiation, both the
 Shakescape-extension and ODoH services must be advertised, its ODoH packet must be
 pre-admitted, and at least one current signed target must exist. Official,
-Shakescape V1, legacy-draft, and unresolved automatic peer profiles fail closed. A
+Shakescape V1, unsupported, and unresolved automatic peer profiles fail closed. A
 response completion time earlier than request start or later than deadline is rejected.
 Canonical transport errors are not
 flattened, preserving peer, registry, packet, deadline, request-correlation,
@@ -281,9 +280,8 @@ rendezvous enablement and permanently reports both provider surfaces and plainte
 false. Enabling any
 requester, relay, or output role never enables another role implicitly. Policy persistence schema 3
 uses settings bit 2 for recursive-HNS-DoH consent while retaining the exact 32-byte encoding.
-Schema-1 and schema-2 blobs decode that new permission as false; schema-1 role migration retains its
-exact legacy role selection, and every current-schema blob retains its exact requester, relay, and
-output bits, so an upgrade cannot override a stored opt-out.
+Each stored policy retains its exact requester, relay, and output bits. An
+upgrade cannot override a stored opt-out.
 
 Canonical HRM/HNSA service authority is exposed only through
 `HrmHnsaAuthorityBroker::with_current_named_service`. The lease key covers the
@@ -396,7 +394,7 @@ authorization header remains a secret owned by the adapter and must never be log
 
 `CONNECT` admission requires one complete bounded CRLF header, the exact `CONNECT host:port
 HTTP/1.1` form, one equal `Host`, one valid capability, a nonzero port, strict ASCII/punycode DNS
-labels, and the immutable HNS TLD label boundary. IP literals, legacy numeric IP forms, request
+labels, and the immutable HNS TLD label boundary. IP literals, noncanonical numeric IP forms, request
 bodies, transfer encodings, upgrades, duplicate credentials, and ambiguous authorities fail closed.
 Pending admissions are bounded, carry a hard-capped exclusive expiry, and are scoped to one
 non-cloneable process instance. The native host supplies trusted nondecreasing time; rollback is
