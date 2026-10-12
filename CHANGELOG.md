@@ -35,8 +35,16 @@ for validation.
 | `hns-browser-resolver` | `0.2.6` |
 | `hns-browser-transport` | `0.2.2` |
 | `hns-browser-gateway` | `0.2.3` |
-| `hns-browser-loopback-proxy` | `0.2.3` |
+| `hns-browser-loopback-proxy` | `0.2.4` |
 | `hns-browser-sync` | `0.2.2` |
+
+## hns-browser-loopback-proxy 0.2.4 - 2026-10-12
+
+Adds an explicit authenticated ICANN bootstrap proxy mode for browser shells
+waiting on Handshake header authority. DNS-name requests use the caller's
+bounded ICANN resolver and public-address dialer; HTTPS remains an opaque
+CONNECT tunnel for browser-engine WebPKI. Single-label Handshake names are
+rejected in this mode. The existing whole-browser dual-root mode is unchanged.
 
 ## 0.2.2 - 2026-08-23
 

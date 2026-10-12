@@ -615,10 +615,7 @@ fn handle_client(
             &cancellation,
             context,
         ),
-        (
-            AdmittedHost::Icann(icann_host @ IcannHost::Address { .. }),
-            RequestTarget::Connect(authority),
-        ) => handle_icann_connect(
+        (AdmittedHost::Icann(icann_host), RequestTarget::Connect(authority)) => handle_icann_connect(
             stream,
             &head,
             authority,
@@ -665,12 +662,14 @@ enum IcannHost {
         address: std::net::IpAddr,
         text: String,
     },
+    Name(String),
 }
 
 impl IcannHost {
     fn as_str(&self) -> &str {
         match self {
             Self::Address { text, .. } => text,
+            Self::Name(text) => text,
         }
     }
 }
@@ -710,6 +709,12 @@ fn admit_target_host(
         .map_err(|error| RouteRejection::Scope(HostScopeError::InvalidHost(error)))?;
     if is_browser_special_use_host(host.as_str()) {
         Err(RouteRejection::SpecialUse)
+    } else if context.routing_mode == ProxyRoutingMode::WholeBrowserIcannBootstrap
+        && host.as_str().contains('.')
+    {
+        Ok(AdmittedHost::Icann(IcannHost::Name(host.as_str().to_owned())))
+    } else if context.routing_mode == ProxyRoutingMode::WholeBrowserIcannBootstrap {
+        Err(RouteRejection::InvalidClass)
     } else {
         // Every syntactically valid DNS name enters the shared authenticated
         // backend. The backend retains the complete dual-root plan; the
@@ -954,6 +959,16 @@ fn dial_icann(
     }
     let addresses = match host {
         IcannHost::Address { address, .. } => vec![SocketAddr::new(*address, port)],
+        IcannHost::Name(name) => catch_unwind(AssertUnwindSafe(|| {
+            context.icann_network.resolve(name, port, cancellation)
+        }))
+        .unwrap_or(Err(IcannNetworkError::ResolutionFailed))
+        .map_err(|error| match error {
+            IcannNetworkError::Cancelled => IcannRouteError::Cancelled,
+            IcannNetworkError::ResolutionFailed | IcannNetworkError::ConnectionFailed => {
+                IcannRouteError::Resolution
+            }
+        })?,
     };
     if addresses.is_empty() || addresses.len() > MAX_RESOLVED_ADDRESSES {
         return Err(IcannRouteError::Resolution);
@@ -5798,6 +5813,64 @@ mod tests {
         assert_eq!(deny_all_network.connect_calls(), 0);
         assert_eq!(whole_browser_backend.request_count(), 1);
         deny_all.stop();
+    }
+
+    #[test]
+    fn icann_bootstrap_routes_dotted_hosts_through_bounded_network_only() {
+        let network = Arc::new(CountingIcannNetwork::new(
+            vec!["1.1.1.1:80".parse().unwrap()],
+            vec![b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".to_vec()],
+        ));
+        let backend = Arc::new(RecordingBackend::new(ResponsePlan::plain("wrong route")));
+        let proxy = start_proxy_with_icann_network(
+            ProxyConfig::whole_browser_icann_bootstrap(
+                ProxyInstanceId::new(ProxySessionId::generate().unwrap(), 1),
+            ),
+            backend.clone(),
+            network.clone(),
+        );
+        let request = format!(
+            "GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\n{}\r\n",
+            auth_header(&proxy)
+        );
+        let response = send_raw(&proxy, request.as_bytes());
+        assert_eq!(response_status(&response), 200);
+        assert_eq!(response_parts(&response).1, b"ok");
+        assert_eq!(network.resolve_calls(), 1);
+        assert_eq!(network.connect_calls(), 1);
+        assert_eq!(backend.request_count(), 0);
+        let hns_request = format!(
+            "GET http://welcome/ HTTP/1.1\r\nHost: welcome\r\n{}\r\n",
+            auth_header(&proxy)
+        );
+        assert_eq!(response_status(&send_raw(&proxy, hns_request.as_bytes())), 403);
+        assert_eq!(backend.request_count(), 0);
+        proxy.stop();
+    }
+
+    #[test]
+    fn icann_bootstrap_https_connect_stays_opaque_to_local_tls_terminator() {
+        let network = Arc::new(CountingIcannNetwork::new(
+            vec!["1.1.1.1:443".parse().unwrap()],
+            vec![b"origin bytes".to_vec()],
+        ));
+        let backend = Arc::new(RecordingBackend::new(ResponsePlan::plain("wrong route")));
+        let proxy = start_proxy_with_icann_network(
+            ProxyConfig::whole_browser_icann_bootstrap(
+                ProxyInstanceId::new(ProxySessionId::generate().unwrap(), 1),
+            ),
+            backend.clone(),
+            network.clone(),
+        );
+        let mut stream = begin_authenticated_connect(&proxy, "example.com:443");
+        let mut origin_bytes = [0_u8; 12];
+        stream.read_exact(&mut origin_bytes).unwrap();
+        assert_eq!(&origin_bytes, b"origin bytes");
+        assert!(proxy.local_certificate_pin("example.com").is_none());
+        assert_eq!(network.resolve_calls(), 1);
+        assert_eq!(network.connect_calls(), 1);
+        assert_eq!(backend.request_count(), 0);
+        proxy.stop();
     }
 
     #[test]

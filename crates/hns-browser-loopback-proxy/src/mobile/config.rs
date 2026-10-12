@@ -97,6 +97,12 @@ pub enum ProxyRoutingMode {
     #[default]
     ScopedHns,
     WholeBrowser,
+    /// Temporary ICANN route while the caller's Handshake authority is unavailable.
+    /// DNS names still pass through the authenticated loopback listener and the
+    /// caller-supplied bounded resolver. That resolver must enforce the caller's
+    /// ICANN-root allowlist; this adapter has no authoritative TLD dataset.
+    /// A later generation can restore dual-root routing.
+    WholeBrowserIcannBootstrap,
 }
 
 impl LoopbackBind {
@@ -333,6 +339,17 @@ impl ProxyConfig {
         }
     }
 
+    pub fn whole_browser_icann_bootstrap(instance: ProxyInstanceId) -> Self {
+        Self {
+            instance,
+            hns_scope: None,
+            limits: ProxyLimits::default(),
+            timeouts: ProxyTimeouts::default(),
+            bind: LoopbackBind::default(),
+            routing_mode: ProxyRoutingMode::WholeBrowserIcannBootstrap,
+        }
+    }
+
     pub fn with_controls(
         instance: ProxyInstanceId,
         scope: HostScope,
@@ -538,5 +555,11 @@ mod tests {
         let icann_only = ProxyConfig::whole_browser(instance, None);
         assert_eq!(icann_only.hns_scope(), None);
         assert_eq!(icann_only.routing_mode(), ProxyRoutingMode::WholeBrowser);
+
+        let bootstrap = ProxyConfig::whole_browser_icann_bootstrap(
+            ProxyInstanceId::new(ProxySessionId::generate().unwrap(), 4),
+        );
+        assert_eq!(bootstrap.hns_scope(), None);
+        assert_eq!(bootstrap.routing_mode(), ProxyRoutingMode::WholeBrowserIcannBootstrap);
     }
 }
