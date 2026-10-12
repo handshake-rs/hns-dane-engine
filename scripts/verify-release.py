@@ -129,6 +129,7 @@ PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST = (
     "release/hns-dane-engine-loopback-proxy-0.2.3-crates.sha256"
 )
 PREPUBLISHED_LOOPBACK_PACKAGES = ("hns-browser-loopback-proxy",)
+CURRENT_LOOPBACK_VERSION = "0.2.4"
 PATCH_RELEASE_VERSION = "0.2.6"
 PATCH_RELEASE_MANIFEST = "release/mobile-wallet-0.2.6-crates.txt"
 PATCH_RELEASE_PACKAGES = (
@@ -875,7 +876,7 @@ def expected_workspace_versions(
                 (
                     PREPUBLISHED_PATCH_VERSION
                     if name in PREPUBLISHED_PATCH_PACKAGES
-                    else PREPUBLISHED_LOOPBACK_VERSION
+                    else CURRENT_LOOPBACK_VERSION
                     if name in PREPUBLISHED_LOOPBACK_PACKAGES
                     else PREPUBLISHED_LIGHT_CLIENT_VERSION
                     if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
@@ -1078,6 +1079,15 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 fail(f"{name} CHANGELOG.md does not link the patch release tag")
         elif name in PREPUBLISHED_LOOPBACK_PACKAGES:
             package_changelog_text = package_changelog.decode("utf-8")
+            current_heading = (
+                rf"^## {re.escape(CURRENT_LOOPBACK_VERSION)} - "
+                r"\d{4}-\d{2}-\d{2}$"
+            )
+            if re.search(current_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(
+                    f"{name} CHANGELOG.md lacks a dated "
+                    f"{CURRENT_LOOPBACK_VERSION} release heading"
+                )
             loopback_heading = (
                 rf"^## {re.escape(PREPUBLISHED_LOOPBACK_VERSION)} - "
                 r"\d{4}-\d{2}-\d{2}$"

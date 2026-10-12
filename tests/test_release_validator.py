@@ -63,6 +63,7 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
         versions = verify_release.expected_workspace_versions(
             {
                 "hns-browser-chain",
+                "hns-browser-loopback-proxy",
                 "hns-browser-gateway",
                 "hns-dane-engine",
                 "hns-gateway",
@@ -73,6 +74,7 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
         )
 
         self.assertEqual(versions["hns-browser-chain"], "0.2.6")
+        self.assertEqual(versions["hns-browser-loopback-proxy"], "0.2.4")
         self.assertEqual(versions["hns-browser-gateway"], "0.2.3")
         self.assertEqual(versions["hns-namespace-resolution"], "0.2.3")
         self.assertEqual(versions["hns-dane-engine"], "0.3.0")
