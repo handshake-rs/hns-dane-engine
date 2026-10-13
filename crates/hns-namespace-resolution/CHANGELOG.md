@@ -1,7 +1,14 @@
 # Changelog
 
-This crate uses the shared `hns-dane-engine` workspace version. Its selected version is described in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/v0.2.2/CHANGELOG.md).
+The selected source version is listed in the workspace
+[`CHANGELOG.md`](../../CHANGELOG.md).
+
+## 0.2.3 - 2026-08-23
+
+Retain the selected stateless DANE plan for the browser gateway. See the
+workspace changelog for the current package cohort and the
+[0.2.3 source tag](https://github.com/handshake-rs/hns-dane-engine/tree/stateless-dane-v0.2.3/crates/hns-namespace-resolution)
+for the published source.
 
 ## 0.2.2 - 2026-08-23
 

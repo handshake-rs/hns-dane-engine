@@ -52,6 +52,10 @@ do
             cp -- release/ADAPTER-CRATE-CHANGELOG.md \
                 "crates/$package/CHANGELOG.md"
             ;;
+        hns-namespace-resolution)
+            cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
+            cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
+            ;;
         *)
             cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
             cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"

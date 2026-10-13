@@ -1,7 +1,15 @@
 # Changelog
 
-This crate uses the shared `hns-dane-engine` workspace version. Its selected version is described in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/browser-adapters-v0.2.2/CHANGELOG.md).
+The selected source version is listed in the workspace
+[`CHANGELOG.md`](../../CHANGELOG.md).
+
+## 0.2.3 - 2026-08-23
+
+Apply the selected stateless DANE plan to mobile and Chromium requests while
+keeping authenticated TLSA records authoritative. This browser adapter retains
+its PolyForm Noncommercial license. The
+[0.2.3 source tag](https://github.com/handshake-rs/hns-dane-engine/tree/stateless-dane-v0.2.3/crates/hns-browser-gateway)
+records the published source.
 
 ## 0.2.2 - 2026-08-23
 

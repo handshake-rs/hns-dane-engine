@@ -1062,7 +1062,22 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             else "release/CRATE-CHANGELOG.md"
         )
         package_changelog = (package_root / "CHANGELOG.md").read_bytes()
-        if name in PATCH_RELEASE_VERSIONS:
+        if name in PREPUBLISHED_PATCH_PACKAGES:
+            package_changelog_text = package_changelog.decode("utf-8")
+            patch_heading = (
+                rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
+            )
+            if re.search(patch_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(
+                    f"{name} CHANGELOG.md lacks a dated {expected_version} patch heading"
+                )
+            source_tag_url = (
+                f"{REPOSITORY}/tree/stateless-dane-v{PREPUBLISHED_PATCH_VERSION}"
+                f"/crates/{name}"
+            )
+            if source_tag_url not in package_changelog_text:
+                fail(f"{name} CHANGELOG.md does not link the stateless DANE source tag")
+        elif name in PATCH_RELEASE_VERSIONS:
             package_changelog_text = package_changelog.decode("utf-8")
             patch_heading = (
                 rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
