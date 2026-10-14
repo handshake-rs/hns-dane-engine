@@ -96,11 +96,11 @@ Its strict completion fields are private. A completion carries its engine-issued
 and can mint a browser-bridge authorization while that stamp remains admitted in the current
 security epoch, its chain anchor is still valid, and its exact normalized origin remains bound.
 Unrelated completions do not overwrite that authority; the retained `last_provenance` is diagnostic
-only. The older caller-prerequisite completion path cannot mint this capability.
+only. Caller-supplied prerequisites cannot mint this capability.
 The published, PolyForm-licensed `hns-browser-transport`, `hns-browser-gateway`, and
 `hns-browser-loopback-proxy` packages keep the production browser I/O adapters
-in this repository rather than allowing mobile and Chromium source forks to
-drift. Each requires an explicit platform feature. The mobile contract retains
+in this repository. Each requires an explicit platform feature. The mobile
+contract retains
 validated-head-before-body streaming and its process-owned ICANN network
 boundary. Its origin-facing rustls/Quinn client consumes only ECHConfigList
 bytes retained by the selected namespace plan, encrypts the inner origin
