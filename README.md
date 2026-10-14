@@ -5,8 +5,8 @@ and browser-security layer used by the native ShakeScape applications. The
 workspace separates consensus and DNS/DANE authority from platform-owned
 networking, storage, browser UI, and wallet UI.
 
-The important rule is simple: a remote resolver, relay, website, or platform
-adapter can transport evidence, but it cannot declare that evidence valid.
+A remote resolver, relay, website, or platform adapter can transport evidence,
+but it cannot declare that evidence valid.
 Handshake proofs, DNSSEC, TLSA, namespace selection, and provider admission are
 validated locally against the selected Handshake chain.
 
