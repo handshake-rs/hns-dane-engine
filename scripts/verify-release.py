@@ -130,8 +130,17 @@ PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST = (
 )
 PREPUBLISHED_LOOPBACK_PACKAGES = ("hns-browser-loopback-proxy",)
 CURRENT_LOOPBACK_VERSION = "0.2.4"
+CURRENT_LOOPBACK_REVISION = "c972de2ef52429706b170c97fe62f8d21a7798a6"
+CURRENT_LOOPBACK_MANIFEST = "release/prepublished-loopback-proxy-0.2.4-crates.txt"
+CURRENT_LOOPBACK_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-loopback-proxy-0.2.4-crates.sha256"
+)
 PATCH_RELEASE_VERSION = "0.2.6"
 PATCH_RELEASE_MANIFEST = "release/mobile-wallet-0.2.6-crates.txt"
+PATCH_RELEASE_REVISION = "90a5dfeb5b7c00e8fea010e79f82076de4263fd6"
+PATCH_RELEASE_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256"
+)
 PATCH_RELEASE_PACKAGES = (
     "hns-light-chain",
     "hns-light-wallet",
@@ -473,6 +482,9 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         "release/public-crates.txt",
         PATCH_RELEASE_MANIFEST,
         PATCH_RELEASE_VERSION,
+        PATCH_RELEASE_CHECKSUM_MANIFEST,
+        CURRENT_LOOPBACK_MANIFEST,
+        CURRENT_LOOPBACK_CHECKSUM_MANIFEST,
         TLSA_RELEASE_MANIFEST,
         TLSA_RELEASE_VERSION,
         "./scripts/publish.sh --archive-only",
@@ -561,6 +573,10 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"protocol_crates='{' '.join(PROTOCOL_PUBLIC_PACKAGES)}'",
         "protocol_checksum_manifest="
         f"{verify_cargo_source_policy.HNS_RS_CHECKSUM_MANIFEST}",
+        f"prepublished_mobile_wallet_revision={PATCH_RELEASE_REVISION}",
+        f"prepublished_mobile_wallet_checksum_manifest={PATCH_RELEASE_CHECKSUM_MANIFEST}",
+        f"prepublished_current_loopback_revision={CURRENT_LOOPBACK_REVISION}",
+        f"prepublished_current_loopback_checksum_manifest={CURRENT_LOOPBACK_CHECKSUM_MANIFEST}",
     }
     missing_lines = required_script_lines - set(script.splitlines())
     if missing_lines:
@@ -1279,6 +1295,20 @@ def main() -> None:
         PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST,
         PREPUBLISHED_LOOPBACK_PACKAGES,
         {"hns-browser-loopback-proxy": PREPUBLISHED_LOOPBACK_VERSION},
+    )
+    verify_named_prepublished_inventory(
+        repo,
+        PATCH_RELEASE_MANIFEST,
+        PATCH_RELEASE_CHECKSUM_MANIFEST,
+        PATCH_RELEASE_PACKAGES,
+        PATCH_RELEASE_VERSIONS,
+    )
+    verify_named_prepublished_inventory(
+        repo,
+        CURRENT_LOOPBACK_MANIFEST,
+        CURRENT_LOOPBACK_CHECKSUM_MANIFEST,
+        ("hns-browser-loopback-proxy",),
+        {"hns-browser-loopback-proxy": CURRENT_LOOPBACK_VERSION},
     )
     patch_release_order(repo)
     tlsa_release_order(repo)

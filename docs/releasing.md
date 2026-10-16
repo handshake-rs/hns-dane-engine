@@ -46,6 +46,12 @@ The current targeted set is the two `0.2.3` TLSA path verification packages in
 The seven `0.2.6` light-client and SQLite browser packages retain their
 published versions recorded in
 [`release/mobile-wallet-0.2.6-crates.txt`](../release/mobile-wallet-0.2.6-crates.txt).
+Their archive digests are in
+[`release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256`](../release/hns-dane-engine-mobile-wallet-0.2.6-crates.sha256).
+The published `hns-browser-loopback-proxy` 0.2.4 archive is recorded in
+[`release/prepublished-loopback-proxy-0.2.4-crates.txt`](../release/prepublished-loopback-proxy-0.2.4-crates.txt)
+with its digest in
+[`release/hns-dane-engine-loopback-proxy-0.2.4-crates.sha256`](../release/hns-dane-engine-loopback-proxy-0.2.4-crates.sha256).
 Other public packages retain the versions in their manifests. The private
 `hns-browser-testkit` is never published. Browser adapters retain their
 PolyForm Noncommercial license; foundation crates retain their manifest license.
