@@ -5,6 +5,7 @@ compile_error!("select exactly one hns-browser-transport platform feature");
 #[cfg(not(any(feature = "chromium", feature = "mobile")))]
 compile_error!("select one hns-browser-transport platform feature");
 
+mod certificate_association;
 #[cfg(feature = "chromium")]
 mod chromium;
 #[cfg(feature = "mobile")]

@@ -1,9 +1,11 @@
+use crate::certificate_association::evaluate_verified_certificate_association;
 use bytes::{Buf, Bytes};
+#[cfg(test)]
+use hns_dane::evaluate_policy_with_certificate_chain;
 use hns_dane::{
     DaneCertificateChainValidationInput, DaneDecision, DaneError, DomainTrustMode,
     StatelessDaneConfig, StatelessDaneEvidence, StatelessDaneValidationInput, TlsaRecord,
-    WebPkiStatus, evaluate_policy_with_certificate_chain, evaluate_stateless_dane_certificate,
-    extract_spki_der,
+    WebPkiStatus, evaluate_stateless_dane_certificate, extract_spki_der,
 };
 pub use hns_icann_dane::{BrowserTlsDecision, TlsaTransport};
 use http::{HeaderName, HeaderValue, Request as Http2Request};
@@ -1380,13 +1382,19 @@ impl TcpHttpTransport {
         }
 
         let provider = rustls::crypto::ring::default_provider();
+        let supported_algs = provider.signature_verification_algorithms;
         let webpki = WebPkiServerVerifier::builder_with_provider(
             Arc::clone(&self.root_store),
             Arc::new(provider),
         )
         .build()
         .map_err(|error| TransportError::Tls(error.to_string()))?;
-        let verifier = Arc::new(DaneServerCertVerifier::new(webpki, tls));
+        let verifier = Arc::new(DaneServerCertVerifier::new(
+            webpki,
+            tls,
+            Arc::clone(&self.root_store),
+            supported_algs,
+        ));
         if !state.tls_verifiers.contains_key(tls_key) {
             evict_one_if_at_capacity(&mut state.tls_verifiers, MAX_TLS_POLICY_CACHE_ENTRIES);
         }
@@ -1736,6 +1744,8 @@ impl OriginTransport for TcpHttpTransport {
 struct DaneServerCertVerifier {
     webpki: Arc<WebPkiServerVerifier>,
     tls: TlsValidation,
+    roots: Arc<RootCertStore>,
+    supported_algs: rustls::crypto::WebPkiSupportedAlgorithms,
     handshakes: Mutex<HashMap<ThreadId, HandshakeCapture>>,
     last_success: Mutex<HashMap<String, HandshakeCapture>>,
 }
@@ -1754,10 +1764,17 @@ enum HandshakeFailure {
 }
 
 impl DaneServerCertVerifier {
-    fn new(webpki: Arc<WebPkiServerVerifier>, tls: TlsValidation) -> Self {
+    fn new(
+        webpki: Arc<WebPkiServerVerifier>,
+        tls: TlsValidation,
+        roots: Arc<RootCertStore>,
+        supported_algs: rustls::crypto::WebPkiSupportedAlgorithms,
+    ) -> Self {
         Self {
             webpki,
             tls,
+            roots,
+            supported_algs,
             handshakes: Mutex::new(HashMap::new()),
             last_success: Mutex::new(HashMap::new()),
         }
@@ -1933,18 +1950,21 @@ impl ServerCertVerifier for DaneServerCertVerifier {
             tlsa_records = records;
         }
 
-        let decision =
-            evaluate_policy_with_certificate_chain(DaneCertificateChainValidationInput {
+        let decision = evaluate_verified_certificate_association(
+            DaneCertificateChainValidationInput {
                 mode: self.tls.mode,
                 dnssec_secure,
                 tlsa_records,
                 end_entity_der: end_entity.as_ref(),
                 intermediate_der: &intermediate_der,
                 webpki_status,
-            })
-            .map(|decision| {
-                with_stateless_dane_provenance(decision, stateless_dane_evidence.as_ref())
-            });
+            },
+            server_name,
+            now,
+            &self.roots,
+            self.supported_algs.all,
+        )
+        .map(|decision| with_stateless_dane_provenance(decision, stateless_dane_evidence.as_ref()));
 
         match decision {
             Ok(DaneDecision::Failed) => {
@@ -4585,8 +4605,42 @@ mod tests {
     }
 
     #[test]
-    fn rejects_dane_ta_until_chain_validation_is_available() {
+    fn fetches_https_with_verified_dane_ta_intermediate() {
         let server = TlsTestServer::start_with_intermediate();
+        let transport = TcpHttpTransport::new(
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            TransportLimits::default(),
+        );
+        let mut request = request(server.address);
+        request.scheme = "https".to_owned();
+        request.tls = TlsValidation::hns_strict(
+            true,
+            vec![tlsa_spki_exact_with_usage(
+                server.intermediate_cert_der.as_ref().unwrap(),
+                TlsaUsage::DaneTa,
+            )],
+        );
+
+        let response = transport.fetch(&request).unwrap();
+
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            response.dane_decision,
+            DaneDecision::Matched(TlsaUsage::DaneTa)
+        );
+        let inspection = response.tls_inspection.expect("TLS inspection");
+        assert_eq!(inspection.end_entity_der, server.cert_der);
+        assert_eq!(inspection.intermediate_der.len(), 1);
+        assert_eq!(
+            inspection.intermediate_der[0],
+            *server.intermediate_cert_der.as_ref().unwrap(),
+        );
+    }
+
+    #[test]
+    fn rejects_https_with_unrelated_pinned_dane_ta() {
+        let server = TlsTestServer::start_with_unrelated_intermediate();
         let transport = TcpHttpTransport::new(
             Duration::from_secs(1),
             Duration::from_secs(1),
@@ -5321,6 +5375,33 @@ mod tests {
                 key_der,
                 cert_der,
                 Some(intermediate_cert_der),
+            )
+        }
+
+        fn start_with_unrelated_intermediate() -> Self {
+            let rcgen::CertifiedKey { cert, signing_key } =
+                rcgen::generate_simple_self_signed(vec!["example.com".to_owned()]).unwrap();
+            let cert_der = cert.der().to_vec();
+            let key_der =
+                PrivateKeyDer::from(PrivatePkcs8KeyDer::from(signing_key.serialize_der()));
+
+            let mut unrelated_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+            unrelated_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            unrelated_params
+                .key_usages
+                .push(rcgen::KeyUsagePurpose::KeyCertSign);
+            let unrelated = rcgen::CertifiedIssuer::self_signed(
+                unrelated_params,
+                rcgen::KeyPair::generate().unwrap(),
+            )
+            .unwrap();
+            let unrelated_der = unrelated.der().to_vec();
+
+            Self::start_with_chain(
+                vec![cert_der.clone(), unrelated_der.clone()],
+                key_der,
+                cert_der,
+                Some(unrelated_der),
             )
         }
 

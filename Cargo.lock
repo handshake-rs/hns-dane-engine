@@ -1036,11 +1036,13 @@ dependencies = [
  "quinn",
  "rcgen",
  "rustls",
+ "rustls-webpki",
  "sha2 0.10.9",
  "thiserror",
  "tokio",
  "tokio-rustls",
  "webpki-roots",
+ "x509-parser",
 ]
 
 [[package]]
