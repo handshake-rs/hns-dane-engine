@@ -9,6 +9,10 @@ Mobile ICANN TLSA resolution now rejects CNAME chains that end without terminal
 TLSA records or retained authenticated denial evidence. This prevents an
 incomplete alias answer from becoming authenticated TLSA absence.
 
+Mobile and Chromium gateway paths discard unsupported or malformed TLSA
+records while retaining usable records from the same authenticated RRset. An
+RRset with no usable record remains a terminal DANE failure.
+
 ## 0.2.3 - 2026-08-23
 
 Apply the selected stateless DANE plan to mobile and Chromium requests while

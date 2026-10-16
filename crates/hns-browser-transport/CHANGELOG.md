@@ -4,6 +4,10 @@
 
 Mobile and Chromium TLS now verify usage 0 associations against the actual PKIX path and usage 2 associations against a signed path to the pinned CA. Name, CA, key usage, validity, and path length checks apply to usage 2. A full-certificate root pin fails closed when the root store has discarded its DER; SPKI root pins and full-certificate intermediate pins are checked on the verified path.
 
+DANE-TA applies certificate name, validity, CA, key usage, and path length
+checks. DANE-EE retains the DNSSEC-authenticated TLSA name binding specified by
+RFC 7671 section 5.1, including certificates whose internal names differ.
+
 Certificate-embedded stateless DANE evidence now uses the request's exact TLSA
 service transport. Public requests with an HTTP protocol and TLSA transport
 mismatch are rejected before network or certificate processing.

@@ -532,6 +532,22 @@ mod tests {
     }
 
     #[test]
+    fn dane_ee_uses_the_dnssec_tlsa_name_binding() {
+        let issued = signed_chain("other.example");
+        assert_eq!(
+            evaluate(
+                &[record(TlsaUsage::DaneEe, &issued.leaf)],
+                &issued.leaf,
+                &[],
+                &RootCertStore::empty(),
+                WebPkiStatus::Invalid,
+            )
+            .unwrap(),
+            DaneDecision::Matched(TlsaUsage::DaneEe)
+        );
+    }
+
+    #[test]
     fn dane_ta_rejects_expired_or_non_ca_anchor() {
         let mut expired_params = CertificateParams::new(Vec::<String>::new()).unwrap();
         expired_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -577,6 +593,28 @@ mod tests {
                 &records,
                 &issued.leaf,
                 &[&unrelated.issuer],
+                &RootCertStore::empty(),
+                WebPkiStatus::Invalid,
+            )
+            .unwrap(),
+            DaneDecision::Matched(TlsaUsage::DaneEe)
+        );
+    }
+
+    #[test]
+    fn malformed_extra_certificate_cannot_block_a_later_dane_ee_match() {
+        let issued = signed_chain("example.com");
+        let malformed = b"malformed certificate";
+        let records = [
+            record(TlsaUsage::DaneTa, malformed),
+            record(TlsaUsage::DaneEe, &issued.leaf),
+        ];
+
+        assert_eq!(
+            evaluate(
+                &records,
+                &issued.leaf,
+                &[malformed],
                 &RootCertStore::empty(),
                 WebPkiStatus::Invalid,
             )

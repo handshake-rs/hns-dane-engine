@@ -888,8 +888,8 @@ fn apply_selected_tls_plan(
 ) -> Result<(), GatewayError> {
     let records = canonical_tlsa
         .iter()
-        .map(|record| TlsaRecord::parse_rdata(record.rdata()).map_err(GatewayError::from))
-        .collect::<Result<Vec<_>, _>>()?;
+        .filter_map(|record| TlsaRecord::parse_usable_rdata(record.rdata()))
+        .collect::<Vec<_>>();
     match (namespace, tls_policy) {
         (Namespace::Hns, TlsTrustPolicy::Dane) => {
             if records.is_empty() {
@@ -1107,10 +1107,15 @@ fn tlsa_records(
             return Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse));
         }
         if !owner_tlsa.is_empty() {
-            return owner_tlsa
+            let usable = owner_tlsa
                 .into_iter()
-                .map(|record| TlsaRecord::parse_rdata(&record.rdata).map_err(GatewayError::from))
-                .collect();
+                .filter_map(|record| TlsaRecord::parse_usable_rdata(&record.rdata))
+                .collect::<Vec<_>>();
+            return if usable.is_empty() {
+                Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse))
+            } else {
+                Ok(usable)
+            };
         }
         let [cname] = owner_cnames.as_slice() else {
             return if owner_cnames.is_empty() {
@@ -1260,7 +1265,7 @@ fn is_http3_alpn(id: &[u8]) -> bool {
 mod tests {
     use super::*;
     use hns_core::dns::{DnsMessage, DnsName, RecordType, ResourceRecord};
-    use hns_dane::{DaneDecision, DaneError, TlsaMatching, TlsaSelector, TlsaUsage};
+    use hns_dane::{DaneDecision, TlsaMatching, TlsaSelector, TlsaUsage};
     use hns_namespace_resolution::{
         AbsenceKind, EvidenceProvenance, Freshness, HnsNetwork, IcannChainState, OriginPlanInput,
         RootFailure, RootFailureKind, RootLookup, RootResolutionState, SelectionPolicy,
@@ -3090,7 +3095,7 @@ mod tests {
                         "_443._tcp.example.com",
                         RecordType::Tlsa.code(),
                         true,
-                        vec![tlsa_record("_443._tcp.example.com", vec![3, 1, 1, 0xaa])],
+                        vec![tlsa_record("_443._tcp.example.com", sha256_tlsa_rdata())],
                     ),
                 ],
                 Arc::clone(&requests),
@@ -3120,7 +3125,10 @@ mod tests {
             TlsaSelector::SubjectPublicKeyInfo
         );
         assert_eq!(captured.tls.tlsa_records[0].matching, TlsaMatching::Sha256);
-        assert_eq!(captured.tls.tlsa_records[0].association_data, vec![0xaa]);
+        assert_eq!(
+            captured.tls.tlsa_records[0].association_data,
+            vec![0xaa; 32]
+        );
         assert_eq!(
             captured.tls.browser_tls_decision,
             Some(BrowserTlsDecision::EnforceDane {
@@ -3229,7 +3237,7 @@ mod tests {
                         "_443._tcp.example.com",
                         RecordType::Tlsa.code(),
                         false,
-                        vec![tlsa_record("_443._tcp.example.com", vec![3, 1, 1, 0xaa])],
+                        vec![tlsa_record("_443._tcp.example.com", sha256_tlsa_rdata())],
                     ),
                 ],
                 Arc::clone(&requests),
@@ -3272,7 +3280,7 @@ mod tests {
         for (secure, records, expected) in [
             (
                 true,
-                vec![tlsa_record("_443._tcp.example.com", vec![3, 1, 1, 0xaa])],
+                vec![tlsa_record("_443._tcp.example.com", sha256_tlsa_rdata())],
                 BrowserTlsDecision::EnforceDane {
                     record_count: std::num::NonZeroUsize::new(1).unwrap(),
                 },
@@ -3361,7 +3369,7 @@ mod tests {
                         true,
                         vec![
                             cname_record("_443._tcp.example.com", "_443._tcp.edge.example.com"),
-                            tlsa_record("_443._tcp.edge.example.com", vec![3, 1, 1, 0xaa]),
+                            tlsa_record("_443._tcp.edge.example.com", sha256_tlsa_rdata()),
                         ],
                     ),
                 ],
@@ -3402,7 +3410,7 @@ mod tests {
             ],
             vec![
                 cname_record(owner, target),
-                tlsa_record(owner, vec![3, 1, 1, 0xaa]),
+                tlsa_record(owner, sha256_tlsa_rdata()),
             ],
         ] {
             assert_eq!(
@@ -3714,7 +3722,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_tlsa_record_fails_closed() {
+    fn unusable_tlsa_record_fails_closed() {
         let gateway = Gateway::new(
             GatewayConfig::default(),
             StaticResolver {
@@ -3736,8 +3744,21 @@ mod tests {
 
         assert_eq!(
             gateway.handle(&request("name", "name")).unwrap_err(),
-            GatewayError::InvalidTlsa(DaneError::ShortRecord),
+            GatewayError::Resolver(ResolverError::InvalidDnsResponse),
         );
+    }
+
+    #[test]
+    fn unsupported_tlsa_does_not_hide_a_usable_record() {
+        let records = [
+            tlsa_record("_443._tcp.example.com", vec![9, 1, 1, 0xaa]),
+            tlsa_record("_443._tcp.example.com", sha256_tlsa_rdata()),
+        ];
+
+        let usable = tlsa_records(&records, "_443._tcp.example.com").unwrap();
+        assert_eq!(usable.len(), 1);
+        assert_eq!(usable[0].usage, TlsaUsage::DaneEe);
+        assert_eq!(usable[0].matching, TlsaMatching::Sha256);
     }
 
     impl StaticResolver {
@@ -3850,6 +3871,10 @@ mod tests {
             ttl: 60,
             rdata,
         }
+    }
+
+    fn sha256_tlsa_rdata() -> Vec<u8> {
+        [vec![3, 1, 1], vec![0xaa; 32]].concat()
     }
 
     fn https_record(

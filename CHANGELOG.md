@@ -54,6 +54,12 @@ protocol and TLSA transport mismatch.
 TLSA usages 0 and 2 are checked on authenticated certificate paths in both
 mobile and Chromium transports. The workspace lockfile selects `rustls`
 0.23.46 and `quinn-proto` 0.11.18 to clear the current advisory gate.
+TLSA records with empty or incorrectly sized association data are unusable;
+unsupported records are discarded without hiding usable records in the same
+RRset. Stateless authentication chains enforce their encoded vector length,
+and certificate-only policy helpers derive SPKI bytes from the certificate.
+Usage 2 applies certificate name, validity, CA, key usage, and path length
+checks. Usage 3 retains the DNSSEC TLSA name binding required by RFC 7671.
 
 Strict engine bridge authorization now expires with the earliest retained
 HNS currency, DS, DNSKEY, CNAME, TLSA TTL, or RRSIG deadline. Stale keysets and

@@ -149,6 +149,8 @@ pub enum DaneError {
     UnsupportedSelector,
     #[error("unsupported TLSA matching type")]
     UnsupportedMatching,
+    #[error("TLSA certificate association data has an unusable length")]
+    UnusableAssociationData,
     #[error("TLSA records are present but not DNSSEC-secure")]
     InsecureTlsa,
     #[error("strict HNS mode requires DNSSEC-secure TLSA")]
@@ -177,7 +179,7 @@ impl TlsaRecord {
             return Err(DaneError::ShortRecord);
         }
 
-        Ok(Self {
+        let record = Self {
             usage: match rdata[0] {
                 0 => TlsaUsage::PkixTa,
                 1 => TlsaUsage::PkixEe,
@@ -197,10 +199,23 @@ impl TlsaRecord {
                 _ => return Err(DaneError::UnsupportedMatching),
             },
             association_data: rdata[3..].to_vec(),
-        })
+        };
+        if !record.has_usable_association_data() {
+            return Err(DaneError::UnusableAssociationData);
+        }
+        Ok(record)
+    }
+
+    /// Parses one TLSA record, discarding unsupported or malformed records as
+    /// required before evaluating a DNSSEC-authenticated RRset.
+    pub fn parse_usable_rdata(rdata: &[u8]) -> Option<Self> {
+        Self::parse_rdata(rdata).ok()
     }
 
     pub fn matches_der(&self, cert_der: &[u8], spki_der: &[u8]) -> bool {
+        if !self.has_usable_association_data() {
+            return false;
+        }
         let selected = match self.selector {
             TlsaSelector::FullCertificate => cert_der,
             TlsaSelector::SubjectPublicKeyInfo => spki_der,
@@ -224,6 +239,13 @@ impl TlsaRecord {
     fn is_pkix_usage(&self) -> bool {
         matches!(self.usage, TlsaUsage::PkixTa | TlsaUsage::PkixEe)
     }
+
+    fn has_usable_association_data(&self) -> bool {
+        matches!(
+            (self.matching, self.association_data.len()),
+            (TlsaMatching::Exact, 1..) | (TlsaMatching::Sha256, 32) | (TlsaMatching::Sha512, 64)
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -232,14 +254,30 @@ struct CertificateChainInput<'a> {
     end_entity_spki_der: &'a [u8],
 }
 
-pub fn evaluate_tlsa(records: &[TlsaRecord], cert_der: &[u8], spki_der: &[u8]) -> DaneDecision {
+/// Evaluates end-entity TLSA records against a certificate.
+///
+/// The supplied SPKI bytes are not trusted. When an SPKI association is
+/// present, the implementation derives the SPKI from `cert_der`.
+pub fn evaluate_tlsa(records: &[TlsaRecord], cert_der: &[u8], _spki_der: &[u8]) -> DaneDecision {
     if records.is_empty() {
         return DaneDecision::NoTlsa;
     }
 
+    let spki_der = if records
+        .iter()
+        .any(|record| record.is_ee_usage() && record.selector == TlsaSelector::SubjectPublicKeyInfo)
+    {
+        match extract_spki_der(cert_der) {
+            Ok(spki_der) => spki_der,
+            Err(_) => return DaneDecision::Failed,
+        }
+    } else {
+        Vec::new()
+    };
+
     records
         .iter()
-        .find(|record| record.is_ee_usage() && record.matches_der(cert_der, spki_der))
+        .find(|record| record.is_ee_usage() && record.matches_der(cert_der, &spki_der))
         .map(|record| DaneDecision::Matched(record.usage))
         .unwrap_or(DaneDecision::Failed)
 }
@@ -305,11 +343,19 @@ pub fn evaluate_policy(input: DaneValidationInput<'_>) -> Result<DaneDecision, D
             return Err(DaneError::InsecureTlsa);
         }
 
+        let spki_der = if input.tlsa_records.iter().any(|record| {
+            record.is_ee_usage() && record.selector == TlsaSelector::SubjectPublicKeyInfo
+        }) {
+            extract_spki_der(input.cert_der)?
+        } else {
+            Vec::new()
+        };
+
         return evaluate_tlsa_for_chain(
             input.tlsa_records,
             CertificateChainInput {
                 end_entity_der: input.cert_der,
-                end_entity_spki_der: input.spki_der,
+                end_entity_spki_der: &spki_der,
             },
             input.webpki_status,
         );
@@ -485,10 +531,10 @@ pub fn evaluate_stateless_dane_certificate_for_transport(
             &tlsa_rrset,
             input.now_unix,
         )?;
-        let tlsa_records = tlsa_rrset
-            .iter()
-            .map(|record| TlsaRecord::parse_rdata(&record.rdata))
-            .collect::<Result<Vec<_>, _>>()?;
+        let tlsa_records = parse_usable_tlsa_rrset(&tlsa_rrset);
+        if tlsa_records.is_empty() {
+            return Err(DaneError::MissingCertificateTlsa);
+        }
         return Ok(StatelessDaneEvidence::Tlsa {
             records: tlsa_records,
             proof_root: *proof.root.as_bytes(),
@@ -558,7 +604,11 @@ fn parse_stateless_urkel_proofs(input: &[u8]) -> Result<Vec<StatelessUrkelProof>
 }
 
 fn parse_rfc9102_authentication_chain(input: &[u8]) -> Result<Vec<ResourceRecord>, DaneError> {
-    if input.len() > MAX_STATELESS_DANE_DNSSEC_CHAIN_BYTES || input.len() < 3 {
+    if input.len() > MAX_STATELESS_DANE_DNSSEC_CHAIN_BYTES || input.len() < 2 {
+        return Err(DaneError::MalformedCertificateEvidence);
+    }
+    let declared_len = usize::from(u16::from_be_bytes([input[0], input[1]]));
+    if declared_len != input.len() - 2 {
         return Err(DaneError::MalformedCertificateEvidence);
     }
     let mut cursor = 2usize;
@@ -717,6 +767,13 @@ fn records_for(
         .iter()
         .filter(|record| record.name == *owner && record.record_type == record_type)
         .cloned()
+        .collect()
+}
+
+fn parse_usable_tlsa_rrset(records: &[ResourceRecord]) -> Vec<TlsaRecord> {
+    records
+        .iter()
+        .filter_map(|record| TlsaRecord::parse_usable_rdata(&record.rdata))
         .collect()
 }
 
@@ -924,6 +981,39 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unusable_tlsa_association_lengths() {
+        for rdata in [
+            vec![3, 0, 0],
+            [vec![3, 1, 1], vec![0xaa; 31]].concat(),
+            [vec![3, 1, 1], vec![0xaa; 33]].concat(),
+            [vec![3, 1, 2], vec![0xaa; 63]].concat(),
+            [vec![3, 1, 2], vec![0xaa; 65]].concat(),
+        ] {
+            assert_eq!(
+                TlsaRecord::parse_rdata(&rdata).unwrap_err(),
+                DaneError::UnusableAssociationData,
+            );
+            assert_eq!(TlsaRecord::parse_usable_rdata(&rdata), None);
+        }
+    }
+
+    #[test]
+    fn unusable_manually_constructed_association_never_matches() {
+        let record = TlsaRecord {
+            usage: TlsaUsage::DaneEe,
+            selector: TlsaSelector::SubjectPublicKeyInfo,
+            matching: TlsaMatching::Exact,
+            association_data: Vec::new(),
+        };
+
+        assert!(!record.matches_der(b"certificate", b""));
+        assert_eq!(
+            evaluate_tlsa(&[record], b"certificate", b""),
+            DaneDecision::Failed,
+        );
+    }
+
+    #[test]
     fn matches_sha256_spki() {
         let spki = b"spki";
         let mut rdata = vec![3, 1, 1];
@@ -931,6 +1021,36 @@ mod tests {
         let record = TlsaRecord::parse_rdata(&rdata).unwrap();
 
         assert!(record.matches_der(b"cert", spki));
+    }
+
+    #[test]
+    fn public_evaluators_derive_spki_from_the_certificate() {
+        let actual_spki = test_spki_with_key(&[0x01]);
+        let supplied_spki = test_spki_with_key(&[0x02]);
+        let cert = test_certificate(true, &actual_spki);
+        let record = TlsaRecord {
+            usage: TlsaUsage::DaneEe,
+            selector: TlsaSelector::SubjectPublicKeyInfo,
+            matching: TlsaMatching::Exact,
+            association_data: supplied_spki.clone(),
+        };
+
+        assert_eq!(
+            evaluate_tlsa(std::slice::from_ref(&record), &cert, &supplied_spki),
+            DaneDecision::Failed,
+        );
+        assert_eq!(
+            evaluate_policy(DaneValidationInput {
+                mode: DomainTrustMode::HnsStrict,
+                dnssec_secure: true,
+                tlsa_records: &[record],
+                cert_der: &cert,
+                spki_der: &supplied_spki,
+                webpki_status: WebPkiStatus::NotEvaluated,
+            })
+            .unwrap(),
+            DaneDecision::Failed,
+        );
     }
 
     #[test]
@@ -1045,6 +1165,52 @@ mod tests {
     }
 
     #[test]
+    fn rfc9102_authentication_chain_requires_its_exact_declared_length() {
+        let mut chain = vec![0, 0];
+        ResourceRecord {
+            name: DnsName::from_ascii("_443._tcp.welcome").unwrap(),
+            record_type: RecordType::Tlsa,
+            class: 1,
+            ttl: 300,
+            rdata: vec![3, 1, 0, 0xaa],
+        }
+        .encode(&mut chain)
+        .unwrap();
+
+        assert_eq!(
+            parse_rfc9102_authentication_chain(&chain).unwrap_err(),
+            DaneError::MalformedCertificateEvidence,
+        );
+        let encoded_len = u16::try_from(chain.len() - 2).unwrap().to_be_bytes();
+        chain[..2].copy_from_slice(&encoded_len);
+        assert_eq!(parse_rfc9102_authentication_chain(&chain).unwrap().len(), 1);
+
+        chain[0] ^= 1;
+        assert_eq!(
+            parse_rfc9102_authentication_chain(&chain).unwrap_err(),
+            DaneError::MalformedCertificateEvidence,
+        );
+    }
+
+    #[test]
+    fn unusable_tlsa_records_are_discarded_without_hiding_usable_records() {
+        let usable = [vec![3, 1, 1], vec![0xaa; 32]].concat();
+        let owner = DnsName::from_ascii("_443._tcp.welcome").unwrap();
+        let records = [vec![3, 1], vec![9, 1, 1, 0xaa], usable].map(|rdata| ResourceRecord {
+            name: owner.clone(),
+            record_type: RecordType::Tlsa,
+            class: 1,
+            ttl: 300,
+            rdata,
+        });
+        let parsed = parse_usable_tlsa_rrset(&records);
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].usage, TlsaUsage::DaneEe);
+        assert_eq!(parsed[0].matching, TlsaMatching::Sha256);
+    }
+
+    #[test]
     #[allow(deprecated)]
     fn stateless_dane_uses_the_requested_service_transport() {
         let proof_root = [0x2a; 32];
@@ -1063,6 +1229,8 @@ mod tests {
             }
             .encode(&mut chain)
             .unwrap();
+            let encoded_len = u16::try_from(chain.len() - 2).unwrap().to_be_bytes();
+            chain[..2].copy_from_slice(&encoded_len);
             test_certificate_with_extensions(&[
                 (EXPERIMENTAL_HIP17_URKEL_PROOF_OID, proofs.as_slice()),
                 (EXPERIMENTAL_HIP17_DNSSEC_CHAIN_OID, chain.as_slice()),
@@ -1187,6 +1355,38 @@ mod tests {
             .unwrap();
 
         assert_eq!(decision, DaneDecision::Failed);
+    }
+
+    #[test]
+    fn malformed_extra_certificate_cannot_block_a_later_dane_ee_match() {
+        let leaf_cert = test_certificate(true, &test_spki_with_key(&[0x01]));
+        let records = [
+            TlsaRecord {
+                usage: TlsaUsage::DaneTa,
+                selector: TlsaSelector::SubjectPublicKeyInfo,
+                matching: TlsaMatching::Exact,
+                association_data: b"unrelated-key".to_vec(),
+            },
+            TlsaRecord {
+                usage: TlsaUsage::DaneEe,
+                selector: TlsaSelector::FullCertificate,
+                matching: TlsaMatching::Exact,
+                association_data: leaf_cert.clone(),
+            },
+        ];
+
+        let decision =
+            evaluate_policy_with_certificate_chain(DaneCertificateChainValidationInput {
+                mode: DomainTrustMode::HnsStrict,
+                dnssec_secure: true,
+                tlsa_records: &records,
+                end_entity_der: &leaf_cert,
+                intermediate_der: &[b"malformed certificate"],
+                webpki_status: WebPkiStatus::NotEvaluated,
+            })
+            .unwrap();
+
+        assert_eq!(decision, DaneDecision::Matched(TlsaUsage::DaneEe));
     }
 
     #[test]
