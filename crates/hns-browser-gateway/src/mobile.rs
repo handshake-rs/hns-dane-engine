@@ -795,6 +795,7 @@ fn tlsa_records(
     let mut owner = DnsName::from_ascii(service_qname)
         .map_err(|_| GatewayError::Resolver(ResolverError::InvalidDnsResponse))?;
     let mut seen = Vec::new();
+    let mut followed_cname = false;
     for _depth in 0..=MAX_CNAME_CHAIN_LEN {
         if seen.contains(&owner) {
             return Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse));
@@ -827,7 +828,14 @@ fn tlsa_records(
         }
         let [cname] = owner_cnames.as_slice() else {
             return if owner_cnames.is_empty() {
-                Ok(Vec::new())
+                if followed_cname {
+                    // The resolver response retains the secure status but not
+                    // the terminal NSEC/NSEC3 proof. Do not infer authenticated
+                    // TLSA absence after an alias without that proof.
+                    Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse))
+                } else {
+                    Ok(Vec::new())
+                }
             } else {
                 Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse))
             };
@@ -838,6 +846,7 @@ fn tlsa_records(
             return Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse));
         }
         owner = target;
+        followed_cname = true;
     }
     Err(GatewayError::Resolver(ResolverError::InvalidDnsResponse))
 }
@@ -2478,6 +2487,17 @@ mod tests {
                     qtype: RecordType::Tlsa.code(),
                 },
             ],
+        );
+    }
+
+    #[test]
+    fn icann_tlsa_cname_without_terminal_records_fails_closed() {
+        let owner = "_443._tcp.example.com";
+        let target = "_443._tcp.edge.example.net";
+
+        assert_eq!(
+            tlsa_records(&[cname_record(owner, target)], owner).unwrap_err(),
+            GatewayError::Resolver(ResolverError::InvalidDnsResponse),
         );
     }
 
