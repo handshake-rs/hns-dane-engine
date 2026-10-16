@@ -39,6 +39,10 @@ do
             cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
             cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
             ;;
+        hns-dnssec|hns-resolver)
+            cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
+            cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
+            ;;
         hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
         hns-browser-loopback-proxy|hns-browser-p2p|hns-browser-resolver|\
         hns-browser-gateway|hns-browser-transport)
