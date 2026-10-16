@@ -56,6 +56,10 @@ prepublished_current_loopback_version=0.2.4
 prepublished_current_loopback_revision=c972de2ef52429706b170c97fe62f8d21a7798a6
 prepublished_current_loopback_manifest=release/prepublished-loopback-proxy-0.2.4-crates.txt
 prepublished_current_loopback_checksum_manifest=release/hns-dane-engine-loopback-proxy-0.2.4-crates.sha256
+prepublished_security_foundation_version=0.2.3
+prepublished_security_foundation_revision=70ff88db564e048cd79cd516259aa07d5d167e6a
+prepublished_security_foundation_manifest=release/prepublished-dnssec-foundation-2026-10-16-crates.txt
+prepublished_security_foundation_checksum_manifest=release/hns-dane-engine-dnssec-foundation-2026-10-16-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -131,6 +135,10 @@ prepublished_current_loopback_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$prepublished_current_loopback_manifest")
+prepublished_security_foundation_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_security_foundation_manifest")
 
 last_public_crate=
 for package in $public_crates
@@ -266,6 +274,17 @@ is_prepublished_current_loopback_package() {
         [ "$2" = "$prepublished_current_loopback_version" ]
 }
 
+is_prepublished_security_foundation_package() {
+    package=$1
+    version=$2
+    [ "$version" = "$prepublished_security_foundation_version" ] || return 1
+    for prepublished_package in $prepublished_security_foundation_crates
+    do
+        [ "$package" = "$prepublished_package" ] && return 0
+    done
+    return 1
+}
+
 is_prepublished_package() {
     is_prepublished_engine_package "$1" "$2" ||
         is_prepublished_adapter_package "$1" "$2" ||
@@ -275,7 +294,8 @@ is_prepublished_package() {
         is_prepublished_successor_package "$1" "$2" ||
         is_prepublished_loopback_package "$1" "$2" ||
         is_prepublished_mobile_wallet_package "$1" "$2" ||
-        is_prepublished_current_loopback_package "$1" "$2"
+        is_prepublished_current_loopback_package "$1" "$2" ||
+        is_prepublished_security_foundation_package "$1" "$2"
 }
 
 run_package_operation() {
@@ -736,6 +756,10 @@ verify_prepublished_package() {
     then
         source_revision=$prepublished_current_loopback_revision
         checksum_manifest=$prepublished_current_loopback_checksum_manifest
+    elif is_prepublished_security_foundation_package "$package" "$version"
+    then
+        source_revision=$prepublished_security_foundation_revision
+        checksum_manifest=$prepublished_security_foundation_checksum_manifest
     else
         echo "error: $package $version is not a recorded immutable package" >&2
         exit 1
@@ -872,6 +896,11 @@ verify_prepublished_packages() {
         verify_prepublished_package "$package" "$prepublished_current_loopback_version"
     done
     echo "verified the recorded prepublished current loopback proxy archive at source $prepublished_current_loopback_revision"
+    for package in $prepublished_security_foundation_crates
+    do
+        verify_prepublished_package "$package" "$prepublished_security_foundation_version"
+    done
+    echo "verified the recorded prepublished DNSSEC foundation archives at source $prepublished_security_foundation_revision"
 }
 
 verify_published_package() {

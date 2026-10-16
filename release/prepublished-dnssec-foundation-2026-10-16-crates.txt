@@ -1,0 +1,3 @@
+# Security foundation crates published from source 70ff88db564e048cd79cd516259aa07d5d167e6a before the release resumed.
+hns-dnssec
+hns-resolver

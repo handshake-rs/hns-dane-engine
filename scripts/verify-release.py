@@ -135,6 +135,17 @@ CURRENT_LOOPBACK_MANIFEST = "release/prepublished-loopback-proxy-0.2.4-crates.tx
 CURRENT_LOOPBACK_CHECKSUM_MANIFEST = (
     "release/hns-dane-engine-loopback-proxy-0.2.4-crates.sha256"
 )
+PREPUBLISHED_SECURITY_FOUNDATION_VERSION = "0.2.3"
+PREPUBLISHED_SECURITY_FOUNDATION_REVISION = (
+    "70ff88db564e048cd79cd516259aa07d5d167e6a"
+)
+PREPUBLISHED_SECURITY_FOUNDATION_MANIFEST = (
+    "release/prepublished-dnssec-foundation-2026-10-16-crates.txt"
+)
+PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-dnssec-foundation-2026-10-16-crates.sha256"
+)
+PREPUBLISHED_SECURITY_FOUNDATION_PACKAGES = ("hns-dnssec", "hns-resolver")
 PATCH_RELEASE_VERSION = "0.2.6"
 PATCH_RELEASE_MANIFEST = "release/mobile-wallet-0.2.6-crates.txt"
 PATCH_RELEASE_REVISION = "90a5dfeb5b7c00e8fea010e79f82076de4263fd6"
@@ -508,6 +519,8 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         PATCH_RELEASE_CHECKSUM_MANIFEST,
         CURRENT_LOOPBACK_MANIFEST,
         CURRENT_LOOPBACK_CHECKSUM_MANIFEST,
+        PREPUBLISHED_SECURITY_FOUNDATION_MANIFEST,
+        PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST,
         SECURITY_RELEASE_MANIFEST,
         SECURITY_RELEASE_ID,
         "./scripts/publish.sh --archive-only",
@@ -600,6 +613,8 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"prepublished_mobile_wallet_checksum_manifest={PATCH_RELEASE_CHECKSUM_MANIFEST}",
         f"prepublished_current_loopback_revision={CURRENT_LOOPBACK_REVISION}",
         f"prepublished_current_loopback_checksum_manifest={CURRENT_LOOPBACK_CHECKSUM_MANIFEST}",
+        f"prepublished_security_foundation_revision={PREPUBLISHED_SECURITY_FOUNDATION_REVISION}",
+        f"prepublished_security_foundation_checksum_manifest={PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST}",
     }
     missing_lines = required_script_lines - set(script.splitlines())
     if missing_lines:
@@ -782,6 +797,10 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"prepublished_loopback_revision={PREPUBLISHED_LOOPBACK_REVISION}",
         f"prepublished_loopback_manifest={PREPUBLISHED_LOOPBACK_MANIFEST}",
         f"prepublished_loopback_checksum_manifest={PREPUBLISHED_LOOPBACK_CHECKSUM_MANIFEST}",
+        f"prepublished_security_foundation_version={PREPUBLISHED_SECURITY_FOUNDATION_VERSION}",
+        f"prepublished_security_foundation_revision={PREPUBLISHED_SECURITY_FOUNDATION_REVISION}",
+        f"prepublished_security_foundation_manifest={PREPUBLISHED_SECURITY_FOUNDATION_MANIFEST}",
+        f"prepublished_security_foundation_checksum_manifest={PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST}",
         "verify_prepublished_packages",
         'is_prepublished_package "$package" "$version"',
         'is_prepublished_engine_package "$package" "$version"',
@@ -796,6 +815,7 @@ def verify_publish_script_safety(repo: Path) -> None:
         "hns-p2p-transport)",
         "printf '%s\\n' 0.3.1",
         'is_prepublished_loopback_package "$package" "$version"',
+        'is_prepublished_security_foundation_package "$package" "$version"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
         'if [ "$api_checksum" != "$expected_checksum" ]',
         'if [ "$archive_checksum" != "$expected_checksum" ]',
@@ -1345,6 +1365,16 @@ def main() -> None:
         CURRENT_LOOPBACK_CHECKSUM_MANIFEST,
         ("hns-browser-loopback-proxy",),
         {"hns-browser-loopback-proxy": CURRENT_LOOPBACK_VERSION},
+    )
+    verify_named_prepublished_inventory(
+        repo,
+        PREPUBLISHED_SECURITY_FOUNDATION_MANIFEST,
+        PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST,
+        PREPUBLISHED_SECURITY_FOUNDATION_PACKAGES,
+        {
+            package: PREPUBLISHED_SECURITY_FOUNDATION_VERSION
+            for package in PREPUBLISHED_SECURITY_FOUNDATION_PACKAGES
+        },
     )
     patch_release_order(repo)
     security_release_order(repo)

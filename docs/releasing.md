@@ -50,6 +50,13 @@ The selected versions are `hns-dnssec` 0.2.3, `hns-transport` 0.2.3,
 `hns-browser-transport` 0.2.4, and `hns-browser-gateway` 0.2.4. Direct
 consumers in this set raise their minimum dependency requirements to the
 corrected packages.
+`hns-dnssec` 0.2.3 and `hns-resolver` 0.2.3 were published from
+`70ff88db564e048cd79cd516259aa07d5d167e6a` before the registry-only transport
+dependency conflict was exposed. Their immutable archive digests are recorded
+in
+[`release/hns-dane-engine-dnssec-foundation-2026-10-16-crates.sha256`](../release/hns-dane-engine-dnssec-foundation-2026-10-16-crates.sha256),
+and the resume manifest is
+[`release/prepublished-dnssec-foundation-2026-10-16-crates.txt`](../release/prepublished-dnssec-foundation-2026-10-16-crates.txt).
 The seven `0.2.6` light-client and SQLite browser packages retain their
 published versions recorded in
 [`release/mobile-wallet-0.2.6-crates.txt`](../release/mobile-wallet-0.2.6-crates.txt).
