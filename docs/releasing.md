@@ -41,8 +41,10 @@ The dependency-order authority is
 30. `hns-browser-loopback-proxy`
 31. `hns-browser-sync`
 
-The current targeted set is the seven `0.2.6` light-client and SQLite browser
-packages in
+The current targeted set is the two `0.2.3` TLSA path verification packages in
+[`release/tlsa-path-0.2.3-crates.txt`](../release/tlsa-path-0.2.3-crates.txt).
+The seven `0.2.6` light-client and SQLite browser packages retain their
+published versions recorded in
 [`release/mobile-wallet-0.2.6-crates.txt`](../release/mobile-wallet-0.2.6-crates.txt).
 Other public packages retain the versions in their manifests. The private
 `hns-browser-testkit` is never published. Browser adapters retain their
@@ -115,7 +117,7 @@ never authorizes upload, tagging, or deployment.
 After explicit publication authorization, the current confirmation command is:
 
 ```sh
-./scripts/publish.sh --execute --confirm-publish 0.2.6
+./scripts/publish.sh --execute --confirm-publish 0.2.3
 ```
 
 The runner checks the clean dated candidate, all protocol inputs, and immutable
@@ -131,7 +133,7 @@ Override only with a registry-approved non-negative interval:
 ```sh
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish 0.2.6
+  ./scripts/publish.sh --execute --confirm-publish 0.2.3
 ```
 
 After propagation, the downloaded archive receives the same checksum and VCS

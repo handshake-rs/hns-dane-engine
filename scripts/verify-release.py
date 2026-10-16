@@ -145,6 +145,12 @@ PATCH_RELEASE_TAG = "mobile-wallet-v0.2.6"
 PATCH_RELEASE_VERSIONS = {
     package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
 }
+TLSA_RELEASE_VERSION = "0.2.3"
+TLSA_RELEASE_MANIFEST = "release/tlsa-path-0.2.3-crates.txt"
+TLSA_RELEASE_PACKAGES = ("hns-browser-dane", "hns-browser-transport")
+TLSA_RELEASE_VERSIONS = {
+    package: TLSA_RELEASE_VERSION for package in TLSA_RELEASE_PACKAGES
+}
 SUCCESSOR_RELEASE_VERSION = "0.3.0"
 SUCCESSOR_RELEASE_VERSIONS = {
     "hns-browser-observability": SUCCESSOR_RELEASE_VERSION,
@@ -404,6 +410,17 @@ def patch_release_order(repo: Path) -> tuple[str, ...]:
     return packages
 
 
+def tlsa_release_order(repo: Path) -> tuple[str, ...]:
+    packages = tuple(
+        line.strip()
+        for line in (repo / TLSA_RELEASE_MANIFEST).read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    if packages != TLSA_RELEASE_PACKAGES:
+        fail(f"{TLSA_RELEASE_MANIFEST} must contain exactly {list(TLSA_RELEASE_PACKAGES)}")
+    return packages
+
+
 def verify_release_document(repo: Path, order: list[str], version: str) -> None:
     document = (repo / "docs/releasing.md").read_text(encoding="utf-8")
     documented = re.findall(r"^\d+\. `([^`]+)`$", document, flags=re.MULTILINE)
@@ -411,7 +428,7 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         fail("docs/releasing.md does not match release/public-crates.txt")
 
     execute_command = (
-        f"./scripts/publish.sh --execute --confirm-publish {PATCH_RELEASE_VERSION}"
+        f"./scripts/publish.sh --execute --confirm-publish {TLSA_RELEASE_VERSION}"
     )
     if execute_command not in document:
         fail("docs/releasing.md does not use the current version in its execute example")
@@ -456,6 +473,8 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         "release/public-crates.txt",
         PATCH_RELEASE_MANIFEST,
         PATCH_RELEASE_VERSION,
+        TLSA_RELEASE_MANIFEST,
+        TLSA_RELEASE_VERSION,
         "./scripts/publish.sh --archive-only",
         ".github/workflows/release-preflight.yml",
         "expected_commit",
@@ -869,18 +888,21 @@ def expected_workspace_versions(
     package_names: set[str], workspace_version: str
 ) -> dict[str, str]:
     return {
-        name: SUCCESSOR_RELEASE_VERSIONS.get(
+        name: TLSA_RELEASE_VERSIONS.get(
             name,
-            PATCH_RELEASE_VERSIONS.get(
+            SUCCESSOR_RELEASE_VERSIONS.get(
                 name,
-                (
-                    PREPUBLISHED_PATCH_VERSION
-                    if name in PREPUBLISHED_PATCH_PACKAGES
-                    else CURRENT_LOOPBACK_VERSION
-                    if name in PREPUBLISHED_LOOPBACK_PACKAGES
-                    else PREPUBLISHED_LIGHT_CLIENT_VERSION
-                    if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
-                    else workspace_version
+                PATCH_RELEASE_VERSIONS.get(
+                    name,
+                    (
+                        PREPUBLISHED_PATCH_VERSION
+                        if name in PREPUBLISHED_PATCH_PACKAGES
+                        else CURRENT_LOOPBACK_VERSION
+                        if name in PREPUBLISHED_LOOPBACK_PACKAGES
+                        else PREPUBLISHED_LIGHT_CLIENT_VERSION
+                        if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
+                        else workspace_version
+                    ),
                 ),
             ),
         )
@@ -1077,6 +1099,15 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             )
             if source_tag_url not in package_changelog_text:
                 fail(f"{name} CHANGELOG.md does not link the stateless DANE source tag")
+        elif name in TLSA_RELEASE_VERSIONS:
+            package_changelog_text = package_changelog.decode("utf-8")
+            release_heading = (
+                rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
+            )
+            if re.search(release_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(
+                    f"{name} CHANGELOG.md lacks a dated {expected_version} release heading"
+                )
         elif name in PATCH_RELEASE_VERSIONS:
             package_changelog_text = package_changelog.decode("utf-8")
             patch_heading = (
@@ -1152,16 +1183,22 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 continue
             expected_requirement = f"^{expected_versions[dependency_name]}"
             if dependency["req"] != expected_requirement:
-                # Immutable previously published consumers retain their
-                # original compatible lower bound. Rewriting those manifests
-                # would create unpublishable local source that no longer
-                # matches the recorded archive; Cargo's 0.2 caret range still
-                # admits the targeted 0.2.6 dependency.
+                # Previously published consumers retain their compatible
+                # lower bounds so their local manifests match their archives.
                 compatible_immutable_consumer = (
-                    name not in PATCH_RELEASE_VERSIONS
-                    and dependency_name in PATCH_RELEASE_VERSIONS
-                    and dependency["req"] in {"^0.2.2", "^0.2.3", "^0.2.4"}
-                    and expected_requirement == "^0.2.6"
+                    name not in TLSA_RELEASE_VERSIONS
+                    and (
+                        (
+                            dependency_name in PATCH_RELEASE_VERSIONS
+                            and dependency["req"] in {"^0.2.2", "^0.2.3", "^0.2.4"}
+                            and expected_requirement == "^0.2.6"
+                        )
+                        or (
+                            dependency_name in TLSA_RELEASE_VERSIONS
+                            and dependency["req"] == "^0.2.2"
+                            and expected_requirement == "^0.2.3"
+                        )
+                    )
                 )
                 if not compatible_immutable_consumer:
                     fail(
@@ -1244,6 +1281,7 @@ def main() -> None:
         {"hns-browser-loopback-proxy": PREPUBLISHED_LOOPBACK_VERSION},
     )
     patch_release_order(repo)
+    tlsa_release_order(repo)
     version, release_label = verify_workspace(
         repo, cargo_metadata(repo, args.toolchain), order
     )
@@ -1251,10 +1289,10 @@ def main() -> None:
     verify_release_document(repo, order, version)
     verify_release_workflow(repo)
     verify_publish_script_safety(repo)
-    if args.expected_version is not None and args.expected_version != PATCH_RELEASE_VERSION:
+    if args.expected_version is not None and args.expected_version != TLSA_RELEASE_VERSION:
         fail(
-            f"confirmed version {args.expected_version} differs from patch release "
-            f"version {PATCH_RELEASE_VERSION}"
+            f"confirmed version {args.expected_version} differs from TLSA release "
+            f"version {TLSA_RELEASE_VERSION}"
         )
     if args.require_clean:
         if release_label.lower() == "unreleased":
@@ -1262,7 +1300,7 @@ def main() -> None:
         verify_clean_source(repo)
     print(
         f"release metadata valid for {len(order)} public crates; "
-        f"{len(PATCH_RELEASE_PACKAGES)} patch packages are at {PATCH_RELEASE_VERSION}"
+        f"{len(TLSA_RELEASE_PACKAGES)} TLSA packages are at {TLSA_RELEASE_VERSION}"
     )
 
 

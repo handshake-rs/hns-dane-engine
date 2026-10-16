@@ -41,12 +41,12 @@ do
             ;;
         hns-browser-chain|hns-browser-dane|hns-browser-dnssec|\
         hns-browser-loopback-proxy|hns-browser-p2p|hns-browser-resolver|\
-        hns-browser-gateway)
+        hns-browser-gateway|hns-browser-transport)
             cp -- LICENSE-POLYFORM-NONCOMMERCIAL \
                 "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"
             ;;
         hns-browser-primitives|hns-browser-sync|\
-        hns-browser-transport|hns-browser-urkel)
+        hns-browser-urkel)
             cp -- LICENSE-POLYFORM-NONCOMMERCIAL \
                 "crates/$package/LICENSE-POLYFORM-NONCOMMERCIAL"
             cp -- release/ADAPTER-CRATE-CHANGELOG.md \
