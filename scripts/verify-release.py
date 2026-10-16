@@ -788,6 +788,7 @@ def verify_publish_script_safety(repo: Path) -> None:
         'is_prepublished_light_client_package "$package" "$version"',
         'is_prepublished_policy_package "$package" "$version"',
         'is_prepublished_successor_package "$package" "$version"',
+        'prepublished_successor_package_version "$package"',
         'is_prepublished_loopback_package "$package" "$version"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
         'if [ "$api_checksum" != "$expected_checksum" ]',

@@ -226,16 +226,21 @@ is_prepublished_policy_package() {
     [ "$package" = "hns-resolution-policy" ]
 }
 
-is_prepublished_successor_package() {
-    package=$1
-    version=$2
-    case "$package:$version" in
-        hns-gateway:0.3.0|hns-browser-observability:0.3.0|\
-            hns-p2p-transport:0.3.1|hns-dane-engine:0.3.0)
-            return 0
+prepublished_successor_package_version() {
+    case "$1" in
+        hns-gateway|hns-browser-observability|hns-dane-engine)
+            printf '%s\n' 0.3.0
+            ;;
+        hns-p2p-transport)
+            printf '%s\n' 0.3.1
             ;;
         *) return 1 ;;
     esac
+}
+
+is_prepublished_successor_package() {
+    expected_version=$(prepublished_successor_package_version "$1") || return 1
+    [ "$2" = "$expected_version" ]
 }
 
 is_prepublished_loopback_package() {
@@ -848,7 +853,8 @@ verify_prepublished_packages() {
     echo "verified the recorded prepublished policy archive at source $prepublished_policy_revision"
     for package in $prepublished_successor_crates
     do
-        verify_prepublished_package "$package" "$(package_version "$package")"
+        version=$(prepublished_successor_package_version "$package")
+        verify_prepublished_package "$package" "$version"
     done
     echo "verified all recorded prepublished Shakescape successor archives at source $prepublished_successor_revision"
     for package in $prepublished_loopback_crates
