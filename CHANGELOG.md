@@ -23,7 +23,7 @@ for validation.
 | `hns-resolver` | `0.2.3` |
 | `hns-browser-observability` | `0.3.0` |
 | `hns-p2p-transport` | `0.3.1` |
-| `hns-dane-engine` | `0.3.0` |
+| `hns-dane-engine` | `0.3.1` |
 | `hns-dane-engine-ffi` | `0.2.2` |
 | `hns-loopback-proxy` | `0.2.2` |
 | `hns-browser-primitives` | `0.2.2` |
@@ -54,6 +54,10 @@ protocol and TLSA transport mismatch.
 TLSA usages 0 and 2 are checked on authenticated certificate paths in both
 mobile and Chromium transports. The workspace lockfile selects `rustls`
 0.23.46 and `quinn-proto` 0.11.18 to clear the current advisory gate.
+
+Strict engine bridge authorization now expires with the earliest retained
+HNS currency, DS, DNSKEY, CNAME, TLSA TTL, or RRSIG deadline. Stale keysets and
+zero-duration evidence cannot authorize a later browser connection.
 
 ## hns-browser-loopback-proxy 0.2.4 - 2026-10-12
 

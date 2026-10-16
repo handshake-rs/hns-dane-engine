@@ -1,5 +1,6 @@
 hns-dnssec
 hns-resolver
+hns-dane-engine
 hns-browser-dnssec
 hns-browser-dane
 hns-browser-resolver

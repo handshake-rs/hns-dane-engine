@@ -159,6 +159,7 @@ SECURITY_RELEASE_MANIFEST = "release/dnssec-dane-security-2026-10-16-crates.txt"
 SECURITY_RELEASE_PACKAGES = (
     "hns-dnssec",
     "hns-resolver",
+    "hns-dane-engine",
     "hns-browser-dnssec",
     "hns-browser-dane",
     "hns-browser-resolver",
@@ -168,6 +169,7 @@ SECURITY_RELEASE_PACKAGES = (
 SECURITY_RELEASE_VERSIONS = {
     "hns-dnssec": "0.2.3",
     "hns-resolver": "0.2.3",
+    "hns-dane-engine": "0.3.1",
     "hns-browser-dnssec": "0.2.3",
     "hns-browser-dane": "0.2.4",
     "hns-browser-resolver": "0.2.7",
@@ -1231,9 +1233,15 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                         or (
                             dependency_name in SECURITY_RELEASE_VERSIONS
                             and dependency["req"]
-                            in {"^0.2.2", "^0.2.3", "^0.2.4", "^0.2.6"}
+                            in {
+                                "^0.2.2",
+                                "^0.2.3",
+                                "^0.2.4",
+                                "^0.2.6",
+                                "^0.3.0",
+                            }
                             and expected_requirement
-                            in {"^0.2.3", "^0.2.4", "^0.2.7"}
+                            in {"^0.2.3", "^0.2.4", "^0.2.7", "^0.3.1"}
                         )
                     )
                 )
