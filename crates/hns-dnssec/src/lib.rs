@@ -89,6 +89,10 @@ pub struct VerifiedRrset {
     inception: u32,
     /// Signature expiration time.
     expiration: u32,
+    /// Time at which this evidence was validated.
+    observed_at_unix: u64,
+    /// Earliest exclusive TTL or signature deadline.
+    expires_at_unix: u64,
 }
 
 impl VerifiedRrset {
@@ -127,6 +131,24 @@ impl VerifiedRrset {
     pub const fn expiration(&self) -> u32 {
         self.expiration
     }
+
+    /// Time at which the RRset was validated.
+    #[must_use]
+    pub const fn observed_at_unix(&self) -> u64 {
+        self.observed_at_unix
+    }
+
+    /// Earliest exclusive TTL or RRSIG deadline.
+    #[must_use]
+    pub const fn expires_at_unix(&self) -> u64 {
+        self.expires_at_unix
+    }
+
+    /// Whether the evidence is current at an absolute Unix time.
+    #[must_use]
+    pub const fn is_fresh_at(&self, now: u64) -> bool {
+        self.observed_at_unix <= now && now < self.expires_at_unix
+    }
 }
 
 /// A DNSKEY RRset authenticated through a local DS chain.
@@ -139,6 +161,8 @@ pub struct AuthenticatedDnskeys {
     records: Vec<ResourceRecord>,
     delegation_key_tag: u16,
     delegation_algorithm: u8,
+    observed_at_unix: u64,
+    expires_at_unix: u64,
 }
 
 impl AuthenticatedDnskeys {
@@ -158,6 +182,24 @@ impl AuthenticatedDnskeys {
     #[must_use]
     pub const fn delegation_algorithm(&self) -> u8 {
         self.delegation_algorithm
+    }
+
+    /// Time at which the keyset was authenticated.
+    #[must_use]
+    pub const fn observed_at_unix(&self) -> u64 {
+        self.observed_at_unix
+    }
+
+    /// Earliest exclusive DS, DNSKEY, or parent keyset deadline.
+    #[must_use]
+    pub const fn expires_at_unix(&self) -> u64 {
+        self.expires_at_unix
+    }
+
+    /// Whether the authenticated keyset is current at an absolute Unix time.
+    #[must_use]
+    pub const fn is_fresh_at(&self, now: u64) -> bool {
+        self.observed_at_unix <= now && now < self.expires_at_unix
     }
 }
 
@@ -300,6 +342,13 @@ pub fn verify_rrset(
                     algorithm: signature.algorithm,
                     inception: signature.inception,
                     expiration: signature.expiration,
+                    observed_at_unix: u64::from(validation_time),
+                    expires_at_unix: rrset_expires_at(
+                        records,
+                        signature_record,
+                        signature,
+                        validation_time,
+                    ),
                 });
             }
         }
@@ -367,20 +416,22 @@ pub fn authenticate_dnskeys(
             })
             .cloned()
             .collect::<Vec<_>>();
-        if verify_rrset(
+        if let Ok(verified) = verify_rrset(
             dnskeys,
             &covering,
             std::slice::from_ref(key_record),
             validation_time,
             limits,
-        )
-        .is_ok()
-        {
+        ) {
             return Ok(AuthenticatedDnskeys {
                 zone: zone.clone(),
                 records: dnskeys.to_vec(),
                 delegation_key_tag: key_tag,
                 delegation_algorithm: key.algorithm,
+                observed_at_unix: u64::from(validation_time),
+                expires_at_unix: verified
+                    .expires_at_unix
+                    .min(records_expire_at(trusted_ds, validation_time)),
             });
         }
     }
@@ -399,7 +450,13 @@ pub fn verify_rrset_with_keys(
     validation_time: u32,
     limits: DnssecLimits,
 ) -> Result<VerifiedRrset, DnssecError> {
-    verify_rrset(records, signatures, &keys.records, validation_time, limits)
+    let now = u64::from(validation_time);
+    if !keys.is_fresh_at(now) {
+        return Err(DnssecError::SignatureTime);
+    }
+    let mut verified = verify_rrset(records, signatures, &keys.records, validation_time, limits)?;
+    verified.expires_at_unix = verified.expires_at_unix.min(keys.expires_at_unix);
+    Ok(verified)
 }
 
 /// Authenticate a child delegation and its DNSKEY RRset from parent keys.
@@ -421,14 +478,23 @@ pub fn authenticate_child_dnskeys(
     if verified.owner() != child_zone || verified.record_type() != RecordType::Ds {
         return Err(DnssecError::RrsetMismatch);
     }
-    authenticate_dnskeys(
+    let mut child = authenticate_dnskeys(
         child_zone,
         child_ds.records,
         child_dnskeys.records,
         child_dnskeys.signatures,
         validation_time,
         limits,
-    )
+    )?;
+    child.observed_at_unix = child
+        .observed_at_unix
+        .max(parent.observed_at_unix)
+        .max(verified.observed_at_unix);
+    child.expires_at_unix = child
+        .expires_at_unix
+        .min(parent.expires_at_unix)
+        .min(verified.expires_at_unix);
+    Ok(child)
 }
 
 /// Verify that at least one class-IN DS record authenticates a DNSKEY.
@@ -729,6 +795,32 @@ fn serial_in_window(now: u32, inception: u32, expiration: u32) -> bool {
 
 fn serial_le(left: u32, right: u32) -> bool {
     left == right || right.wrapping_sub(left) < 0x8000_0000
+}
+
+fn records_expire_at(records: &[ResourceRecord], observed_at: u32) -> u64 {
+    let minimum_ttl = records.iter().map(|record| record.ttl).min().unwrap_or(0);
+    u64::from(observed_at) + u64::from(minimum_ttl)
+}
+
+fn rrset_expires_at(
+    records: &[ResourceRecord],
+    signature_record: &ResourceRecord,
+    signature: &Rrsig,
+    validation_time: u32,
+) -> u64 {
+    let ttl_deadline = u64::from(validation_time)
+        + u64::from(
+            records
+                .iter()
+                .map(|record| record.ttl)
+                .chain([signature_record.ttl, signature.original_ttl])
+                .min()
+                .unwrap_or(0),
+        );
+    let signature_deadline = u64::from(validation_time)
+        + u64::from(signature.expiration.wrapping_sub(validation_time))
+        + 1;
+    ttl_deadline.min(signature_deadline)
 }
 
 fn canonical_signed_data(
@@ -1333,6 +1425,10 @@ mod tests {
         .unwrap();
         assert_eq!(authenticated.zone(), &zone);
         assert_eq!(authenticated.delegation_key_tag(), dnskey_tag(&key));
+        assert_eq!(authenticated.observed_at_unix(), 1_500);
+        assert_eq!(authenticated.expires_at_unix(), 1_800);
+        assert!(authenticated.is_fresh_at(1_799));
+        assert!(!authenticated.is_fresh_at(1_800));
 
         let records = vec![a_record(&name("www.example."))];
         let signatures = vec![sign_rrset(&records, zone, &key, &key_pair)];
@@ -1346,6 +1442,16 @@ mod tests {
         .unwrap();
         assert_eq!(verified.record_type(), RecordType::A);
         assert_eq!(verified.owner(), &name("www.example."));
+        assert_eq!(
+            verify_rrset_with_keys(
+                &authenticated,
+                &records,
+                &signatures,
+                1_800,
+                DnssecLimits::default(),
+            ),
+            Err(DnssecError::SignatureTime),
+        );
     }
 
     #[test]
@@ -1431,6 +1537,38 @@ mod tests {
             verify_rrset(&records, &signatures, &keys, 1_500, DnssecLimits::default()).unwrap();
         assert_eq!(verified.owner(), &name("www.example."));
         assert_eq!(verified.record_type(), RecordType::A);
+        assert_eq!(verified.observed_at_unix(), 1_500);
+        assert_eq!(verified.expires_at_unix(), 1_800);
+        assert!(verified.is_fresh_at(1_799));
+        assert!(!verified.is_fresh_at(1_800));
+
+        let signature_limited =
+            verify_rrset(&records, &signatures, &keys, 1_999, DnssecLimits::default()).unwrap();
+        assert_eq!(signature_limited.expires_at_unix(), 2_001);
+
+        let mut short_data_ttl = records.clone();
+        short_data_ttl.first_mut().unwrap().ttl = 7;
+        let data_limited = verify_rrset(
+            &short_data_ttl,
+            &signatures,
+            &keys,
+            1_500,
+            DnssecLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(data_limited.expires_at_unix(), 1_507);
+
+        let mut short_signature_ttl = signatures.clone();
+        short_signature_ttl.first_mut().unwrap().ttl = 5;
+        let signature_ttl_limited = verify_rrset(
+            &records,
+            &short_signature_ttl,
+            &keys,
+            1_500,
+            DnssecLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(signature_ttl_limited.expires_at_unix(), 1_505);
 
         let mut mutated = records.clone();
         let record = mutated.first_mut().unwrap();

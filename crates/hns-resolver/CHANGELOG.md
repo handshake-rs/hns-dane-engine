@@ -8,6 +8,9 @@ This crate uses the shared `hns-dane-engine` workspace version. Its selected ver
 Raises the `hns-dnssec` dependency floor to 0.2.3 so local Handshake resolution
 uses DS-bound DNSKEY bootstrap verification.
 
+Validated TLSA results now retain the earliest HNS currency, resource, DS,
+DNSKEY, CNAME, TLSA TTL, or RRSIG deadline for downstream authorization.
+
 ## 0.2.2 - 2026-08-23
 
 See the canonical workspace changelog for the complete shared release scope

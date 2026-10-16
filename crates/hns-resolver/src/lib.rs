@@ -88,11 +88,15 @@ impl HnsDnssecAuthority {
             validation_time,
             limits,
         )?;
+        let expires_at_unix = keys
+            .expires_at_unix()
+            .min(anchor.valid_until().get().saturating_add(1));
         Ok(Self {
             evidence: HnsAuthorityEvidence {
                 anchor,
                 zone,
                 validation_time,
+                expires_at_unix,
             },
             keys,
         })
@@ -123,6 +127,7 @@ pub struct HnsAuthorityEvidence {
     anchor: HnsAnchor,
     zone: Name,
     validation_time: u32,
+    expires_at_unix: u64,
 }
 
 impl HnsAuthorityEvidence {
@@ -142,6 +147,12 @@ impl HnsAuthorityEvidence {
     #[must_use]
     pub const fn validation_time(&self) -> u32 {
         self.validation_time
+    }
+
+    /// Earliest exclusive HNS currency, resource, DS, or DNSKEY deadline.
+    #[must_use]
+    pub const fn expires_at_unix(&self) -> u64 {
+        self.expires_at_unix
     }
 }
 
@@ -207,6 +218,8 @@ pub struct ValidatedTlsa {
     cname_chain: Vec<VerifiedCname>,
     rrset: VerifiedRrset,
     hns_authority: Option<HnsAuthorityEvidence>,
+    validated_at_unix: u64,
+    expires_at_unix: u64,
 }
 
 impl ValidatedTlsa {
@@ -256,6 +269,24 @@ impl ValidatedTlsa {
     #[must_use]
     pub const fn hns_authority(&self) -> Option<&HnsAuthorityEvidence> {
         self.hns_authority.as_ref()
+    }
+
+    /// Time shared by the DNSSEC and chain-currency checks.
+    #[must_use]
+    pub const fn validated_at_unix(&self) -> u64 {
+        self.validated_at_unix
+    }
+
+    /// Earliest exclusive authority, DNSKEY, CNAME, TLSA TTL, or RRSIG deadline.
+    #[must_use]
+    pub const fn expires_at_unix(&self) -> u64 {
+        self.expires_at_unix
+    }
+
+    /// Whether every retained trust input is current at an absolute Unix time.
+    #[must_use]
+    pub const fn is_fresh_at(&self, now: u64) -> bool {
+        self.validated_at_unix <= now && now < self.expires_at_unix
     }
 }
 
@@ -422,6 +453,9 @@ impl TlsaResolution {
                         _ => Err(ResolverError::MalformedAnswer),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                let hns_authority = retained_hns_authority(&self.authority_binding);
+                let expires_at_unix =
+                    validated_tlsa_expiry(&self.cname_chain, &verified, hns_authority.as_ref());
                 self.completed = true;
                 return Ok(ResolutionStep::Complete(Box::new(ValidatedTlsa {
                     requested_owner: self.requested_owner.clone(),
@@ -431,10 +465,9 @@ impl TlsaResolution {
                     records,
                     cname_chain: self.cname_chain.clone(),
                     rrset: verified,
-                    hns_authority: match &self.authority_binding {
-                        AuthorityBinding::Hns(evidence) => Some(evidence.clone()),
-                        AuthorityBinding::Unset | AuthorityBinding::Generic => None,
-                    },
+                    hns_authority,
+                    validated_at_unix: u64::from(validation_time),
+                    expires_at_unix,
                 })));
             }
             if cname_records.len() != 1 {
@@ -550,6 +583,31 @@ fn matching_records(
         })
         .cloned()
         .collect()
+}
+
+fn validated_tlsa_expiry(
+    cname_chain: &[VerifiedCname],
+    terminal: &VerifiedRrset,
+    hns_authority: Option<&HnsAuthorityEvidence>,
+) -> u64 {
+    cname_chain
+        .iter()
+        .map(|edge| edge.rrset.expires_at_unix())
+        .chain(std::iter::once(terminal.expires_at_unix()))
+        .chain(
+            hns_authority
+                .into_iter()
+                .map(HnsAuthorityEvidence::expires_at_unix),
+        )
+        .min()
+        .unwrap_or(terminal.expires_at_unix())
+}
+
+fn retained_hns_authority(binding: &AuthorityBinding) -> Option<HnsAuthorityEvidence> {
+    match binding {
+        AuthorityBinding::Hns(evidence) => Some(evidence.clone()),
+        AuthorityBinding::Unset | AuthorityBinding::Generic => None,
+    }
 }
 
 fn matching_signatures(
@@ -1090,6 +1148,11 @@ mod tests {
         assert_eq!(evidence.zone(), &zone);
         assert_eq!(evidence.validation_time(), validation_time);
         assert_eq!(evidence.anchor(), resource.anchor());
+        assert_eq!(evidence.expires_at_unix(), u64::from(validation_time) + 11);
+        assert_eq!(validated.validated_at_unix(), u64::from(validation_time));
+        assert_eq!(validated.expires_at_unix(), u64::from(validation_time) + 11);
+        assert!(validated.is_fresh_at(u64::from(validation_time) + 10));
+        assert!(!validated.is_fresh_at(u64::from(validation_time) + 11));
 
         let mut outside =
             TlsaResolution::for_https(name("www.other."), ResolverLimits::default()).unwrap();

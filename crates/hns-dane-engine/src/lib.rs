@@ -1803,6 +1803,9 @@ impl Engine {
         if input.validation_unix_time != i64::from(hns_authority.validation_time()) {
             return Err(EngineError::ValidationTimeMismatch);
         }
+        if input.validated.validated_at_unix() >= input.validated.expires_at_unix() {
+            return Err(EngineError::CompletionExpired);
+        }
         if network_id(self.snapshot()?.network) != hns_authority.anchor().network().id() {
             return Err(EngineError::HnsNetworkMismatch);
         }
@@ -1847,8 +1850,8 @@ impl Engine {
             origin_sni: Some(input.origin_sni.trim_end_matches('.').to_ascii_lowercase()),
             bridge_service_port: tlsa_tcp_service_port(input.validated.requested_owner()),
             bridge_tlsa_records: Some(canonical_tlsa_rdata(input.validated.records())),
-            bridge_valid_from: Some(hns_authority.anchor().validated_at().get()),
-            bridge_valid_until: Some(hns_authority.anchor().valid_until().get()),
+            bridge_valid_from: Some(input.validated.validated_at_unix()),
+            bridge_valid_until: input.validated.expires_at_unix().checked_sub(1),
         })
     }
 
@@ -3958,7 +3961,8 @@ mod tests {
         assert_eq!(bridge.origin(), STRICT_HNS_ORIGIN);
         assert_eq!(bridge.runtime_session(), [7; 16]);
         assert_eq!(bridge.valid_from(), u64::from(validation_time));
-        assert!(bridge.valid_until() >= u64::from(validation_time));
+        assert_eq!(bridge.valid_until(), u64::from(validation_time) + 10);
+        assert!(bridge.valid_until() < fixture.authority().anchor().valid_until().get());
         assert!(matches!(
             engine.authorize_browser_bridge(&completed, bridge.valid_until() + 1),
             Err(EngineError::CompletionExpired)

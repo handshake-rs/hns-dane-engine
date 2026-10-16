@@ -13,6 +13,9 @@ Positive RRsets now require an exact-owner signature. Wildcard-expanded
 signatures fail closed until the resolver supplies authenticated wildcard
 applicability proof.
 
+Verified RRsets and authenticated keysets now retain the earliest exclusive
+TTL or signature deadline, including parent DS and DNSKEY chain bounds.
+
 ## 0.2.2 - 2026-08-23
 
 See the canonical workspace changelog for the complete shared release scope
