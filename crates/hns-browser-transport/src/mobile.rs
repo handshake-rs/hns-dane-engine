@@ -4585,7 +4585,7 @@ mod tests {
     }
 
     #[test]
-    fn fetches_https_with_dane_ta_intermediate_match() {
+    fn rejects_dane_ta_until_chain_validation_is_available() {
         let server = TlsTestServer::start_with_intermediate();
         let transport = TcpHttpTransport::new(
             Duration::from_secs(1),
@@ -4602,20 +4602,7 @@ mod tests {
             )],
         );
 
-        let response = transport.fetch(&request).unwrap();
-
-        assert_eq!(response.status, 200);
-        assert_eq!(
-            response.dane_decision,
-            DaneDecision::Matched(TlsaUsage::DaneTa)
-        );
-        let inspection = response.tls_inspection.expect("TLS inspection");
-        assert_eq!(inspection.end_entity_der, server.cert_der);
-        assert_eq!(inspection.intermediate_der.len(), 1);
-        assert_eq!(
-            inspection.intermediate_der[0],
-            *server.intermediate_cert_der.as_ref().unwrap(),
-        );
+        assert_eq!(transport.fetch(&request), Err(TransportError::DaneFailed));
     }
 
     #[test]

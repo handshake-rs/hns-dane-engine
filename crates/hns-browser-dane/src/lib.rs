@@ -211,7 +211,6 @@ impl TlsaRecord {
 struct CertificateChainInput<'a> {
     end_entity_der: &'a [u8],
     end_entity_spki_der: &'a [u8],
-    intermediate_der: &'a [&'a [u8]],
 }
 
 pub fn evaluate_tlsa(records: &[TlsaRecord], cert_der: &[u8], spki_der: &[u8]) -> DaneDecision {
@@ -221,7 +220,7 @@ pub fn evaluate_tlsa(records: &[TlsaRecord], cert_der: &[u8], spki_der: &[u8]) -
 
     records
         .iter()
-        .find(|record| record.matches_der(cert_der, spki_der))
+        .find(|record| record.is_ee_usage() && record.matches_der(cert_der, spki_der))
         .map(|record| DaneDecision::Matched(record.usage))
         .unwrap_or(DaneDecision::Failed)
 }
@@ -260,22 +259,9 @@ fn record_matches_chain(
             Ok(record.matches_der(chain.end_entity_der, chain.end_entity_spki_der))
         }
         TlsaUsage::PkixTa | TlsaUsage::DaneTa => {
-            for cert_der in chain.intermediate_der {
-                if record_matches_certificate(record, cert_der)? {
-                    return Ok(true);
-                }
-            }
+            // The peer controls this list. A TLSA match here does not prove that
+            // the certificate issued the leaf or belongs to a validated path.
             Ok(false)
-        }
-    }
-}
-
-fn record_matches_certificate(record: &TlsaRecord, cert_der: &[u8]) -> Result<bool, DaneError> {
-    match record.selector {
-        TlsaSelector::FullCertificate => Ok(record.matches_der(cert_der, &[])),
-        TlsaSelector::SubjectPublicKeyInfo => {
-            let spki_der = extract_spki_der(cert_der)?;
-            Ok(record.matches_der(cert_der, &spki_der))
         }
     }
 }
@@ -305,7 +291,6 @@ pub fn evaluate_policy(input: DaneValidationInput<'_>) -> Result<DaneDecision, D
             CertificateChainInput {
                 end_entity_der: input.cert_der,
                 end_entity_spki_der: input.spki_der,
-                intermediate_der: &[],
             },
             input.webpki_status,
         );
@@ -349,7 +334,6 @@ pub fn evaluate_policy_with_certificate_chain(
             CertificateChainInput {
                 end_entity_der: input.end_entity_der,
                 end_entity_spki_der: &spki_der,
-                intermediate_der: input.intermediate_der,
             },
             input.webpki_status,
         );
@@ -1048,7 +1032,7 @@ mod tests {
     }
 
     #[test]
-    fn certificate_chain_policy_matches_intermediate_dane_ta() {
+    fn certificate_chain_policy_rejects_unverified_dane_ta() {
         let leaf_spki = test_spki_with_key(&[0x00, 0x01, 0x02]);
         let intermediate_spki = test_spki_with_key(&[0x00, 0x09, 0x09]);
         let leaf_cert = test_certificate(true, &leaf_spki);
@@ -1072,7 +1056,47 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(decision, DaneDecision::Matched(TlsaUsage::DaneTa));
+        assert_eq!(decision, DaneDecision::Failed);
+    }
+
+    #[test]
+    fn certificate_chain_policy_rejects_unverified_pkix_ta_even_with_valid_webpki() {
+        let leaf_cert = test_certificate(true, &test_spki_with_key(&[0x01]));
+        let unrelated_ca = test_certificate(true, &test_spki_with_key(&[0x02]));
+        let record = TlsaRecord {
+            usage: TlsaUsage::PkixTa,
+            selector: TlsaSelector::FullCertificate,
+            matching: TlsaMatching::Exact,
+            association_data: unrelated_ca.clone(),
+        };
+
+        let decision =
+            evaluate_policy_with_certificate_chain(DaneCertificateChainValidationInput {
+                mode: DomainTrustMode::HnsStrict,
+                dnssec_secure: true,
+                tlsa_records: &[record],
+                end_entity_der: &leaf_cert,
+                intermediate_der: &[&unrelated_ca],
+                webpki_status: WebPkiStatus::Valid,
+            })
+            .unwrap();
+
+        assert_eq!(decision, DaneDecision::Failed);
+    }
+
+    #[test]
+    fn raw_matcher_does_not_authorize_ta_records() {
+        let record = TlsaRecord {
+            usage: TlsaUsage::DaneTa,
+            selector: TlsaSelector::FullCertificate,
+            matching: TlsaMatching::Exact,
+            association_data: b"matching".to_vec(),
+        };
+
+        assert_eq!(
+            evaluate_tlsa(&[record], b"matching", b""),
+            DaneDecision::Failed
+        );
     }
 
     #[test]
@@ -1193,7 +1217,11 @@ mod tests {
                     )
                     .unwrap();
 
-                    assert_eq!(decision, DaneDecision::Matched(usage));
+                    let expected = match usage {
+                        TlsaUsage::PkixTa | TlsaUsage::DaneTa => DaneDecision::Failed,
+                        TlsaUsage::PkixEe | TlsaUsage::DaneEe => DaneDecision::Matched(usage),
+                    };
+                    assert_eq!(decision, expected);
                 }
             }
         }
