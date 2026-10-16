@@ -4920,8 +4920,10 @@ mod tests {
     }
 
     fn request(address: SocketAddr) -> OriginRequest {
-        let mut tls = TlsValidation::default();
-        tls.service_port = address.port();
+        let tls = TlsValidation {
+            service_port: address.port(),
+            ..TlsValidation::default()
+        };
         OriginRequest {
             method: "GET".to_owned(),
             scheme: "http".to_owned(),
