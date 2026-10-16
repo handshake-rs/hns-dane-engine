@@ -39,7 +39,7 @@ do
             cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
             cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
             ;;
-        hns-dnssec|hns-resolver)
+        hns-dnssec|hns-resolver|hns-transport)
             cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
             cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
             ;;

@@ -158,6 +158,7 @@ SECURITY_RELEASE_ID = "dnssec-dane-2026-10-16"
 SECURITY_RELEASE_MANIFEST = "release/dnssec-dane-security-2026-10-16-crates.txt"
 SECURITY_RELEASE_PACKAGES = (
     "hns-dnssec",
+    "hns-transport",
     "hns-resolver",
     "hns-dane-engine",
     "hns-browser-dnssec",
@@ -168,6 +169,7 @@ SECURITY_RELEASE_PACKAGES = (
 )
 SECURITY_RELEASE_VERSIONS = {
     "hns-dnssec": "0.2.3",
+    "hns-transport": "0.2.3",
     "hns-resolver": "0.2.3",
     "hns-dane-engine": "0.3.1",
     "hns-browser-dnssec": "0.2.3",

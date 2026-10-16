@@ -1,7 +1,12 @@
 # Changelog
 
-This crate uses the shared `hns-dane-engine` workspace version. Its selected version is described in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/v0.2.2/CHANGELOG.md).
+## 0.2.3 - 2026-10-16
+
+Raises the Handshake protocol dependency cohort to 0.5.0 so registry-only
+consumers use the same public protocol types as `hns-light-chain` 0.2.6.
+
+The complete release scope is described in the repository-level
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/main/CHANGELOG.md).
 
 ## 0.2.2 - 2026-08-23
 

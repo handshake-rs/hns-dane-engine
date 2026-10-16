@@ -19,7 +19,7 @@ for validation.
 | `hns-cache` | `0.2.2` |
 | `hns-light-p2p` | `0.2.6` |
 | `hns-light-sync` | `0.2.6` |
-| `hns-transport` | `0.2.2` |
+| `hns-transport` | `0.2.3` |
 | `hns-resolver` | `0.2.3` |
 | `hns-browser-observability` | `0.3.0` |
 | `hns-p2p-transport` | `0.3.1` |
@@ -39,6 +39,11 @@ for validation.
 | `hns-browser-sync` | `0.2.2` |
 
 ## DNSSEC and DANE security updates - 2026-10-16
+
+`hns-transport` 0.2.3 raises its Handshake protocol dependency cohort to
+0.5.0 so its public types remain compatible with `hns-light-chain` 0.2.6 in a
+registry-only build. This closes the dependency-resolution failure exposed by
+the staged security publication.
 
 DNSKEY bootstrap now requires the DNSKEY RRset signature to verify with the
 exact key authenticated by the parent DS digest. The complete DNSKEY RRset is

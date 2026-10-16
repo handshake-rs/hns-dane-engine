@@ -73,6 +73,7 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
                 "hns-namespace-resolution",
                 "hns-p2p-transport",
                 "hns-resolver",
+                "hns-transport",
             },
             "0.2.2",
         )
@@ -88,6 +89,7 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
         self.assertEqual(versions["hns-gateway"], "0.3.0")
         self.assertEqual(versions["hns-p2p-transport"], "0.3.1")
         self.assertEqual(versions["hns-resolver"], "0.2.3")
+        self.assertEqual(versions["hns-transport"], "0.2.3")
 
     def create_fixture(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temporary = tempfile.TemporaryDirectory()

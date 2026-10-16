@@ -1,4 +1,5 @@
 hns-dnssec
+hns-transport
 hns-resolver
 hns-dane-engine
 hns-browser-dnssec

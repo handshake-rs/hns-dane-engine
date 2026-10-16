@@ -94,7 +94,7 @@ hns-resolution-policy = { version = "0.3.0", path = "crates/hns-resolution-polic
 hns-resolver = { version = "0.2.3", path = "crates/hns-resolver" }
 hns-service-authority = { version = "=0.5.0" }
 hns-transaction = { version = "=0.5.0" }
-hns-transport = { version = "0.2.2", path = "crates/hns-transport" }
+hns-transport = { version = "0.2.3", path = "crates/hns-transport" }
 hns-urkel-proof = { version = "=0.5.0" }
 
 [workspace.lints.rust]
