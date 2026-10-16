@@ -364,7 +364,15 @@ pub fn authenticate_dnskeys(
             })
             .cloned()
             .collect::<Vec<_>>();
-        if verify_rrset(dnskeys, &covering, dnskeys, validation_time, limits).is_ok() {
+        if verify_rrset(
+            dnskeys,
+            &covering,
+            std::slice::from_ref(key_record),
+            validation_time,
+            limits,
+        )
+        .is_ok()
+        {
             return Ok(AuthenticatedDnskeys {
                 zone: zone.clone(),
                 records: dnskeys.to_vec(),
@@ -1319,6 +1327,82 @@ mod tests {
         .unwrap();
         assert_eq!(verified.record_type(), RecordType::A);
         assert_eq!(verified.owner(), &name("www.example."));
+    }
+
+    #[test]
+    fn rejects_dnskey_rrset_signed_by_a_same_tag_substitute() {
+        let zone = name("example.");
+        let delegation_rsa = Rsa::generate(1024).unwrap();
+        let delegation_key = rsa_dnskey(&delegation_rsa);
+        let delegation_tag = dnskey_tag(&delegation_key);
+
+        let (attacker_key, attacker_key_pair) = loop {
+            let attacker_rsa = Rsa::generate(1024).unwrap();
+            let mut attacker_key = rsa_dnskey(&attacker_rsa);
+            let colliding_flags = (0..=u16::MAX).find(|flags| {
+                flags & 0x0100 != 0 && flags & 0x0080 == 0 && {
+                    attacker_key.flags = *flags;
+                    dnskey_tag(&attacker_key) == delegation_tag
+                }
+            });
+            if let Some(flags) = colliding_flags {
+                attacker_key.flags = flags;
+                break (attacker_key, PKey::from_rsa(attacker_rsa).unwrap());
+            }
+        };
+        assert_eq!(dnskey_tag(&attacker_key), delegation_tag);
+
+        let dnskeys = vec![
+            ResourceRecord {
+                name: zone.clone(),
+                record_type: RecordType::Dnskey,
+                class: CLASS_IN,
+                ttl: 300,
+                rdata: Rdata::Dnskey(delegation_key.clone()),
+            },
+            ResourceRecord {
+                name: zone.clone(),
+                record_type: RecordType::Dnskey,
+                class: CLASS_IN,
+                ttl: 300,
+                rdata: Rdata::Dnskey(attacker_key.clone()),
+            },
+        ];
+        let dnskey_signatures = vec![sign_rrset(
+            &dnskeys,
+            zone.clone(),
+            &attacker_key,
+            &attacker_key_pair,
+        )];
+        let mut digest_input = Vec::new();
+        zone.encode(&mut digest_input).unwrap();
+        digest_input.extend_from_slice(&encode_dnskey(&delegation_key));
+        let ds = vec![ResourceRecord {
+            name: zone.clone(),
+            record_type: RecordType::Ds,
+            class: CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Ds(Ds {
+                key_tag: delegation_tag,
+                algorithm: delegation_key.algorithm,
+                digest_type: 2,
+                digest: hash(MessageDigest::sha256(), &digest_input)
+                    .unwrap()
+                    .to_vec(),
+            }),
+        }];
+
+        assert_eq!(
+            authenticate_dnskeys(
+                &zone,
+                &ds,
+                &dnskeys,
+                &dnskey_signatures,
+                1_500,
+                DnssecLimits::default(),
+            ),
+            Err(DnssecError::SignatureMismatch),
+        );
     }
 
     #[test]

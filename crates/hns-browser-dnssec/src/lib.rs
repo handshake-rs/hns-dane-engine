@@ -540,43 +540,59 @@ pub fn validate_delegation_link(
     ds_rrset: &[ResourceRecord],
     dnskey_rrset: &[ResourceRecord],
 ) -> Result<DnssecStatus, DnssecError> {
+    ds_authenticated_dnskeys(owner, ds_rrset, dnskey_rrset).map(|(status, _keys)| status)
+}
+
+fn ds_authenticated_dnskeys(
+    owner: &DnsName,
+    ds_rrset: &[ResourceRecord],
+    dnskey_rrset: &[ResourceRecord],
+) -> Result<(DnssecStatus, Vec<ResourceRecord>), DnssecError> {
     let ds_records = ds_rrset
         .iter()
         .filter(|record| record.record_type == RecordType::Ds)
         .map(DsRecord::from_record)
         .collect::<Result<Vec<_>, _>>()?;
     if ds_records.is_empty() {
-        return Ok(DnssecStatus::InsecureDelegation);
+        return Ok((DnssecStatus::InsecureDelegation, Vec::new()));
     }
 
     let dnskeys = dnskey_rrset
         .iter()
         .filter(|record| record.record_type == RecordType::Dnskey)
-        .map(DnskeyRecord::from_record)
+        .map(|record| DnskeyRecord::from_record(record).map(|dnskey| (record, dnskey)))
         .collect::<Result<Vec<_>, _>>()?;
 
-    for dnskey in &dnskeys {
+    let mut authenticated = Vec::new();
+    for (record, dnskey) in &dnskeys {
+        let mut matches_ds = false;
         for ds in &ds_records {
-            if verify_ds_digest(owner, dnskey, ds)? {
-                return Ok(DnssecStatus::Secure);
-            }
+            matches_ds |= verify_ds_digest(owner, dnskey, ds)?;
+        }
+        if matches_ds {
+            authenticated.push((*record).clone());
         }
     }
 
-    Ok(DnssecStatus::Bogus)
+    if authenticated.is_empty() {
+        Ok((DnssecStatus::Bogus, Vec::new()))
+    } else {
+        Ok((DnssecStatus::Secure, authenticated))
+    }
 }
 
 pub fn validate_signed_rrset(
     input: SignedRrsetValidationInput<'_>,
 ) -> Result<DnssecStatus, DnssecError> {
-    let delegation =
-        validate_delegation_link(input.dnskey_owner, input.ds_rrset, input.dnskey_rrset)?;
+    let (delegation, delegation_keys) =
+        ds_authenticated_dnskeys(input.dnskey_owner, input.ds_rrset, input.dnskey_rrset)?;
     if delegation != DnssecStatus::Secure {
         return Ok(delegation);
     }
 
-    let dnskey_status = validate_dnskey_rrset(
+    let dnskey_status = validate_rrset_signature(
         input.dnskey_owner,
+        &delegation_keys,
         input.dnskey_rrset,
         input.dnskey_rrsig_rrset,
         input.now,
@@ -597,7 +613,7 @@ pub fn validate_signed_rrset(
 pub fn validate_dnssec_chain(
     input: DnssecChainValidationInput<'_>,
 ) -> Result<DnssecStatus, DnssecError> {
-    let initial_delegation = validate_delegation_link(
+    let (initial_delegation, initial_delegation_keys) = ds_authenticated_dnskeys(
         input.initial_dnskey_owner,
         input.initial_ds_rrset,
         input.initial_dnskey_rrset,
@@ -606,8 +622,9 @@ pub fn validate_dnssec_chain(
         return Ok(initial_delegation);
     }
 
-    let initial_dnskey_status = validate_dnskey_rrset(
+    let initial_dnskey_status = validate_rrset_signature(
         input.initial_dnskey_owner,
+        &initial_delegation_keys,
         input.initial_dnskey_rrset,
         input.initial_dnskey_rrsig_rrset,
         input.now,
@@ -619,7 +636,7 @@ pub fn validate_dnssec_chain(
     let mut current_dnskey_owner = input.initial_dnskey_owner;
     let mut current_dnskey_rrset = input.initial_dnskey_rrset;
     for link in input.delegation_links {
-        let delegation = validate_delegation_link(
+        let (delegation, delegation_keys) = ds_authenticated_dnskeys(
             link.child_dnskey_owner,
             link.ds_rrset,
             link.child_dnskey_rrset,
@@ -639,8 +656,9 @@ pub fn validate_dnssec_chain(
             return Ok(ds_status);
         }
 
-        let child_dnskey_status = validate_dnskey_rrset(
+        let child_dnskey_status = validate_rrset_signature(
             link.child_dnskey_owner,
+            &delegation_keys,
             link.child_dnskey_rrset,
             link.child_dnskey_rrsig_rrset,
             input.now,
@@ -2113,6 +2131,53 @@ mod tests {
     }
 
     #[test]
+    fn rejects_dnskey_rrset_signed_only_by_an_untrusted_added_key() {
+        let owner = DnsName::from_ascii("example").unwrap();
+        let rrset = vec![record(owner.clone(), RecordType::A, vec![1, 1, 1, 1])];
+        let (delegation_key, _delegation_signing_key) = ecdsa_dnskey_with_seed(7);
+        let (attacker_key, attacker_signing_key) = ecdsa_dnskey_with_seed(8);
+        let dnskey_rrset = vec![
+            record(
+                owner.clone(),
+                RecordType::Dnskey,
+                delegation_key.rdata().to_vec(),
+            ),
+            record(
+                owner.clone(),
+                RecordType::Dnskey,
+                attacker_key.rdata().to_vec(),
+            ),
+        ];
+        let dnskey_rrsig_rrset = vec![signed_rrsig_record(
+            &owner,
+            &dnskey_rrset,
+            &attacker_key,
+            &attacker_signing_key,
+        )];
+        let ds_rrset = vec![ds_record(&owner, &delegation_key)];
+        let rrsig_rrset = vec![signed_rrsig_record(
+            &owner,
+            &rrset,
+            &attacker_key,
+            &attacker_signing_key,
+        )];
+
+        assert_eq!(
+            validate_signed_rrset(SignedRrsetValidationInput {
+                dnskey_owner: &owner,
+                ds_rrset: &ds_rrset,
+                dnskey_rrset: &dnskey_rrset,
+                dnskey_rrsig_rrset: &dnskey_rrsig_rrset,
+                rrset: &rrset,
+                rrsig_rrset: &rrsig_rrset,
+                now: DnssecTime(1_500),
+            })
+            .unwrap(),
+            DnssecStatus::Bogus,
+        );
+    }
+
+    #[test]
     fn signed_rrset_without_ds_is_insecure_delegation() {
         let owner = DnsName::from_ascii("example").unwrap();
         let rrset = vec![record(owner.clone(), RecordType::A, vec![1, 1, 1, 1])];
@@ -2298,6 +2363,86 @@ mod tests {
                 initial_dnskey_rrset: &parent_dnskey_rrset,
                 initial_dnskey_rrsig_rrset: &parent_dnskey_rrsig_rrset,
                 delegation_links: &unsigned_links,
+                target_rrset: &target_rrset,
+                target_rrsig_rrset: &target_rrsig_rrset,
+                now: DnssecTime(1_500),
+            })
+            .unwrap(),
+            DnssecStatus::Bogus,
+        );
+    }
+
+    #[test]
+    fn rejects_child_dnskey_rrset_signed_only_by_an_untrusted_added_key() {
+        let parent = DnsName::from_ascii("example").unwrap();
+        let child = DnsName::from_ascii("sub.example").unwrap();
+        let target = DnsName::from_ascii("www.sub.example").unwrap();
+        let (parent_dnskey, parent_signing_key) = ecdsa_dnskey_with_seed(7);
+        let (child_delegation_key, _child_delegation_signing_key) = ecdsa_dnskey_with_seed(8);
+        let (attacker_key, attacker_signing_key) = ecdsa_dnskey_with_seed(9);
+
+        let parent_dnskey_rrset = vec![record(
+            parent.clone(),
+            RecordType::Dnskey,
+            parent_dnskey.rdata().to_vec(),
+        )];
+        let parent_dnskey_rrsig_rrset = vec![signed_rrsig_record_for_signer(
+            &parent,
+            &parent,
+            &parent_dnskey_rrset,
+            &parent_dnskey,
+            &parent_signing_key,
+        )];
+        let child_dnskey_rrset = vec![
+            record(
+                child.clone(),
+                RecordType::Dnskey,
+                child_delegation_key.rdata().to_vec(),
+            ),
+            record(
+                child.clone(),
+                RecordType::Dnskey,
+                attacker_key.rdata().to_vec(),
+            ),
+        ];
+        let child_dnskey_rrsig_rrset = vec![signed_rrsig_record_for_signer(
+            &child,
+            &child,
+            &child_dnskey_rrset,
+            &attacker_key,
+            &attacker_signing_key,
+        )];
+        let child_ds_rrset = vec![ds_record(&child, &child_delegation_key)];
+        let child_ds_rrsig_rrset = vec![signed_rrsig_record_for_signer(
+            &child,
+            &parent,
+            &child_ds_rrset,
+            &parent_dnskey,
+            &parent_signing_key,
+        )];
+        let target_rrset = vec![record(target.clone(), RecordType::A, vec![127, 0, 0, 1])];
+        let target_rrsig_rrset = vec![signed_rrsig_record_for_signer(
+            &target,
+            &child,
+            &target_rrset,
+            &attacker_key,
+            &attacker_signing_key,
+        )];
+        let delegation_links = [DnssecChainLink {
+            child_dnskey_owner: &child,
+            ds_rrset: &child_ds_rrset,
+            ds_rrsig_rrset: &child_ds_rrsig_rrset,
+            child_dnskey_rrset: &child_dnskey_rrset,
+            child_dnskey_rrsig_rrset: &child_dnskey_rrsig_rrset,
+        }];
+
+        assert_eq!(
+            validate_dnssec_chain(DnssecChainValidationInput {
+                initial_dnskey_owner: &parent,
+                initial_ds_rrset: &[ds_record(&parent, &parent_dnskey)],
+                initial_dnskey_rrset: &parent_dnskey_rrset,
+                initial_dnskey_rrsig_rrset: &parent_dnskey_rrsig_rrset,
+                delegation_links: &delegation_links,
                 target_rrset: &target_rrset,
                 target_rrsig_rrset: &target_rrsig_rrset,
                 now: DnssecTime(1_500),
@@ -3951,7 +4096,11 @@ mod tests {
     }
 
     fn ecdsa_dnskey() -> (DnskeyRecord, SigningKey) {
-        let signing_key = SigningKey::from_slice(&[7u8; 32]).unwrap();
+        ecdsa_dnskey_with_seed(7)
+    }
+
+    fn ecdsa_dnskey_with_seed(seed: u8) -> (DnskeyRecord, SigningKey) {
+        let signing_key = SigningKey::from_slice(&[seed; 32]).unwrap();
         let verifying_key = signing_key.verifying_key();
         let public_key = verifying_key.to_encoded_point(false);
         let public_key = public_key.as_bytes();
