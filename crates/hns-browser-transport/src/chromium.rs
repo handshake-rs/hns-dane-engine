@@ -2209,10 +2209,15 @@ fn validate_request_common(
     request: &OriginRequest,
     limits: TransportLimits,
 ) -> Result<(), TransportError> {
+    let uses_tls = matches!(
+        request.scheme.to_ascii_lowercase().as_str(),
+        "https" | "wss"
+    );
     let required_service_transport = protocol_tlsa_transport(request.protocol);
     if !is_http_token(&request.method)
         || !is_valid_host(&request.host)
         || request.port == 0
+        || uses_tls && request.tls.service_port != request.port
         || request.tls.service_transport != required_service_transport
         || !request.path_and_query.starts_with('/')
         || request
@@ -3900,7 +3905,7 @@ mod tests {
         dns_post.method = "POST".to_owned();
         dns_post.scheme = "https".to_owned();
         dns_post.path_and_query = "/dns-query".to_owned();
-        dns_post.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&cert_der)]);
+        dns_post.tls = hns_strict_tls(&dns_post, true, vec![tlsa_spki_exact(&cert_der)]);
         dns_post.headers = vec![
             ("Accept".to_owned(), DNS_MESSAGE_MEDIA_TYPE.to_owned()),
             ("Content-Type".to_owned(), DNS_MESSAGE_MEDIA_TYPE.to_owned()),
@@ -3948,7 +3953,7 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_exact(&server.cert_der)]);
 
         let first = transport.fetch(&request).unwrap();
         let second = transport.fetch(&request).unwrap();
@@ -4045,7 +4050,7 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_exact(&server.cert_der)]);
 
         let first = transport.fetch(&request).unwrap();
         let mut streamed = Vec::new();
@@ -4111,7 +4116,7 @@ mod tests {
             ),
             ("Sec-WebSocket-Version".to_owned(), "13".to_owned()),
         ]);
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_mismatch(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_mismatch(&server.cert_der)]);
 
         match transport.open_tunnel(&request) {
             Err(error) => assert_eq!(error, TransportError::DaneFailed),
@@ -4363,6 +4368,46 @@ mod tests {
     }
 
     #[test]
+    fn rejects_tls_and_tlsa_service_port_mismatch() {
+        let mut request = request(SocketAddr::from((Ipv4Addr::LOCALHOST, 8443)));
+        request.scheme = "https".to_owned();
+        request.tls.service_port = 443;
+
+        for (protocol, service_transport) in [
+            (OriginProtocol::Http11, TlsaTransport::Tcp),
+            (OriginProtocol::Http2, TlsaTransport::Tcp),
+            (OriginProtocol::Http3, TlsaTransport::Udp),
+        ] {
+            request.protocol = protocol;
+            request.tls.service_transport = service_transport;
+            assert_eq!(
+                validate_request(&request, TransportLimits::default()).unwrap_err(),
+                TransportError::InvalidRequest,
+            );
+        }
+
+        request.scheme = "wss".to_owned();
+        request.protocol = OriginProtocol::Http11;
+        request.tls.service_transport = TlsaTransport::Tcp;
+        request.headers.extend([
+            ("Connection".to_owned(), "Upgrade".to_owned()),
+            ("Upgrade".to_owned(), "websocket".to_owned()),
+        ]);
+        assert_eq!(
+            validate_tunnel_request(&request, TransportLimits::default()).unwrap_err(),
+            TransportError::InvalidRequest,
+        );
+
+        request.scheme = "http".to_owned();
+        request.headers.clear();
+        assert!(validate_request(&request, TransportLimits::default()).is_ok());
+
+        request.scheme = "HTTPS".to_owned();
+        request.tls.service_port = request.port;
+        assert!(validate_request(&request, TransportLimits::default()).is_ok());
+    }
+
+    #[test]
     fn rejects_protocol_upgrade_before_stripping_hop_by_hop_headers() {
         let mut request = request(SocketAddr::from((Ipv4Addr::LOCALHOST, 80)));
         request
@@ -4435,7 +4480,7 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(false, Vec::new());
+        request.tls = hns_strict_tls(&request, false, Vec::new());
         request.tls.stateless_dane = StatelessDaneConfig {
             enabled: true,
             accepted_tree_roots: vec![[0x42; 32]],
@@ -4503,7 +4548,7 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_exact(&server.cert_der)]);
 
         let response = transport.fetch(&request).unwrap();
 
@@ -4532,7 +4577,7 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_mismatch(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_mismatch(&server.cert_der)]);
 
         assert_eq!(
             transport.fetch(&request).unwrap_err(),
@@ -4550,7 +4595,7 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_mismatch(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_mismatch(&server.cert_der)]);
 
         assert_eq!(
             transport
@@ -4576,7 +4621,7 @@ mod tests {
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
         request.protocol = OriginProtocol::Http2;
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_exact(&server.cert_der)]);
 
         let response = transport.fetch(&request).unwrap();
 
@@ -4602,7 +4647,7 @@ mod tests {
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
         request.protocol = OriginProtocol::Http2;
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_mismatch(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_mismatch(&server.cert_der)]);
 
         assert_eq!(
             transport.fetch(&request).unwrap_err(),
@@ -4623,7 +4668,8 @@ mod tests {
         request.scheme = "https".to_owned();
         request.host = "denuoweb".to_owned();
         request.protocol = OriginProtocol::Http2;
-        request.tls = TlsValidation::hns_strict(
+        request.tls = hns_strict_tls(
+            &request,
             true,
             vec![TlsaRecord {
                 usage: TlsaUsage::DaneEe,
@@ -4658,7 +4704,7 @@ mod tests {
         request.method = "HEAD".to_owned();
         request.scheme = "https".to_owned();
         request.protocol = OriginProtocol::Http2;
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_exact(&server.cert_der)]);
 
         let response = transport.fetch(&request).unwrap();
 
@@ -4678,7 +4724,7 @@ mod tests {
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
         request.protocol = OriginProtocol::Http3;
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_exact(&server.cert_der)]);
 
         let response = transport.fetch(&request).unwrap();
 
@@ -4704,7 +4750,7 @@ mod tests {
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
         request.protocol = OriginProtocol::Http3;
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_mismatch(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_mismatch(&server.cert_der)]);
 
         assert_eq!(
             transport.fetch(&request).unwrap_err(),
@@ -4724,7 +4770,7 @@ mod tests {
         request.method = "HEAD".to_owned();
         request.scheme = "https".to_owned();
         request.protocol = OriginProtocol::Http3;
-        request.tls = TlsValidation::hns_strict(true, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, true, vec![tlsa_spki_exact(&server.cert_der)]);
 
         let response = transport.fetch(&request).unwrap();
 
@@ -4743,7 +4789,8 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(
+        request.tls = hns_strict_tls(
+            &request,
             true,
             vec![tlsa_spki_exact_with_usage(
                 server.intermediate_cert_der.as_ref().unwrap(),
@@ -4777,7 +4824,8 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(
+        request.tls = hns_strict_tls(
+            &request,
             true,
             vec![tlsa_spki_exact_with_usage(
                 server.intermediate_cert_der.as_ref().unwrap(),
@@ -4798,7 +4846,7 @@ mod tests {
         );
         let mut request = request(server.address);
         request.scheme = "https".to_owned();
-        request.tls = TlsValidation::hns_strict(false, vec![tlsa_spki_exact(&server.cert_der)]);
+        request.tls = hns_strict_tls(&request, false, vec![tlsa_spki_exact(&server.cert_der)]);
         let error = transport.fetch(&request).unwrap_err();
 
         assert!(
@@ -4950,6 +4998,8 @@ mod tests {
     }
 
     fn request(address: SocketAddr) -> OriginRequest {
+        let mut tls = TlsValidation::default();
+        tls.service_port = address.port();
         OriginRequest {
             method: "GET".to_owned(),
             scheme: "http".to_owned(),
@@ -4958,10 +5008,21 @@ mod tests {
             port: address.port(),
             path_and_query: "/path?q=1".to_owned(),
             protocol: OriginProtocol::Http11,
-            tls: TlsValidation::default(),
+            tls,
             headers: vec![("Proxy-Connection".to_owned(), "keep-alive".to_owned())],
             body: Vec::new(),
         }
+    }
+
+    fn hns_strict_tls(
+        request: &OriginRequest,
+        dnssec_secure: bool,
+        tlsa_records: Vec<TlsaRecord>,
+    ) -> TlsValidation {
+        let mut tls = TlsValidation::hns_strict(dnssec_secure, tlsa_records);
+        tls.service_port = request.port;
+        tls.service_transport = protocol_tlsa_transport(request.protocol);
+        tls
     }
 
     fn tlsa_spki_exact(cert_der: &[u8]) -> TlsaRecord {
