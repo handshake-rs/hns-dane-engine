@@ -101,6 +101,25 @@ pub struct StatelessDaneValidationInput<'a> {
     pub now_unix: u64,
 }
 
+/// Transport label used when deriving the TLSA service owner for certificate
+/// embedded stateless DANE evidence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StatelessDaneTransport {
+    Tcp,
+    Udp,
+    Sctp,
+}
+
+impl StatelessDaneTransport {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Udp => "udp",
+            Self::Sctp => "sctp",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StatelessDaneEvidence {
     Missing,
@@ -376,8 +395,25 @@ pub fn extract_spki_der(cert_der: &[u8]) -> Result<Vec<u8>, DaneError> {
     Ok(cert_der[spki.start..spki.end].to_vec())
 }
 
+/// Evaluates stateless DANE evidence for a TCP service.
+///
+/// Call [`evaluate_stateless_dane_certificate_for_transport`] when the
+/// application protocol can use another transport, including HTTP/3 over UDP.
+#[deprecated(
+    since = "0.2.4",
+    note = "use evaluate_stateless_dane_certificate_for_transport to bind the TLSA transport"
+)]
 pub fn evaluate_stateless_dane_certificate(
     input: StatelessDaneValidationInput<'_>,
+) -> Result<StatelessDaneEvidence, DaneError> {
+    evaluate_stateless_dane_certificate_for_transport(input, StatelessDaneTransport::Tcp)
+}
+
+/// Evaluates stateless DANE evidence for the exact requested service
+/// transport.
+pub fn evaluate_stateless_dane_certificate_for_transport(
+    input: StatelessDaneValidationInput<'_>,
+    transport: StatelessDaneTransport,
 ) -> Result<StatelessDaneEvidence, DaneError> {
     let proof_values = certificate_extension_values(
         cert_der_checked(input.cert_der)?,
@@ -403,7 +439,7 @@ pub fn evaluate_stateless_dane_certificate(
         NameHash::from_name(&root_name).map_err(|_| DaneError::InvalidCertificateEvidence)?;
     let owner =
         DnsName::from_ascii(&root_name).map_err(|_| DaneError::InvalidCertificateEvidence)?;
-    let service_owner = DnsName::from_ascii(&service_name(input.port, "tcp", &host))
+    let service_owner = DnsName::from_ascii(&service_name(input.port, transport.label(), &host))
         .map_err(|_| DaneError::InvalidCertificateEvidence)?;
 
     let accepted_roots = input
@@ -1005,6 +1041,75 @@ mod tests {
         assert_eq!(
             certificate_extension_values(&cert, EXPERIMENTAL_HIP17_DNSSEC_CHAIN_OID).unwrap(),
             vec![b"chain".to_vec()],
+        );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn stateless_dane_uses_the_requested_service_transport() {
+        let proof_root = [0x2a; 32];
+        let mut proofs = vec![1];
+        proofs.extend(proof_root);
+        proofs.extend(0u16.to_be_bytes());
+
+        let certificate_for = |transport: &str| {
+            let mut chain = vec![0, 0];
+            ResourceRecord {
+                name: DnsName::from_ascii(&service_name(443, transport, "welcome")).unwrap(),
+                record_type: RecordType::Tlsa,
+                class: 1,
+                ttl: 300,
+                rdata: vec![3, 1, 0, 0xaa],
+            }
+            .encode(&mut chain)
+            .unwrap();
+            test_certificate_with_extensions(&[
+                (EXPERIMENTAL_HIP17_URKEL_PROOF_OID, proofs.as_slice()),
+                (EXPERIMENTAL_HIP17_DNSSEC_CHAIN_OID, chain.as_slice()),
+            ])
+        };
+        let accepted_tree_roots = [proof_root];
+        fn input<'a>(
+            certificate: &'a [u8],
+            accepted_tree_roots: &'a [[u8; 32]],
+        ) -> StatelessDaneValidationInput<'a> {
+            StatelessDaneValidationInput {
+                cert_der: certificate,
+                host: "welcome",
+                port: 443,
+                accepted_tree_roots,
+                now_unix: 1_800_000_000,
+            }
+        }
+
+        let tcp_certificate = certificate_for("tcp");
+        assert_ne!(
+            evaluate_stateless_dane_certificate(input(&tcp_certificate, &accepted_tree_roots))
+                .unwrap_err(),
+            DaneError::MissingCertificateTlsa,
+        );
+        assert_eq!(
+            evaluate_stateless_dane_certificate_for_transport(
+                input(&tcp_certificate, &accepted_tree_roots),
+                StatelessDaneTransport::Udp,
+            )
+            .unwrap_err(),
+            DaneError::MissingCertificateTlsa,
+        );
+
+        let udp_certificate = certificate_for("udp");
+        assert_ne!(
+            evaluate_stateless_dane_certificate_for_transport(
+                input(&udp_certificate, &accepted_tree_roots),
+                StatelessDaneTransport::Udp,
+            )
+            .unwrap_err(),
+            DaneError::MissingCertificateTlsa,
+        );
+        assert_eq!(
+            evaluate_stateless_dane_certificate(input(&udp_certificate, &accepted_tree_roots))
+                .unwrap_err(),
+            DaneError::MissingCertificateTlsa,
         );
     }
 

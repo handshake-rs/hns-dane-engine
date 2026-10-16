@@ -4,8 +4,9 @@ use bytes::{Buf, Bytes};
 use hns_dane::evaluate_policy_with_certificate_chain;
 use hns_dane::{
     DaneCertificateChainValidationInput, DaneDecision, DaneError, DomainTrustMode,
-    StatelessDaneConfig, StatelessDaneEvidence, StatelessDaneValidationInput, TlsaRecord,
-    WebPkiStatus, evaluate_stateless_dane_certificate, extract_spki_der,
+    StatelessDaneConfig, StatelessDaneEvidence, StatelessDaneTransport,
+    StatelessDaneValidationInput, TlsaRecord, WebPkiStatus,
+    evaluate_stateless_dane_certificate_for_transport, extract_spki_der,
 };
 pub use hns_icann_dane::{BrowserTlsDecision, TlsaTransport};
 use http::{HeaderName, HeaderValue, Request as Http2Request};
@@ -1928,13 +1929,21 @@ impl ServerCertVerifier for DaneServerCertVerifier {
             && self.tls.mode != DomainTrustMode::IcannWebPki
             && tlsa_records.is_empty()
         {
-            let evidence = evaluate_stateless_dane_certificate(StatelessDaneValidationInput {
-                cert_der: end_entity.as_ref(),
-                host: &server_name.to_str(),
-                port: self.tls.service_port,
-                accepted_tree_roots: &self.tls.stateless_dane.accepted_tree_roots,
-                now_unix: now.as_secs(),
-            })
+            let transport = match self.tls.service_transport {
+                TlsaTransport::Tcp => StatelessDaneTransport::Tcp,
+                TlsaTransport::Udp => StatelessDaneTransport::Udp,
+                TlsaTransport::Sctp => StatelessDaneTransport::Sctp,
+            };
+            let evidence = evaluate_stateless_dane_certificate_for_transport(
+                StatelessDaneValidationInput {
+                    cert_der: end_entity.as_ref(),
+                    host: &server_name.to_str(),
+                    port: self.tls.service_port,
+                    accepted_tree_roots: &self.tls.stateless_dane.accepted_tree_roots,
+                    now_unix: now.as_secs(),
+                },
+                transport,
+            )
             .map_err(|error| {
                 RustlsError::General(format!(
                     "stateless DANE certificate evidence rejected: {error}"
@@ -2254,9 +2263,14 @@ fn validate_request_common(
     request: &OriginRequest,
     limits: TransportLimits,
 ) -> Result<(), TransportError> {
+    let required_service_transport = match request.protocol {
+        OriginProtocol::Http11 | OriginProtocol::Http2 => TlsaTransport::Tcp,
+        OriginProtocol::Http3 => TlsaTransport::Udp,
+    };
     if !is_http_token(&request.method)
         || !is_valid_host(&request.host)
         || request.port == 0
+        || request.tls.service_transport != required_service_transport
         || !request.path_and_query.starts_with('/')
         || request
             .path_and_query
@@ -4238,6 +4252,26 @@ mod tests {
             .headers
             .push(("Connection".to_owned(), "close, bad token".to_owned()));
 
+        assert_eq!(
+            validate_request(&request, TransportLimits::default()).unwrap_err(),
+            TransportError::InvalidRequest,
+        );
+    }
+
+    #[test]
+    fn rejects_protocol_and_tlsa_transport_mismatch() {
+        let mut request = request(SocketAddr::from((Ipv4Addr::LOCALHOST, 443)));
+        request.scheme = "https".to_owned();
+        request.protocol = OriginProtocol::Http3;
+        request.tls.service_transport = TlsaTransport::Tcp;
+
+        assert_eq!(
+            validate_request(&request, TransportLimits::default()).unwrap_err(),
+            TransportError::InvalidRequest,
+        );
+
+        request.protocol = OriginProtocol::Http2;
+        request.tls.service_transport = TlsaTransport::Udp;
         assert_eq!(
             validate_request(&request, TransportLimits::default()).unwrap_err(),
             TransportError::InvalidRequest,
