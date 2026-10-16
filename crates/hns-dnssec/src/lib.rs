@@ -262,6 +262,9 @@ pub fn verify_rrset(
         let Some(signature) = rrsig_for(signature_record, &first.name, first.record_type) else {
             continue;
         };
+        if usize::from(signature.labels) != first.name.labels().len() {
+            continue;
+        }
         covering = covering.saturating_add(1);
         if !serial_in_window(validation_time, signature.inception, signature.expiration) {
             continue;
@@ -1220,11 +1223,27 @@ mod tests {
         key: &Dnskey,
         key_pair: &PKey<openssl::pkey::Private>,
     ) -> ResourceRecord {
+        sign_rrset_with_labels(
+            records,
+            signer_name,
+            key,
+            key_pair,
+            u8::try_from(records.first().unwrap().name.labels().len()).unwrap(),
+        )
+    }
+
+    fn sign_rrset_with_labels(
+        records: &[ResourceRecord],
+        signer_name: Name,
+        key: &Dnskey,
+        key_pair: &PKey<openssl::pkey::Private>,
+        labels: u8,
+    ) -> ResourceRecord {
         let owner = records.first().unwrap().name.clone();
         let mut signature = Rrsig {
             type_covered: records.first().unwrap().record_type,
             algorithm: key.algorithm,
-            labels: u8::try_from(owner.labels().len()).unwrap(),
+            labels,
             original_ttl: records.first().unwrap().ttl,
             expiration: 2_000,
             inception: 1_000,
@@ -1423,6 +1442,35 @@ mod tests {
         assert_eq!(
             verify_rrset(&records, &signatures, &keys, 999, DnssecLimits::default()),
             Err(DnssecError::SignatureTime)
+        );
+    }
+
+    #[test]
+    fn rejects_wildcard_expansion_without_authenticated_applicability_proof() {
+        let owner = name("www.example.");
+        let signer_name = name("example.");
+        let records = vec![a_record(&owner)];
+        let rsa = Rsa::generate(1024).unwrap();
+        let key = rsa_dnskey(&rsa);
+        let key_pair = PKey::from_rsa(rsa).unwrap();
+        let signatures = vec![sign_rrset_with_labels(
+            &records,
+            signer_name.clone(),
+            &key,
+            &key_pair,
+            1,
+        )];
+        let keys = vec![ResourceRecord {
+            name: signer_name,
+            record_type: RecordType::Dnskey,
+            class: CLASS_IN,
+            ttl: 300,
+            rdata: Rdata::Dnskey(key),
+        }];
+
+        assert_eq!(
+            verify_rrset(&records, &signatures, &keys, 1_500, DnssecLimits::default(),),
+            Err(DnssecError::MissingSignature),
         );
     }
 

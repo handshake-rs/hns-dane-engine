@@ -9,6 +9,10 @@ DNSKEY RRset bootstrap signatures are now verified only with the exact DNSKEY
 whose full digest matches a trusted DS record. The complete signed keyset
 remains available afterward for normal KSK and ZSK operation.
 
+Positive RRsets now require an exact-owner signature. Wildcard-expanded
+signatures fail closed until the resolver supplies authenticated wildcard
+applicability proof.
+
 ## 0.2.2 - 2026-08-23
 
 See the canonical workspace changelog for the complete shared release scope

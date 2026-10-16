@@ -9,6 +9,10 @@ DNSKEY RRset bootstrap signatures are now verified only with DNSKEY records
 whose full digests match trusted DS records. Initial and child delegation
 chains reject unrelated keys added to an otherwise DS-matching keyset.
 
+Positive RRsets now require an exact-owner signature. Wildcard-expanded
+signatures fail closed until the resolver supplies authenticated wildcard
+applicability proof.
+
 ## 0.2.2 - 2026-08-23
 
 This browser adapter retains its PolyForm Noncommercial license. A source archive alone does not qualify a browser,

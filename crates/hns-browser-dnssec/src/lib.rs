@@ -1181,6 +1181,10 @@ pub fn verify_rrsig(
     dnskey: &DnskeyRecord,
     now: DnssecTime,
 ) -> Result<bool, DnssecError> {
+    let owner = &rrset.first().ok_or(DnssecError::InvalidRrset)?.name;
+    if usize::from(rrsig.labels) != owner.labels().len() {
+        return Ok(false);
+    }
     if dnskey.flags & DNSKEY_ZONE_FLAG == 0 {
         return Ok(false);
     }
@@ -2127,6 +2131,44 @@ mod tests {
             })
             .unwrap(),
             DnssecStatus::Secure,
+        );
+    }
+
+    #[test]
+    fn rejects_wildcard_expansion_without_authenticated_applicability_proof() {
+        let zone = DnsName::from_ascii("example").unwrap();
+        let owner = DnsName::from_ascii("www.example").unwrap();
+        let rrset = vec![record(owner.clone(), RecordType::A, vec![1, 1, 1, 1])];
+        let (dnskey, signing_key) = ecdsa_dnskey();
+        let dnskey_rrset = vec![record(
+            zone.clone(),
+            RecordType::Dnskey,
+            dnskey.rdata().to_vec(),
+        )];
+        let dnskey_rrsig_rrset = vec![signed_rrsig_record(
+            &zone,
+            &dnskey_rrset,
+            &dnskey,
+            &signing_key,
+        )];
+        let ds_rrset = vec![ds_record(&zone, &dnskey)];
+        let rrsig =
+            signed_rrsig_record_with_labels(&owner, &zone, 1, &rrset, &dnskey, &signing_key);
+        let parsed_rrsig = RrsigRecord::from_record(&rrsig).unwrap();
+
+        assert!(!verify_rrsig(&rrset, &parsed_rrsig, &dnskey, DnssecTime(1_500)).unwrap());
+        assert_eq!(
+            validate_signed_rrset(SignedRrsetValidationInput {
+                dnskey_owner: &zone,
+                ds_rrset: &ds_rrset,
+                dnskey_rrset: &dnskey_rrset,
+                dnskey_rrsig_rrset: &dnskey_rrsig_rrset,
+                rrset: &rrset,
+                rrsig_rrset: &[rrsig],
+                now: DnssecTime(1_500),
+            })
+            .unwrap(),
+            DnssecStatus::Bogus,
         );
     }
 
@@ -4400,9 +4442,27 @@ mod tests {
         dnskey: &DnskeyRecord,
         signing_key: &SigningKey,
     ) -> ResourceRecord {
+        signed_rrsig_record_with_labels(
+            owner,
+            signer,
+            owner.labels().len() as u8,
+            rrset,
+            dnskey,
+            signing_key,
+        )
+    }
+
+    fn signed_rrsig_record_with_labels(
+        owner: &DnsName,
+        signer: &DnsName,
+        labels: u8,
+        rrset: &[ResourceRecord],
+        dnskey: &DnskeyRecord,
+        signing_key: &SigningKey,
+    ) -> ResourceRecord {
         let dummy_rrsig = RrsigRecord::parse_rdata(&rrsig_rdata_for_signer(
             rrset[0].record_type,
-            owner.labels().len() as u8,
+            labels,
             60,
             DNSSEC_ALGORITHM_ECDSAP256SHA256,
             dnskey.key_tag(),
@@ -4414,7 +4474,7 @@ mod tests {
         let signature: Signature = signing_key.sign(&data);
         let rdata = rrsig_rdata_for_signer(
             rrset[0].record_type,
-            owner.labels().len() as u8,
+            labels,
             60,
             DNSSEC_ALGORITHM_ECDSAP256SHA256,
             dnskey.key_tag(),
