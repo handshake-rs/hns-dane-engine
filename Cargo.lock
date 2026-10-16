@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-dane"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "hns-browser-dnssec",
  "hns-browser-primitives",
@@ -897,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-dnssec"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "hns-browser-primitives",
  "num-bigint",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-gateway"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "hns-browser-dane",
  "hns-browser-primitives",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-resolver"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "hns-browser-dane",
  "hns-browser-dnssec",
@@ -1024,7 +1024,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-transport"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "bytes",
  "h2",
@@ -1151,7 +1151,7 @@ version = "0.2.2"
 
 [[package]]
 name = "hns-dnssec"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "hns-dns-wire",
  "openssl",
@@ -1385,7 +1385,7 @@ version = "0.3.0"
 
 [[package]]
 name = "hns-resolver"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "blake2",
  "hns-covenants",

@@ -9,7 +9,7 @@ publish_new_interval_seconds=${PUBLISH_NEW_INTERVAL_SECONDS-605}
 publish_update_interval_seconds=${PUBLISH_UPDATE_INTERVAL_SECONDS-65}
 mode=${1:---dry-run}
 requested_package=${2:-}
-confirmed_version=${3:-}
+confirmed_release=${3:-}
 argument_count=$#
 release_commit=$(git rev-parse HEAD)
 release_tmp=
@@ -67,7 +67,7 @@ cleanup_release_tmp() {
 trap cleanup_release_tmp EXIT HUP INT TERM
 
 usage() {
-    echo "usage: $0 [--archive-only [PUBLIC-PACKAGE]|--dry-run [PUBLIC-PACKAGE]|--execute --confirm-publish VERSION]" >&2
+    echo "usage: $0 [--archive-only [PUBLIC-PACKAGE]|--dry-run [PUBLIC-PACKAGE]|--execute --confirm-publish RELEASE-ID]" >&2
 }
 
 ensure_release_tmp() {
@@ -1117,9 +1117,9 @@ case "$mode" in
     --execute)
         if [ "$argument_count" -ne 3 ] ||
             [ "$requested_package" != "--confirm-publish" ] ||
-            [ -z "$confirmed_version" ]
+            [ -z "$confirmed_release" ]
         then
-            echo "error: irreversible publication requires --confirm-publish VERSION" >&2
+            echo "error: irreversible publication requires --confirm-publish RELEASE-ID" >&2
             exit 2
         fi
         case "$publish_new_interval_seconds" in
@@ -1137,7 +1137,7 @@ case "$mode" in
         python3 scripts/verify-release.py \
             --toolchain "$rust_toolchain" \
             --require-clean \
-            --expected-version "$confirmed_version"
+            --expected-release "$confirmed_release"
         require_clean_archive_vcs=yes
         verify_protocol_packages_published
         verify_prepublished_packages

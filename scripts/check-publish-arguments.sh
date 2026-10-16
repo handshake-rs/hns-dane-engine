@@ -20,10 +20,10 @@ assert_rejected() {
 }
 
 assert_rejected \
-    "irreversible publication requires --confirm-publish VERSION" \
+    "irreversible publication requires --confirm-publish RELEASE-ID" \
     ./scripts/publish.sh --execute
 assert_rejected \
-    "irreversible publication requires --confirm-publish VERSION" \
+    "irreversible publication requires --confirm-publish RELEASE-ID" \
     ./scripts/publish.sh --execute --confirm-publish CONFIRMED-VERSION extra
 assert_rejected \
     "PUBLISH_NEW_INTERVAL_SECONDS must be a non-negative integer" \

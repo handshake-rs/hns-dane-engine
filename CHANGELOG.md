@@ -14,13 +14,13 @@ for validation.
 | `hns-light-chain` | `0.2.6` |
 | `hns-light-wallet` | `0.2.6` |
 | `hns-dane` | `0.2.2` |
-| `hns-dnssec` | `0.2.2` |
+| `hns-dnssec` | `0.2.3` |
 | `hns-gateway` | `0.3.0` |
 | `hns-cache` | `0.2.2` |
 | `hns-light-p2p` | `0.2.6` |
 | `hns-light-sync` | `0.2.6` |
 | `hns-transport` | `0.2.2` |
-| `hns-resolver` | `0.2.2` |
+| `hns-resolver` | `0.2.3` |
 | `hns-browser-observability` | `0.3.0` |
 | `hns-p2p-transport` | `0.3.1` |
 | `hns-dane-engine` | `0.3.0` |
@@ -28,26 +28,32 @@ for validation.
 | `hns-loopback-proxy` | `0.2.2` |
 | `hns-browser-primitives` | `0.2.2` |
 | `hns-browser-urkel` | `0.2.2` |
-| `hns-browser-dnssec` | `0.2.2` |
-| `hns-browser-dane` | `0.2.3` |
+| `hns-browser-dnssec` | `0.2.3` |
+| `hns-browser-dane` | `0.2.4` |
 | `hns-browser-chain` | `0.2.6` |
 | `hns-browser-p2p` | `0.2.6` |
-| `hns-browser-resolver` | `0.2.6` |
-| `hns-browser-transport` | `0.2.3` |
-| `hns-browser-gateway` | `0.2.3` |
+| `hns-browser-resolver` | `0.2.7` |
+| `hns-browser-transport` | `0.2.4` |
+| `hns-browser-gateway` | `0.2.4` |
 | `hns-browser-loopback-proxy` | `0.2.4` |
 | `hns-browser-sync` | `0.2.2` |
 
-## Browser TLSA verification 0.2.3 - 2026-10-16
+## DNSSEC and DANE security updates - 2026-10-16
 
-`hns-browser-dane` now rejects trust-anchor usages in its certificate-only
-policy API. `hns-browser-transport` verifies usage 0 on a WebPKI-validated path
-and usage 2 on a signed path to the TLSA-pinned CA, with the required certificate
-checks. Both mobile and Chromium use the same verifier. Regression tests cover
-unrelated anchors, a different root certificate with the same key, signed
-intermediates, omitted DNS-supplied anchors, and invalid names and CA constraints.
-The workspace lockfile selects `rustls` 0.23.46 and `quinn-proto` 0.11.18 to
-clear the current advisory gate.
+DNSKEY bootstrap now requires the DNSKEY RRset signature to verify with the
+exact key authenticated by the parent DS digest. The complete DNSKEY RRset is
+trusted only after that check, preserving normal KSK and ZSK operation while
+rejecting added-key and same-tag substitution.
+
+Mobile ICANN TLSA resolution now rejects a CNAME chain that ends without TLSA
+data or retained authenticated denial evidence. Stateless certificate evidence
+derives its TLSA owner from the selected TCP, UDP, or SCTP service transport;
+HTTP/3 therefore verifies `_udp`, and direct transport callers cannot submit a
+protocol and TLSA transport mismatch.
+
+TLSA usages 0 and 2 are checked on authenticated certificate paths in both
+mobile and Chromium transports. The workspace lockfile selects `rustls`
+0.23.46 and `quinn-proto` 0.11.18 to clear the current advisory gate.
 
 ## hns-browser-loopback-proxy 0.2.4 - 2026-10-12
 

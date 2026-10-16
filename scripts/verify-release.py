@@ -154,11 +154,25 @@ PATCH_RELEASE_TAG = "mobile-wallet-v0.2.6"
 PATCH_RELEASE_VERSIONS = {
     package: PATCH_RELEASE_VERSION for package in PATCH_RELEASE_PACKAGES
 }
-TLSA_RELEASE_VERSION = "0.2.3"
-TLSA_RELEASE_MANIFEST = "release/tlsa-path-0.2.3-crates.txt"
-TLSA_RELEASE_PACKAGES = ("hns-browser-dane", "hns-browser-transport")
-TLSA_RELEASE_VERSIONS = {
-    package: TLSA_RELEASE_VERSION for package in TLSA_RELEASE_PACKAGES
+SECURITY_RELEASE_ID = "dnssec-dane-2026-10-16"
+SECURITY_RELEASE_MANIFEST = "release/dnssec-dane-security-2026-10-16-crates.txt"
+SECURITY_RELEASE_PACKAGES = (
+    "hns-dnssec",
+    "hns-resolver",
+    "hns-browser-dnssec",
+    "hns-browser-dane",
+    "hns-browser-resolver",
+    "hns-browser-transport",
+    "hns-browser-gateway",
+)
+SECURITY_RELEASE_VERSIONS = {
+    "hns-dnssec": "0.2.3",
+    "hns-resolver": "0.2.3",
+    "hns-browser-dnssec": "0.2.3",
+    "hns-browser-dane": "0.2.4",
+    "hns-browser-resolver": "0.2.7",
+    "hns-browser-transport": "0.2.4",
+    "hns-browser-gateway": "0.2.4",
 }
 SUCCESSOR_RELEASE_VERSION = "0.3.0"
 SUCCESSOR_RELEASE_VERSIONS = {
@@ -419,14 +433,19 @@ def patch_release_order(repo: Path) -> tuple[str, ...]:
     return packages
 
 
-def tlsa_release_order(repo: Path) -> tuple[str, ...]:
+def security_release_order(repo: Path) -> tuple[str, ...]:
     packages = tuple(
         line.strip()
-        for line in (repo / TLSA_RELEASE_MANIFEST).read_text(encoding="utf-8").splitlines()
+        for line in (repo / SECURITY_RELEASE_MANIFEST)
+        .read_text(encoding="utf-8")
+        .splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     )
-    if packages != TLSA_RELEASE_PACKAGES:
-        fail(f"{TLSA_RELEASE_MANIFEST} must contain exactly {list(TLSA_RELEASE_PACKAGES)}")
+    if packages != SECURITY_RELEASE_PACKAGES:
+        fail(
+            f"{SECURITY_RELEASE_MANIFEST} must contain exactly "
+            f"{list(SECURITY_RELEASE_PACKAGES)}"
+        )
     return packages
 
 
@@ -437,7 +456,7 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         fail("docs/releasing.md does not match release/public-crates.txt")
 
     execute_command = (
-        f"./scripts/publish.sh --execute --confirm-publish {TLSA_RELEASE_VERSION}"
+        f"./scripts/publish.sh --execute --confirm-publish {SECURITY_RELEASE_ID}"
     )
     if execute_command not in document:
         fail("docs/releasing.md does not use the current version in its execute example")
@@ -485,8 +504,8 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         PATCH_RELEASE_CHECKSUM_MANIFEST,
         CURRENT_LOOPBACK_MANIFEST,
         CURRENT_LOOPBACK_CHECKSUM_MANIFEST,
-        TLSA_RELEASE_MANIFEST,
-        TLSA_RELEASE_VERSION,
+        SECURITY_RELEASE_MANIFEST,
+        SECURITY_RELEASE_ID,
         "./scripts/publish.sh --archive-only",
         ".github/workflows/release-preflight.yml",
         "expected_commit",
@@ -554,7 +573,7 @@ def verify_publish_script_safety(repo: Path) -> None:
         "verify_fixture_source_package()",
         "verify_release_source_unchanged()",
         "require_clean_archive_vcs=yes",
-        "--confirm-publish VERSION",
+        "--confirm-publish RELEASE-ID",
         "sha256sum",
         "protocol_checksum_manifest",
         "protocol_api_checksum",
@@ -904,7 +923,7 @@ def expected_workspace_versions(
     package_names: set[str], workspace_version: str
 ) -> dict[str, str]:
     return {
-        name: TLSA_RELEASE_VERSIONS.get(
+        name: SECURITY_RELEASE_VERSIONS.get(
             name,
             SUCCESSOR_RELEASE_VERSIONS.get(
                 name,
@@ -1100,7 +1119,16 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             else "release/CRATE-CHANGELOG.md"
         )
         package_changelog = (package_root / "CHANGELOG.md").read_bytes()
-        if name in PREPUBLISHED_PATCH_PACKAGES:
+        if name in SECURITY_RELEASE_VERSIONS:
+            package_changelog_text = package_changelog.decode("utf-8")
+            release_heading = (
+                rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
+            )
+            if re.search(release_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(
+                    f"{name} CHANGELOG.md lacks a dated {expected_version} release heading"
+                )
+        elif name in PREPUBLISHED_PATCH_PACKAGES:
             package_changelog_text = package_changelog.decode("utf-8")
             patch_heading = (
                 rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
@@ -1115,15 +1143,6 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             )
             if source_tag_url not in package_changelog_text:
                 fail(f"{name} CHANGELOG.md does not link the stateless DANE source tag")
-        elif name in TLSA_RELEASE_VERSIONS:
-            package_changelog_text = package_changelog.decode("utf-8")
-            release_heading = (
-                rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
-            )
-            if re.search(release_heading, package_changelog_text, re.MULTILINE) is None:
-                fail(
-                    f"{name} CHANGELOG.md lacks a dated {expected_version} release heading"
-                )
         elif name in PATCH_RELEASE_VERSIONS:
             package_changelog_text = package_changelog.decode("utf-8")
             patch_heading = (
@@ -1202,7 +1221,7 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 # Previously published consumers retain their compatible
                 # lower bounds so their local manifests match their archives.
                 compatible_immutable_consumer = (
-                    name not in TLSA_RELEASE_VERSIONS
+                    name not in SECURITY_RELEASE_VERSIONS
                     and (
                         (
                             dependency_name in PATCH_RELEASE_VERSIONS
@@ -1210,9 +1229,11 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                             and expected_requirement == "^0.2.6"
                         )
                         or (
-                            dependency_name in TLSA_RELEASE_VERSIONS
-                            and dependency["req"] == "^0.2.2"
-                            and expected_requirement == "^0.2.3"
+                            dependency_name in SECURITY_RELEASE_VERSIONS
+                            and dependency["req"]
+                            in {"^0.2.2", "^0.2.3", "^0.2.4", "^0.2.6"}
+                            and expected_requirement
+                            in {"^0.2.3", "^0.2.4", "^0.2.7"}
                         )
                     )
                 )
@@ -1257,7 +1278,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--toolchain", default="1.89.0")
     parser.add_argument("--require-clean", action="store_true")
-    parser.add_argument("--expected-version")
+    parser.add_argument("--expected-release")
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parent.parent
@@ -1311,7 +1332,7 @@ def main() -> None:
         {"hns-browser-loopback-proxy": CURRENT_LOOPBACK_VERSION},
     )
     patch_release_order(repo)
-    tlsa_release_order(repo)
+    security_release_order(repo)
     version, release_label = verify_workspace(
         repo, cargo_metadata(repo, args.toolchain), order
     )
@@ -1319,10 +1340,13 @@ def main() -> None:
     verify_release_document(repo, order, version)
     verify_release_workflow(repo)
     verify_publish_script_safety(repo)
-    if args.expected_version is not None and args.expected_version != TLSA_RELEASE_VERSION:
+    if (
+        args.expected_release is not None
+        and args.expected_release != SECURITY_RELEASE_ID
+    ):
         fail(
-            f"confirmed version {args.expected_version} differs from TLSA release "
-            f"version {TLSA_RELEASE_VERSION}"
+            f"confirmed release {args.expected_release} differs from security release "
+            f"identifier {SECURITY_RELEASE_ID}"
         )
     if args.require_clean:
         if release_label.lower() == "unreleased":
@@ -1330,7 +1354,7 @@ def main() -> None:
         verify_clean_source(repo)
     print(
         f"release metadata valid for {len(order)} public crates; "
-        f"{len(TLSA_RELEASE_PACKAGES)} TLSA packages are at {TLSA_RELEASE_VERSION}"
+        f"{len(SECURITY_RELEASE_PACKAGES)} security packages match {SECURITY_RELEASE_ID}"
     )
 
 

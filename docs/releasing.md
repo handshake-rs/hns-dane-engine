@@ -41,8 +41,13 @@ The dependency-order authority is
 30. `hns-browser-loopback-proxy`
 31. `hns-browser-sync`
 
-The current targeted set is the two `0.2.3` TLSA path verification packages in
-[`release/tlsa-path-0.2.3-crates.txt`](../release/tlsa-path-0.2.3-crates.txt).
+The current targeted set is the seven DNSSEC and DANE security packages in
+[`release/dnssec-dane-security-2026-10-16-crates.txt`](../release/dnssec-dane-security-2026-10-16-crates.txt).
+The selected versions are `hns-dnssec` 0.2.3, `hns-resolver` 0.2.3,
+`hns-browser-dnssec` 0.2.3, `hns-browser-dane` 0.2.4,
+`hns-browser-resolver` 0.2.7, `hns-browser-transport` 0.2.4, and
+`hns-browser-gateway` 0.2.4. Direct consumers in this set raise their minimum
+dependency requirements to the corrected packages.
 The seven `0.2.6` light-client and SQLite browser packages retain their
 published versions recorded in
 [`release/mobile-wallet-0.2.6-crates.txt`](../release/mobile-wallet-0.2.6-crates.txt).
@@ -123,7 +128,7 @@ never authorizes upload, tagging, or deployment.
 After explicit publication authorization, the current confirmation command is:
 
 ```sh
-./scripts/publish.sh --execute --confirm-publish 0.2.3
+./scripts/publish.sh --execute --confirm-publish dnssec-dane-2026-10-16
 ```
 
 The runner checks the clean dated candidate, all protocol inputs, and immutable
@@ -139,7 +144,7 @@ Override only with a registry-approved non-negative interval:
 ```sh
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish 0.2.3
+  ./scripts/publish.sh --execute --confirm-publish dnssec-dane-2026-10-16
 ```
 
 After propagation, the downloaded archive receives the same checksum and VCS

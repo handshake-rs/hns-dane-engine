@@ -1,7 +1,13 @@
 # Changelog
 
 This crate uses the shared `hns-dane-engine` workspace version. Its selected version is described in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/browser-adapters-v0.2.2/CHANGELOG.md).
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/main/CHANGELOG.md).
+
+## 0.2.3 - 2026-10-16
+
+DNSKEY RRset bootstrap signatures are now verified only with DNSKEY records
+whose full digests match trusted DS records. Initial and child delegation
+chains reject unrelated keys added to an otherwise DS-matching keyset.
 
 ## 0.2.2 - 2026-08-23
 

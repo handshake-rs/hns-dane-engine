@@ -3,6 +3,12 @@
 The selected source version is listed in the workspace
 [`CHANGELOG.md`](../../CHANGELOG.md).
 
+## 0.2.4 - 2026-10-16
+
+Mobile ICANN TLSA resolution now rejects CNAME chains that end without terminal
+TLSA records or retained authenticated denial evidence. This prevents an
+incomplete alias answer from becoming authenticated TLSA absence.
+
 ## 0.2.3 - 2026-08-23
 
 Apply the selected stateless DANE plan to mobile and Chromium requests while

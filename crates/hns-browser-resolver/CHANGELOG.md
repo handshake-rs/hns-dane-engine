@@ -2,7 +2,13 @@
 
 This crate uses the shared `hns-dane-engine` workspace version. Complete
 release notes for every public crate are maintained in the repository-level
-[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/mobile-wallet-v0.2.6/CHANGELOG.md).
+[`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/main/CHANGELOG.md).
+
+## 0.2.7 - 2026-10-16
+
+Raises the browser DNSSEC dependency floor to 0.2.3 and the browser DANE floor
+to 0.2.4 so positive, denial, and child-delegation validation use the corrected
+trust boundaries.
 
 ## 0.2.6 - 2026-09-28
 

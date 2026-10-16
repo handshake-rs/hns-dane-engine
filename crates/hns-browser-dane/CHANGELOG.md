@@ -1,8 +1,12 @@
 # Changelog
 
-## 0.2.3 - 2026-10-16
+## 0.2.4 - 2026-10-16
 
 TLSA trust-anchor usages 0 and 2 now fail closed in the certificate-only policy API. Callers must use a transport verifier that checks a signed certificate path before accepting either usage.
+
+Stateless DANE verification now accepts an explicit TCP, UDP, or SCTP service
+transport when deriving the authenticated TLSA owner. The original entry point
+remains as a deprecated TCP-only compatibility wrapper.
 
 The release source and selected versions are described in the repository-level
 [`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/main/CHANGELOG.md).

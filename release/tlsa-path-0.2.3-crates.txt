@@ -1,2 +1,0 @@
-hns-browser-dane
-hns-browser-transport
