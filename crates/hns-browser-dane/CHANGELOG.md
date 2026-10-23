@@ -2,6 +2,12 @@
 
 ## 0.2.4 - 2026-10-16
 
+**Security fix:** 0.2.2 could accept a PKIX-TA or DANE-TA TLSA association
+against an unverified, peer-supplied certificate. An attacker could present an
+unrelated leaf plus a public pinned CA certificate. Upgrade to 0.2.4 and
+refresh application lockfiles. See the repository
+[upgrade note](https://github.com/handshake-rs/hns-dane-engine/blob/main/release/dane-trust-anchor-security-2026-10-23.md).
+
 TLSA trust-anchor usages 0 and 2 now fail closed in the certificate-only policy API. Callers must use a transport verifier that checks a signed certificate path before accepting either usage.
 
 TLSA parsing rejects empty Exact associations and incorrectly sized SHA-256 or

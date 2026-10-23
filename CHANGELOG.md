@@ -40,6 +40,17 @@ for validation.
 
 ## DNSSEC and DANE security updates - 2026-10-16
 
+**Security notice for browser DANE users:** `hns-browser-dane` 0.2.2 and
+`hns-browser-transport` 0.2.2 accepted TLSA trust-anchor usages 0 (PKIX-TA)
+and 2 (DANE-TA) against certificates supplied by the peer without requiring
+the matched certificate to belong to a verified path from the leaf. An attacker
+able to intercept a connection could use a public pinned CA certificate to
+impersonate a protected origin. These versions should not be used. Upgrade
+both crates to 0.2.4, update application lockfiles, and rebuild affected
+browser or mobile applications. See the
+[upgrade note](release/dane-trust-anchor-security-2026-10-23.md) for the
+affected paths and migration details.
+
 `hns-transport` 0.2.3 raises its Handshake protocol dependency cohort to
 0.5.0 so its public types remain compatible with `hns-light-chain` 0.2.6 in a
 registry-only build. This closes the dependency-resolution failure exposed by

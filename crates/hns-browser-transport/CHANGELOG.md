@@ -2,6 +2,12 @@
 
 ## 0.2.4 - 2026-10-16
 
+**Security fix:** 0.2.2 could authorize a PKIX-TA or DANE-TA TLSA record by
+matching a certificate in the unverified peer-supplied list. Mobile and
+Chromium users should upgrade to 0.2.4, refresh application lockfiles, and
+rebuild their applications. See the repository
+[upgrade note](https://github.com/handshake-rs/hns-dane-engine/blob/main/release/dane-trust-anchor-security-2026-10-23.md).
+
 Mobile and Chromium TLS now verify usage 0 associations against the actual PKIX path and usage 2 associations against a signed path to the pinned CA. Name, CA, key usage, validity, and path length checks apply to usage 2. A full-certificate root pin fails closed when the root store has discarded its DER; SPKI root pins and full-certificate intermediate pins are checked on the verified path.
 
 DANE-TA applies certificate name, validity, CA, key usage, and path length
