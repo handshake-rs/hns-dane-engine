@@ -803,9 +803,15 @@ verify_prepublished_package() {
         echo "error: crates.io API checksum for immutable $package $version differs from $checksum_manifest" >&2
         exit 1
     fi
-    if [ "$api_yanked" != "false" ]
+    expected_yanked=false
+    case "$package:$version" in
+        hns-browser-dane:0.2.2|hns-browser-transport:0.2.2)
+            expected_yanked=true
+            ;;
+    esac
+    if [ "$api_yanked" != "$expected_yanked" ]
     then
-        echo "error: recorded prepublished $package $version is yanked" >&2
+        echo "error: recorded prepublished $package $version has unexpected yank status $api_yanked (expected $expected_yanked)" >&2
         exit 1
     fi
 

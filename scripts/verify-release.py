@@ -818,6 +818,8 @@ def verify_publish_script_safety(repo: Path) -> None:
         'is_prepublished_security_foundation_package "$package" "$version"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
         'if [ "$api_checksum" != "$expected_checksum" ]',
+        'hns-browser-dane:0.2.2|hns-browser-transport:0.2.2)',
+        'if [ "$api_yanked" != "$expected_yanked" ]',
         'if [ "$archive_checksum" != "$expected_checksum" ]',
         '*\\"sha1\\":\\"$source_revision\\"*',
     )

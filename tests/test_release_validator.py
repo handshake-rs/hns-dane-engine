@@ -178,6 +178,12 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
             "prepublished-engine provenance guard",
         )
 
+    def test_rejects_bypassed_prepublished_yank_status_predicate(self) -> None:
+        self.assert_predicate_mutation_rejected(
+            '    if [ "$api_yanked" != "$expected_yanked" ]',
+            "prepublished-engine provenance guard",
+        )
+
     def test_rejects_incomplete_prepublished_checksum_inventory(self) -> None:
         temporary, root = self.create_fixture()
         with temporary:

@@ -52,6 +52,9 @@ The transport also raises its `rustls-webpki` and `webpki-roots` minimums to
 dependency graph.
 The lockfile also updates `ctutils` to 0.4.4 and `tokio` to 1.53.3 for
 their newly disclosed security advisories.
+Release preflight now recognizes the recorded yanks of the two vulnerable
+0.2.2 browser DANE crates while retaining archive checksum and provenance
+checks.
 
 ## DNSSEC and DANE security updates - 2026-10-16
 
