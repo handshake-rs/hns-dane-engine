@@ -6,6 +6,10 @@ Use the public DANE path-verifier interface for mobile and Chromium policy
 decisions. PKIX-TA records return `WebPkiFailed` when WebPKI rejects the
 connection. DANE-TA candidates are deduplicated and checked in one path
 verification call, with the selected anchor's path-length limit enforced.
+Raise the minimum `rustls-webpki` and `webpki-roots` versions to 0.103.16 and
+1.0.10 respectively, addressing the emSign distrust advisories in the
+transport's TLS dependency graph.
+Require Tokio 1.53.3 to avoid its `AsyncFd` I/O-safety advisory.
 
 ## 0.2.4 - 2026-10-16
 

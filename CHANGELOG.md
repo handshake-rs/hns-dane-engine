@@ -47,6 +47,11 @@ transports deduplicate and bound TLSA records, validate DANE-TA candidates in
 one path-building pass, enforce the selected anchor's path-length limit, and
 report WebPKI rejection for PKIX-TA records. These changes have not yet been
 published as new crate versions.
+The transport also raises its `rustls-webpki` and `webpki-roots` minimums to
+0.103.16 and 1.0.10 to remove the newly distrusted emSign path from its TLS
+dependency graph.
+The lockfile also updates `ctutils` to 0.4.4 and `tokio` to 1.53.3 for
+their newly disclosed security advisories.
 
 ## DNSSEC and DANE security updates - 2026-10-16
 
