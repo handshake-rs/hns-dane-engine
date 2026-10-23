@@ -1,12 +1,11 @@
 use crate::certificate_association::evaluate_verified_certificate_association;
 use bytes::{Buf, Bytes};
 #[cfg(test)]
-use hns_dane::evaluate_policy_with_certificate_chain;
+use hns_dane::{DaneCertificateChainValidationInput, evaluate_policy_with_certificate_chain};
 use hns_dane::{
-    DaneCertificateChainValidationInput, DaneDecision, DaneError, DomainTrustMode,
-    StatelessDaneConfig, StatelessDaneEvidence, StatelessDaneTransport,
-    StatelessDaneValidationInput, TlsaRecord, WebPkiStatus,
-    evaluate_stateless_dane_certificate_for_transport, extract_spki_der,
+    DaneCertificateValidationInput, DaneDecision, DaneError, DomainTrustMode, StatelessDaneConfig,
+    StatelessDaneEvidence, StatelessDaneTransport, StatelessDaneValidationInput, TlsaRecord,
+    WebPkiStatus, evaluate_stateless_dane_certificate_for_transport, extract_spki_der,
 };
 pub use hns_icann_dane::{BrowserTlsDecision, TlsaOwner, TlsaTransport};
 use http::{HeaderName, HeaderValue, Request as Http2Request};
@@ -1906,14 +1905,14 @@ impl ServerCertVerifier for DaneServerCertVerifier {
         }
 
         let decision = evaluate_verified_certificate_association(
-            DaneCertificateChainValidationInput {
+            DaneCertificateValidationInput {
                 mode: self.tls.mode,
                 dnssec_secure,
                 tlsa_records,
-                end_entity_der: end_entity.as_ref(),
-                intermediate_der: &intermediate_der,
+                cert_der: end_entity.as_ref(),
                 webpki_status,
             },
+            &intermediate_der,
             server_name,
             now,
             &self.roots,
@@ -3242,6 +3241,7 @@ fn tls_certificate_inspection(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use hns_dane::{TlsaMatching, TlsaSelector, TlsaUsage};

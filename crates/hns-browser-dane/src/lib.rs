@@ -4,6 +4,7 @@ use hns_core::{Hash, Height, NameHash};
 use hns_dnssec::{DnssecStatus, DnssecTime, SignedRrsetValidationInput, validate_signed_rrset};
 use hns_urkel::{ParsedProof, ProofKind};
 use sha2::{Digest, Sha256, Sha512};
+use std::collections::HashSet;
 use thiserror::Error;
 
 pub const EXPERIMENTAL_HIP17_URKEL_PROOF_OID: &str = "1.3.6.1.4.1.55555.17.1";
@@ -11,11 +12,15 @@ pub const EXPERIMENTAL_HIP17_DNSSEC_CHAIN_OID: &str = "1.3.6.1.4.1.55555.17.2";
 pub const MAX_STATELESS_DANE_ROOTS: usize = 40;
 pub const MAX_STATELESS_DANE_PROOFS: usize = 2;
 pub const MAX_STATELESS_DANE_DNSSEC_CHAIN_BYTES: usize = 64 * 1024;
+/// Maximum usable TLSA records considered for one certificate decision.
+pub const MAX_CERTIFICATE_TLSA_RECORDS: usize = 64;
+/// Maximum raw TLSA records inspected before deduplication.
+pub const MAX_CERTIFICATE_TLSA_INPUT_RECORDS: usize = 256;
 const MAX_HSD_NAME_STATE_NAME_BYTES: usize = 63;
 const MAX_HSD_NAME_STATE_DATA_BYTES: usize = 512;
 const HSD_NAME_STATE_FIXED_TAIL_BYTES: usize = 10;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum TlsaUsage {
     PkixTa,
     PkixEe,
@@ -23,20 +28,20 @@ pub enum TlsaUsage {
     DaneEe,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum TlsaSelector {
     FullCertificate,
     SubjectPublicKeyInfo,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum TlsaMatching {
     Exact,
     Sha256,
     Sha512,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TlsaRecord {
     pub usage: TlsaUsage,
     pub selector: TlsaSelector,
@@ -82,6 +87,11 @@ pub struct DaneCertificateChainValidationInput<'a> {
     pub dnssec_secure: bool,
     pub tlsa_records: &'a [TlsaRecord],
     pub end_entity_der: &'a [u8],
+    /// Ignored by the certificate-only policy. Use a [`TlsaPathVerifier`] to
+    /// validate trust-anchor usages against an authenticated path.
+    #[deprecated(
+        note = "raw peer intermediates cannot authorize TLSA trust anchors; use evaluate_policy_with_path_verifier"
+    )]
     pub intermediate_der: &'a [&'a [u8]],
     pub webpki_status: WebPkiStatus,
 }
@@ -157,6 +167,10 @@ pub enum DaneError {
     MissingRequiredTlsa,
     #[error("WebPKI validation failed")]
     WebPkiFailed,
+    #[error("TLSA trust-anchor usage requires verified certificate-path validation")]
+    PathValidationRequired,
+    #[error("TLSA record limit exceeded")]
+    TooManyTlsaRecords,
     #[error("certificate DER is malformed")]
     MalformedCertificate,
     #[error("certificate subjectPublicKeyInfo is missing")]
@@ -300,7 +314,12 @@ fn evaluate_tlsa_for_chain(
         return Ok(DaneDecision::Matched(record.usage));
     }
 
-    if pkix_match_rejected_by_webpki {
+    if records
+        .iter()
+        .any(|record| matches!(record.usage, TlsaUsage::PkixTa | TlsaUsage::DaneTa))
+    {
+        Err(DaneError::PathValidationRequired)
+    } else if pkix_match_rejected_by_webpki {
         Err(DaneError::WebPkiFailed)
     } else {
         Ok(DaneDecision::Failed)
@@ -364,6 +383,7 @@ pub fn evaluate_policy(input: DaneValidationInput<'_>) -> Result<DaneDecision, D
     evaluate_no_tlsa_policy(input.mode, input.webpki_status)
 }
 
+#[allow(deprecated)]
 pub fn evaluate_policy_with_certificate(
     input: DaneCertificateValidationInput<'_>,
 ) -> Result<DaneDecision, DaneError> {
@@ -377,6 +397,9 @@ pub fn evaluate_policy_with_certificate(
     })
 }
 
+/// Evaluates certificate-only TLSA policy. Trust-anchor usages 0 and 2 need
+/// [`evaluate_policy_with_path_verifier`] and return
+/// [`DaneError::PathValidationRequired`] here when no end-entity record matches.
 pub fn evaluate_policy_with_certificate_chain(
     input: DaneCertificateChainValidationInput<'_>,
 ) -> Result<DaneDecision, DaneError> {
@@ -405,6 +428,97 @@ pub fn evaluate_policy_with_certificate_chain(
     }
 
     evaluate_no_tlsa_policy(input.mode, input.webpki_status)
+}
+
+/// A trusted transport implementation that verifies TLSA trust-anchor records
+/// against a signed path from the presented leaf. The transport must use the
+/// same certificate, server name, time, trust roots, and TLS session as the
+/// policy input. The raw peer certificate list alone is never a verified path.
+pub trait TlsaPathVerifier {
+    /// Returns true only when a PKIX-validated path contains a certificate
+    /// matching one of the supplied usage 0 records.
+    fn matches_pkix_ta(&self, records: &[&TlsaRecord]) -> bool;
+
+    /// Returns true only when a signed, policy-valid path from the leaf ends
+    /// at a certificate matching one of the supplied usage 2 records.
+    fn matches_dane_ta(&self, records: &[&TlsaRecord]) -> bool;
+}
+
+/// Evaluates all four TLSA usages with a trusted path verifier for usages 0
+/// and 2. Duplicate records are evaluated once and the usable RRset is bounded
+/// before any certificate-path work. A matching DANE-EE record takes priority
+/// over other usages; all usable records remain alternatives for acceptance.
+pub fn evaluate_policy_with_path_verifier(
+    input: DaneCertificateValidationInput<'_>,
+    verifier: &impl TlsaPathVerifier,
+) -> Result<DaneDecision, DaneError> {
+    if input.tlsa_records.is_empty() {
+        return evaluate_no_tlsa_policy(input.mode, input.webpki_status);
+    }
+    if !input.dnssec_secure {
+        return Err(DaneError::InsecureTlsa);
+    }
+    if input.tlsa_records.len() > MAX_CERTIFICATE_TLSA_INPUT_RECORDS {
+        return Err(DaneError::TooManyTlsaRecords);
+    }
+
+    let mut seen = HashSet::new();
+    let mut records = Vec::new();
+    for record in input.tlsa_records {
+        if seen.insert(record) {
+            records.push(record);
+            if records.len() > MAX_CERTIFICATE_TLSA_RECORDS {
+                return Err(DaneError::TooManyTlsaRecords);
+            }
+        }
+    }
+    let spki_der = if records
+        .iter()
+        .any(|record| record.is_ee_usage() && record.selector == TlsaSelector::SubjectPublicKeyInfo)
+    {
+        extract_spki_der(input.cert_der)?
+    } else {
+        Vec::new()
+    };
+
+    if records.iter().any(|record| {
+        record.usage == TlsaUsage::DaneEe && record.matches_der(input.cert_der, &spki_der)
+    }) {
+        return Ok(DaneDecision::Matched(TlsaUsage::DaneEe));
+    }
+    let pkix_ee_match = records.iter().any(|record| {
+        record.usage == TlsaUsage::PkixEe && record.matches_der(input.cert_der, &spki_der)
+    });
+    if pkix_ee_match && input.webpki_status == WebPkiStatus::Valid {
+        return Ok(DaneDecision::Matched(TlsaUsage::PkixEe));
+    }
+
+    let dane_ta = records
+        .iter()
+        .copied()
+        .filter(|record| record.usage == TlsaUsage::DaneTa)
+        .collect::<Vec<_>>();
+    if !dane_ta.is_empty() && verifier.matches_dane_ta(&dane_ta) {
+        return Ok(DaneDecision::Matched(TlsaUsage::DaneTa));
+    }
+
+    let pkix_ta = records
+        .iter()
+        .copied()
+        .filter(|record| record.usage == TlsaUsage::PkixTa)
+        .collect::<Vec<_>>();
+    if !pkix_ta.is_empty()
+        && input.webpki_status == WebPkiStatus::Valid
+        && verifier.matches_pkix_ta(&pkix_ta)
+    {
+        return Ok(DaneDecision::Matched(TlsaUsage::PkixTa));
+    }
+
+    if input.webpki_status != WebPkiStatus::Valid && (pkix_ee_match || !pkix_ta.is_empty()) {
+        Err(DaneError::WebPkiFailed)
+    } else {
+        Ok(DaneDecision::Failed)
+    }
 }
 
 pub fn extract_spki_der(cert_der: &[u8]) -> Result<Vec<u8>, DaneError> {
@@ -966,8 +1080,41 @@ impl<'a> RawCursor<'a> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    struct TestPathVerifier {
+        pkix_result: bool,
+        dane_result: bool,
+        pkix_calls: Cell<usize>,
+        dane_calls: Cell<usize>,
+        dane_records: Cell<usize>,
+    }
+
+    impl TlsaPathVerifier for TestPathVerifier {
+        fn matches_pkix_ta(&self, _records: &[&TlsaRecord]) -> bool {
+            self.pkix_calls.set(self.pkix_calls.get() + 1);
+            self.pkix_result
+        }
+
+        fn matches_dane_ta(&self, records: &[&TlsaRecord]) -> bool {
+            self.dane_calls.set(self.dane_calls.get() + 1);
+            self.dane_records.set(records.len());
+            self.dane_result
+        }
+    }
+
+    fn test_path_verifier(pkix_result: bool, dane_result: bool) -> TestPathVerifier {
+        TestPathVerifier {
+            pkix_result,
+            dane_result,
+            pkix_calls: Cell::new(0),
+            dane_calls: Cell::new(0),
+            dane_records: Cell::new(0),
+        }
+    }
 
     #[test]
     fn parses_tlsa_311() {
@@ -1327,9 +1474,9 @@ mod tests {
                 intermediate_der: &intermediates,
                 webpki_status: WebPkiStatus::NotEvaluated,
             })
-            .unwrap();
+            .unwrap_err();
 
-        assert_eq!(decision, DaneDecision::Failed);
+        assert_eq!(decision, DaneError::PathValidationRequired);
     }
 
     #[test]
@@ -1352,9 +1499,114 @@ mod tests {
                 intermediate_der: &[&unrelated_ca],
                 webpki_status: WebPkiStatus::Valid,
             })
-            .unwrap();
+            .unwrap_err();
 
-        assert_eq!(decision, DaneDecision::Failed);
+        assert_eq!(decision, DaneError::PathValidationRequired);
+    }
+
+    #[test]
+    fn public_path_verifier_deduplicates_and_caps_tlsa_records() {
+        let record = TlsaRecord {
+            usage: TlsaUsage::DaneTa,
+            selector: TlsaSelector::FullCertificate,
+            matching: TlsaMatching::Exact,
+            association_data: b"trusted-ca".to_vec(),
+        };
+        let verifier = test_path_verifier(false, true);
+        let records = [record.clone(), record.clone()];
+        let input = DaneCertificateValidationInput {
+            mode: DomainTrustMode::HnsStrict,
+            dnssec_secure: true,
+            tlsa_records: &records,
+            cert_der: b"leaf",
+            webpki_status: WebPkiStatus::Invalid,
+        };
+        assert_eq!(
+            evaluate_policy_with_path_verifier(input.clone(), &verifier).unwrap(),
+            DaneDecision::Matched(TlsaUsage::DaneTa)
+        );
+        assert_eq!(verifier.dane_calls.get(), 1);
+        assert_eq!(verifier.dane_records.get(), 1);
+
+        let duplicates = vec![record.clone(); MAX_CERTIFICATE_TLSA_RECORDS + 1];
+        assert_eq!(
+            evaluate_policy_with_path_verifier(
+                DaneCertificateValidationInput {
+                    tlsa_records: &duplicates,
+                    ..input.clone()
+                },
+                &verifier,
+            )
+            .unwrap(),
+            DaneDecision::Matched(TlsaUsage::DaneTa)
+        );
+        assert_eq!(verifier.dane_records.get(), 1);
+
+        let distinct = (0..=MAX_CERTIFICATE_TLSA_RECORDS)
+            .map(|index| TlsaRecord {
+                association_data: index.to_be_bytes().to_vec(),
+                ..record.clone()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            evaluate_policy_with_path_verifier(
+                DaneCertificateValidationInput {
+                    tlsa_records: &distinct,
+                    ..input.clone()
+                },
+                &verifier,
+            )
+            .unwrap_err(),
+            DaneError::TooManyTlsaRecords
+        );
+        let oversized = vec![record; MAX_CERTIFICATE_TLSA_INPUT_RECORDS + 1];
+        assert_eq!(
+            evaluate_policy_with_path_verifier(
+                DaneCertificateValidationInput {
+                    tlsa_records: &oversized,
+                    ..input
+                },
+                &verifier,
+            )
+            .unwrap_err(),
+            DaneError::TooManyTlsaRecords
+        );
+        assert_eq!(verifier.dane_calls.get(), 2);
+    }
+
+    #[test]
+    fn public_path_verifier_reports_pkix_rejection_and_accepts_validated_path() {
+        let record = TlsaRecord {
+            usage: TlsaUsage::PkixTa,
+            selector: TlsaSelector::FullCertificate,
+            matching: TlsaMatching::Exact,
+            association_data: b"trusted-ca".to_vec(),
+        };
+        let verifier = test_path_verifier(true, false);
+        let input = DaneCertificateValidationInput {
+            mode: DomainTrustMode::HnsStrict,
+            dnssec_secure: true,
+            tlsa_records: std::slice::from_ref(&record),
+            cert_der: b"leaf",
+            webpki_status: WebPkiStatus::Invalid,
+        };
+        assert_eq!(
+            evaluate_policy_with_path_verifier(input.clone(), &verifier).unwrap_err(),
+            DaneError::WebPkiFailed
+        );
+        assert_eq!(verifier.pkix_calls.get(), 0);
+        assert_eq!(
+            evaluate_policy_with_path_verifier(
+                DaneCertificateValidationInput {
+                    webpki_status: WebPkiStatus::Valid,
+                    ..input
+                },
+                &verifier,
+            )
+            .unwrap(),
+            DaneDecision::Matched(TlsaUsage::PkixTa)
+        );
+        assert_eq!(verifier.pkix_calls.get(), 1);
     }
 
     #[test]
@@ -1424,9 +1676,9 @@ mod tests {
                 intermediate_der: &[],
                 webpki_status: WebPkiStatus::NotEvaluated,
             })
-            .unwrap();
+            .unwrap_err();
 
-        assert_eq!(decision, DaneDecision::Failed);
+        assert_eq!(decision, DaneError::PathValidationRequired);
     }
 
     #[test]
@@ -1519,12 +1771,13 @@ mod tests {
                             intermediate_der: &intermediates,
                             webpki_status: WebPkiStatus::Valid,
                         },
-                    )
-                    .unwrap();
+                    );
 
                     let expected = match usage {
-                        TlsaUsage::PkixTa | TlsaUsage::DaneTa => DaneDecision::Failed,
-                        TlsaUsage::PkixEe | TlsaUsage::DaneEe => DaneDecision::Matched(usage),
+                        TlsaUsage::PkixTa | TlsaUsage::DaneTa => {
+                            Err(DaneError::PathValidationRequired)
+                        }
+                        TlsaUsage::PkixEe | TlsaUsage::DaneEe => Ok(DaneDecision::Matched(usage)),
                     };
                     assert_eq!(decision, expected);
                 }
@@ -1566,14 +1819,18 @@ mod tests {
                 evaluate_policy_with_certificate_chain(DaneCertificateChainValidationInput {
                     mode: DomainTrustMode::HnsStrict,
                     dnssec_secure: true,
-                    tlsa_records: &[record],
+                    tlsa_records: std::slice::from_ref(&record),
                     end_entity_der: &leaf_cert,
                     intermediate_der: &intermediates,
                     webpki_status: WebPkiStatus::NotEvaluated,
-                })
-                .unwrap();
+                });
 
-            assert_eq!(decision, DaneDecision::Failed);
+            let expected = if record.usage == TlsaUsage::DaneTa {
+                Err(DaneError::PathValidationRequired)
+            } else {
+                Ok(DaneDecision::Failed)
+            };
+            assert_eq!(decision, expected);
         }
     }
 

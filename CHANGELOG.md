@@ -38,6 +38,16 @@ for validation.
 | `hns-browser-loopback-proxy` | `0.2.4` |
 | `hns-browser-sync` | `0.2.2` |
 
+## Unreleased browser DANE follow-up
+
+The browser DANE policy now exposes a path-verifier interface for TLSA usages
+0 and 2. The certificate-only API reports when a verified path is required,
+and its ignored raw-intermediate field is deprecated. Mobile and Chromium
+transports deduplicate and bound TLSA records, validate DANE-TA candidates in
+one path-building pass, enforce the selected anchor's path-length limit, and
+report WebPKI rejection for PKIX-TA records. These changes have not yet been
+published as new crate versions.
+
 ## DNSSEC and DANE security updates - 2026-10-16
 
 **Security notice for browser DANE users:** `hns-browser-dane` 0.2.2 and

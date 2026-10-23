@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Use the public DANE path-verifier interface for mobile and Chromium policy
+decisions. PKIX-TA records return `WebPkiFailed` when WebPKI rejects the
+connection. DANE-TA candidates are deduplicated and checked in one path
+verification call, with the selected anchor's path-length limit enforced.
+
 ## 0.2.4 - 2026-10-16
 
 **Security fix:** 0.2.2 could authorize a PKIX-TA or DANE-TA TLSA record by

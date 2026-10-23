@@ -1,98 +1,76 @@
 //! TLSA trust-anchor decisions bound to a verified certificate path.
 
 use hns_dane::{
-    DaneCertificateChainValidationInput, DaneDecision, DaneError, TlsaMatching, TlsaRecord,
-    TlsaSelector, TlsaUsage, WebPkiStatus, evaluate_policy_with_certificate_chain,
+    DaneCertificateValidationInput, DaneDecision, DaneError, TlsaMatching, TlsaPathVerifier,
+    TlsaRecord, TlsaSelector, evaluate_policy_with_path_verifier,
 };
 use rustls::RootCertStore;
 use rustls::pki_types::{CertificateDer, ServerName, SignatureVerificationAlgorithm, UnixTime};
+use std::collections::HashSet;
 use webpki::{EndEntityCert, KeyUsage, VerifiedPath};
 use x509_parser::parse_x509_certificate;
 use x509_parser::time::ASN1Time;
 
+const MAX_DANE_TA_CANDIDATES: usize = 64;
+
 pub(crate) fn evaluate_verified_certificate_association(
-    input: DaneCertificateChainValidationInput<'_>,
+    input: DaneCertificateValidationInput<'_>,
+    intermediate_der: &[&[u8]],
     server_name: &ServerName<'_>,
     now: UnixTime,
     roots: &RootCertStore,
     supported_algs: &[&dyn SignatureVerificationAlgorithm],
 ) -> Result<DaneDecision, DaneError> {
-    if input.tlsa_records.is_empty() {
-        return evaluate_policy_with_certificate_chain(input);
-    }
-    if !input.dnssec_secure {
-        return Err(DaneError::InsecureTlsa);
-    }
-    if input
-        .tlsa_records
-        .iter()
-        .all(|record| matches!(record.usage, TlsaUsage::PkixEe | TlsaUsage::DaneEe))
-    {
-        return evaluate_policy_with_certificate_chain(input);
+    let verifier = RustlsPathVerifier {
+        end_entity_der: CertificateDer::from(input.cert_der.to_vec()),
+        intermediates: intermediate_der
+            .iter()
+            .map(|der| CertificateDer::from(der.to_vec()))
+            .collect(),
+        server_name: server_name.to_owned(),
+        now,
+        roots,
+        supported_algs,
+    };
+    evaluate_policy_with_path_verifier(input, &verifier)
+}
+
+struct RustlsPathVerifier<'a, 'b> {
+    end_entity_der: CertificateDer<'static>,
+    intermediates: Vec<CertificateDer<'static>>,
+    server_name: ServerName<'static>,
+    now: UnixTime,
+    roots: &'a RootCertStore,
+    supported_algs: &'b [&'b dyn SignatureVerificationAlgorithm],
+}
+
+impl TlsaPathVerifier for RustlsPathVerifier<'_, '_> {
+    fn matches_pkix_ta(&self, records: &[&TlsaRecord]) -> bool {
+        verify_pkix_ta(
+            records,
+            &self.end_entity_der,
+            &self.intermediates,
+            &self.server_name,
+            self.now,
+            self.roots,
+            self.supported_algs,
+        )
     }
 
-    let end_entity_der = CertificateDer::from(input.end_entity_der);
-    let intermediates = input
-        .intermediate_der
-        .iter()
-        .map(|der| CertificateDer::from(*der))
-        .collect::<Vec<_>>();
-    let mut pkix_ee_rejected_by_webpki = false;
-
-    for record in input.tlsa_records {
-        match record.usage {
-            TlsaUsage::PkixEe | TlsaUsage::DaneEe => {
-                let decision =
-                    evaluate_policy_with_certificate_chain(DaneCertificateChainValidationInput {
-                        tlsa_records: std::slice::from_ref(record),
-                        ..input.clone()
-                    });
-                match decision {
-                    Ok(DaneDecision::Matched(usage)) => return Ok(DaneDecision::Matched(usage)),
-                    Err(DaneError::WebPkiFailed) => pkix_ee_rejected_by_webpki = true,
-                    Err(error) => return Err(error),
-                    _ => {}
-                }
-            }
-            TlsaUsage::PkixTa => {
-                if input.webpki_status == WebPkiStatus::Valid
-                    && verify_pkix_ta(
-                        record,
-                        &end_entity_der,
-                        &intermediates,
-                        server_name,
-                        now,
-                        roots,
-                        supported_algs,
-                    )
-                {
-                    return Ok(DaneDecision::Matched(TlsaUsage::PkixTa));
-                }
-            }
-            TlsaUsage::DaneTa => {
-                if verify_dane_ta(
-                    record,
-                    &end_entity_der,
-                    &intermediates,
-                    server_name,
-                    now,
-                    supported_algs,
-                ) {
-                    return Ok(DaneDecision::Matched(TlsaUsage::DaneTa));
-                }
-            }
-        }
-    }
-
-    if pkix_ee_rejected_by_webpki {
-        Err(DaneError::WebPkiFailed)
-    } else {
-        Ok(DaneDecision::Failed)
+    fn matches_dane_ta(&self, records: &[&TlsaRecord]) -> bool {
+        verify_dane_ta(
+            records,
+            &self.end_entity_der,
+            &self.intermediates,
+            &self.server_name,
+            self.now,
+            self.supported_algs,
+        )
     }
 }
 
 fn verify_pkix_ta(
-    record: &TlsaRecord,
+    records: &[&TlsaRecord],
     end_entity_der: &CertificateDer<'_>,
     intermediates: &[CertificateDer<'_>],
     server_name: &ServerName<'_>,
@@ -111,7 +89,10 @@ fn verify_pkix_ta(
     }
 
     let match_path = |path: &VerifiedPath<'_>| {
-        if path_matches_pkix_ta(record, path) {
+        if records
+            .iter()
+            .any(|record| path_matches_pkix_ta(record, path))
+        {
             Ok(())
         } else {
             Err(webpki::Error::UnknownIssuer)
@@ -171,7 +152,7 @@ fn wrap_der_sequence(contents: &[u8]) -> Vec<u8> {
 }
 
 fn verify_dane_ta(
-    record: &TlsaRecord,
+    records: &[&TlsaRecord],
     end_entity_der: &CertificateDer<'_>,
     intermediates: &[CertificateDer<'_>],
     server_name: &ServerName<'_>,
@@ -188,45 +169,78 @@ fn verify_dane_ta(
         return false;
     }
 
-    let dns_anchor = (record.selector == TlsaSelector::FullCertificate
-        && record.matching == TlsaMatching::Exact)
-        .then(|| CertificateDer::from(record.association_data.as_slice()));
-    let candidates = intermediates.iter().chain(dns_anchor.iter());
-    for candidate in candidates {
-        let spki = match hns_dane::extract_spki_der(candidate.as_ref()) {
-            Ok(spki) => spki,
-            Err(_) => continue,
-        };
-        if !record.matches_der(candidate.as_ref(), &spki) {
-            continue;
+    // Include full-certificate Exact anchors supplied by DNS, even when the
+    // server omits that certificate. Deduplicate before parsing or verifying.
+    let mut seen = HashSet::new();
+    let mut candidate_bytes = Vec::new();
+    for candidate in intermediates
+        .iter()
+        .map(AsRef::as_ref)
+        .chain(records.iter().filter_map(|record| {
+            (record.selector == TlsaSelector::FullCertificate
+                && record.matching == TlsaMatching::Exact)
+                .then_some(record.association_data.as_slice())
+        }))
+    {
+        if seen.insert(candidate) {
+            candidate_bytes.push(candidate);
+            if candidate_bytes.len() > MAX_DANE_TA_CANDIDATES {
+                return false;
+            }
         }
-        let Some(path_len_limit) = valid_dane_ta(candidate.as_ref(), now) else {
-            continue;
-        };
-        let Ok(anchor) = webpki::anchor_from_trusted_cert(candidate) else {
-            continue;
-        };
-        let untrusted = intermediates
+    }
+
+    let candidate_der = candidate_bytes
+        .into_iter()
+        .filter_map(|candidate| {
+            let spki = hns_dane::extract_spki_der(candidate).ok()?;
+            if !records
+                .iter()
+                .any(|record| record.matches_der(candidate, &spki))
+            {
+                return None;
+            }
+            let path_len_limit = valid_dane_ta(candidate, now)?;
+            Some((CertificateDer::from(candidate.to_vec()), path_len_limit))
+        })
+        .collect::<Vec<_>>();
+    let mut anchors = Vec::new();
+    let mut path_len_limits = Vec::new();
+    for (certificate, limit) in &candidate_der {
+        if let Ok(anchor) = webpki::anchor_from_trusted_cert(certificate) {
+            anchors.push(anchor);
+            path_len_limits.push(*limit);
+        }
+    }
+    if anchors.is_empty() {
+        return false;
+    }
+
+    let check_path = |path: &VerifiedPath<'_>| {
+        let Some(index) = anchors
             .iter()
-            .filter(|cert| cert.as_ref() != candidate.as_ref())
-            .cloned()
-            .collect::<Vec<_>>();
-        let path = end_entity.verify_for_usage(
+            .position(|anchor| std::ptr::eq(anchor, path.anchor()))
+        else {
+            return Err(webpki::Error::UnknownIssuer);
+        };
+        if path_len_limits[index]
+            .is_some_and(|limit| path.intermediate_certificates().count() > limit)
+        {
+            return Err(webpki::Error::UnknownIssuer);
+        }
+        Ok(())
+    };
+    end_entity
+        .verify_for_usage(
             supported_algs,
-            std::slice::from_ref(&anchor),
-            &untrusted,
+            &anchors,
+            intermediates,
             now,
             KeyUsage::server_auth(),
             None,
-            None,
-        );
-        if path.is_ok_and(|path| {
-            path_len_limit.is_none_or(|limit| path.intermediate_certificates().count() <= limit)
-        }) {
-            return true;
-        }
-    }
-    false
+            Some(&check_path),
+        )
+        .is_ok()
 }
 
 fn valid_dane_ta(candidate: &[u8], now: UnixTime) -> Option<Option<usize>> {
@@ -260,6 +274,7 @@ fn valid_dane_ta(candidate: &[u8], now: UnixTime) -> Option<Option<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hns_dane::{TlsaUsage, WebPkiStatus};
     use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
     use sha2::{Digest, Sha256};
     use std::time::Duration;
@@ -317,14 +332,14 @@ mod tests {
         let provider = rustls::crypto::ring::default_provider();
         let server_name = ServerName::try_from("example.com").unwrap();
         evaluate_verified_certificate_association(
-            DaneCertificateChainValidationInput {
+            DaneCertificateValidationInput {
                 mode: hns_dane::DomainTrustMode::HnsStrict,
                 dnssec_secure: true,
                 tlsa_records: records,
-                end_entity_der: leaf,
-                intermediate_der: extras,
+                cert_der: leaf,
                 webpki_status,
             },
+            extras,
             &server_name,
             UnixTime::since_unix_epoch(Duration::from_secs(1_800_000_000)),
             roots,
@@ -412,6 +427,85 @@ mod tests {
                 &[],
                 &roots,
                 WebPkiStatus::Valid,
+            )
+            .unwrap(),
+            DaneDecision::Failed
+        );
+    }
+
+    #[test]
+    fn pkix_ta_reports_webpki_rejection() {
+        let issued = signed_chain("example.com");
+        assert_eq!(
+            evaluate(
+                &[record(TlsaUsage::PkixTa, &issued.issuer)],
+                &issued.leaf,
+                &[&issued.issuer],
+                &RootCertStore::empty(),
+                WebPkiStatus::Invalid,
+            )
+            .unwrap_err(),
+            DaneError::WebPkiFailed
+        );
+    }
+
+    #[test]
+    fn dane_ta_considers_all_matched_anchors_regardless_of_record_order() {
+        let issued = signed_chain("example.com");
+        let unrelated = signed_chain("example.com");
+        for records in [
+            vec![
+                record(TlsaUsage::DaneTa, &unrelated.issuer),
+                record(TlsaUsage::DaneTa, &issued.issuer),
+                record(TlsaUsage::DaneTa, &issued.issuer),
+            ],
+            vec![
+                record(TlsaUsage::DaneTa, &issued.issuer),
+                record(TlsaUsage::DaneTa, &unrelated.issuer),
+            ],
+        ] {
+            assert_eq!(
+                evaluate(
+                    &records,
+                    &issued.leaf,
+                    &[&unrelated.issuer, &issued.issuer],
+                    &RootCertStore::empty(),
+                    WebPkiStatus::Invalid,
+                )
+                .unwrap(),
+                DaneDecision::Matched(TlsaUsage::DaneTa)
+            );
+        }
+    }
+
+    #[test]
+    fn dane_ta_enforces_selected_anchor_path_length() {
+        let mut ta_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        ta_params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
+        ta_params
+            .key_usages
+            .push(rcgen::KeyUsagePurpose::KeyCertSign);
+        let ta = CertifiedIssuer::self_signed(ta_params, KeyPair::generate().unwrap()).unwrap();
+
+        let mut sub_ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        sub_ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        sub_ca_params
+            .key_usages
+            .push(rcgen::KeyUsagePurpose::KeyCertSign);
+        let sub_ca =
+            CertifiedIssuer::signed_by(sub_ca_params, KeyPair::generate().unwrap(), &ta).unwrap();
+        let leaf = CertificateParams::new(vec!["example.com".to_owned()])
+            .unwrap()
+            .signed_by(&KeyPair::generate().unwrap(), &sub_ca)
+            .unwrap();
+
+        assert_eq!(
+            evaluate(
+                &[record(TlsaUsage::DaneTa, ta.der().as_ref())],
+                leaf.der().as_ref(),
+                &[sub_ca.der().as_ref(), ta.der().as_ref()],
+                &RootCertStore::empty(),
+                WebPkiStatus::Invalid,
             )
             .unwrap(),
             DaneDecision::Failed

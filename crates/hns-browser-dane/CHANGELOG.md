@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Add the public `TlsaPathVerifier` interface and
+`evaluate_policy_with_path_verifier` so trusted transports can evaluate TLSA
+usages 0 and 2 using authenticated certificate paths. The certificate-only
+policy returns `PathValidationRequired` for these usages when no end-entity
+record matches; its ignored raw `intermediate_der` field is deprecated.
+Bound raw TLSA records to 256 and distinct usable records to 64, with
+deduplication before path verification.
+
 ## 0.2.4 - 2026-10-16
 
 **Security fix:** 0.2.2 could accept a PKIX-TA or DANE-TA TLSA association
