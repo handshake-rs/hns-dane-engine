@@ -28,6 +28,7 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
             paths = [
                 ROOT / "scripts/sync-release-files.sh",
                 ROOT / "release/public-crates.txt",
+                ROOT / "release/crypto-dependency-2026-10-24-crates.txt",
                 ROOT / "release/CRATE-CHANGELOG.md",
                 ROOT / "release/ADAPTER-CRATE-CHANGELOG.md",
                 *ROOT.glob("LICENSE-*"),
@@ -79,17 +80,17 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
         )
 
         self.assertEqual(versions["hns-browser-chain"], "0.2.6")
-        self.assertEqual(versions["hns-browser-dane"], "0.2.5")
-        self.assertEqual(versions["hns-browser-transport"], "0.2.5")
-        self.assertEqual(versions["hns-browser-loopback-proxy"], "0.2.4")
-        self.assertEqual(versions["hns-browser-gateway"], "0.2.4")
+        self.assertEqual(versions["hns-browser-dane"], "0.2.6")
+        self.assertEqual(versions["hns-browser-transport"], "0.2.6")
+        self.assertEqual(versions["hns-browser-loopback-proxy"], "0.2.5")
+        self.assertEqual(versions["hns-browser-gateway"], "0.2.5")
         self.assertEqual(versions["hns-namespace-resolution"], "0.2.3")
-        self.assertEqual(versions["hns-dane-engine"], "0.3.1")
+        self.assertEqual(versions["hns-dane-engine"], "0.3.2")
         self.assertEqual(versions["hns-dnssec"], "0.2.3")
         self.assertEqual(versions["hns-gateway"], "0.3.0")
-        self.assertEqual(versions["hns-p2p-transport"], "0.3.1")
-        self.assertEqual(versions["hns-resolver"], "0.2.3")
-        self.assertEqual(versions["hns-transport"], "0.2.3")
+        self.assertEqual(versions["hns-p2p-transport"], "0.3.2")
+        self.assertEqual(versions["hns-resolver"], "0.2.4")
+        self.assertEqual(versions["hns-transport"], "0.2.4")
 
     def create_fixture(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temporary = tempfile.TemporaryDirectory()

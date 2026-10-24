@@ -4144,7 +4144,7 @@ mod tests {
     fn ecdsa_dnskey_with_seed(seed: u8) -> (DnskeyRecord, SigningKey) {
         let signing_key = SigningKey::from_slice(&[seed; 32]).unwrap();
         let verifying_key = signing_key.verifying_key();
-        let public_key = verifying_key.to_encoded_point(false);
+        let public_key = verifying_key.to_sec1_point(false);
         let public_key = public_key.as_bytes();
         let mut dnskey = vec![
             0x01,

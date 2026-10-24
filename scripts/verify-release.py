@@ -16,8 +16,8 @@ import verify_cargo_source_policy
 
 REPOSITORY = "https://github.com/handshake-rs/hns-dane-engine"
 PROTOCOL_REPOSITORY = "https://github.com/handshake-rs/hns-rs.git"
-PROTOCOL_REVISION = "60eb912d615243a6bfb9741b17f16833c5a9181a"
-PROTOCOL_VERSION = "=0.5.0"
+PROTOCOL_REVISION = "a113595341984a2c82f7e2792deb55b2c7957203"
+PROTOCOL_VERSION = "=0.5.1"
 PROTOCOL_VERSION_OVERRIDES: dict[str, str] = {}
 PROTOCOL_PUBLIC_PACKAGES = (
     "hns-encoding",
@@ -205,13 +205,27 @@ SECURITY_RELEASE_VERSIONS = {
     "hns-browser-transport": "0.2.4",
     "hns-browser-gateway": "0.2.4",
 }
-PATH_VERIFIER_RELEASE_ID = "browser-dane-path-verifier-2026-10-23"
-PATH_VERIFIER_RELEASE_MANIFEST = "release/browser-dane-path-verifier-2026-10-23-crates.txt"
-PATH_VERIFIER_RELEASE_VERSIONS = {
-    "hns-browser-dane": "0.2.5",
-    "hns-browser-transport": "0.2.5",
+CURRENT_RELEASE_ID = "crypto-dependency-2026-10-24"
+CURRENT_RELEASE_MANIFEST = "release/crypto-dependency-2026-10-24-crates.txt"
+CURRENT_RELEASE_VERSIONS = {
+    "hns-light-chain": "0.2.7",
+    "hns-light-wallet": "0.2.7",
+    "hns-light-p2p": "0.2.7",
+    "hns-light-sync": "0.2.7",
+    "hns-transport": "0.2.4",
+    "hns-resolver": "0.2.4",
+    "hns-p2p-transport": "0.3.2",
+    "hns-dane-engine": "0.3.2",
+    "hns-dane-engine-ffi": "0.2.3",
+    "hns-loopback-proxy": "0.2.3",
+    "hns-browser-dnssec": "0.2.4",
+    "hns-browser-dane": "0.2.6",
+    "hns-browser-resolver": "0.2.8",
+    "hns-browser-transport": "0.2.6",
+    "hns-browser-gateway": "0.2.5",
+    "hns-browser-loopback-proxy": "0.2.5",
 }
-PATH_VERIFIER_RELEASE_PACKAGES = tuple(PATH_VERIFIER_RELEASE_VERSIONS)
+CURRENT_RELEASE_PACKAGES = tuple(CURRENT_RELEASE_VERSIONS)
 SUCCESSOR_RELEASE_VERSION = "0.3.0"
 SUCCESSOR_RELEASE_VERSIONS = {
     "hns-browser-observability": SUCCESSOR_RELEASE_VERSION,
@@ -487,18 +501,18 @@ def security_release_order(repo: Path) -> tuple[str, ...]:
     return packages
 
 
-def path_verifier_release_order(repo: Path) -> tuple[str, ...]:
+def current_release_order(repo: Path) -> tuple[str, ...]:
     packages = tuple(
         line.strip()
-        for line in (repo / PATH_VERIFIER_RELEASE_MANIFEST)
+        for line in (repo / CURRENT_RELEASE_MANIFEST)
         .read_text(encoding="utf-8")
         .splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     )
-    if packages != PATH_VERIFIER_RELEASE_PACKAGES:
+    if packages != CURRENT_RELEASE_PACKAGES:
         fail(
-            f"{PATH_VERIFIER_RELEASE_MANIFEST} must contain exactly "
-            f"{list(PATH_VERIFIER_RELEASE_PACKAGES)}"
+            f"{CURRENT_RELEASE_MANIFEST} must contain exactly "
+            f"{list(CURRENT_RELEASE_PACKAGES)}"
         )
     return packages
 
@@ -510,7 +524,7 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         fail("docs/releasing.md does not match release/public-crates.txt")
 
     execute_command = (
-        f"./scripts/publish.sh --execute --confirm-publish {PATH_VERIFIER_RELEASE_ID}"
+        f"./scripts/publish.sh --execute --confirm-publish {CURRENT_RELEASE_ID}"
     )
     if execute_command not in document:
         fail("docs/releasing.md does not use the current version in its execute example")
@@ -562,8 +576,8 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST,
         SECURITY_RELEASE_MANIFEST,
         SECURITY_RELEASE_ID,
-        PATH_VERIFIER_RELEASE_MANIFEST,
-        PATH_VERIFIER_RELEASE_ID,
+        CURRENT_RELEASE_MANIFEST,
+        CURRENT_RELEASE_ID,
         PREPUBLISHED_SECURITY_PATCH_MANIFEST,
         PREPUBLISHED_SECURITY_PATCH_CHECKSUM_MANIFEST,
         "./scripts/publish.sh --archive-only",
@@ -1004,7 +1018,7 @@ def expected_workspace_versions(
     package_names: set[str], workspace_version: str
 ) -> dict[str, str]:
     return {
-        name: PATH_VERIFIER_RELEASE_VERSIONS.get(
+        name: CURRENT_RELEASE_VERSIONS.get(
             name,
             SECURITY_RELEASE_VERSIONS.get(
                 name,
@@ -1203,7 +1217,12 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
             else "release/CRATE-CHANGELOG.md"
         )
         package_changelog = (package_root / "CHANGELOG.md").read_bytes()
-        if name in SECURITY_RELEASE_VERSIONS:
+        if name in CURRENT_RELEASE_VERSIONS:
+            package_changelog_text = package_changelog.decode("utf-8")
+            release_heading = rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
+            if re.search(release_heading, package_changelog_text, re.MULTILINE) is None:
+                fail(f"{name} CHANGELOG.md lacks a dated {expected_version} release heading")
+        elif name in SECURITY_RELEASE_VERSIONS:
             package_changelog_text = package_changelog.decode("utf-8")
             release_heading = (
                 rf"^## {re.escape(expected_version)} - \d{{4}}-\d{{2}}-\d{{2}}$"
@@ -1305,10 +1324,10 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 # Previously published consumers retain their compatible
                 # lower bounds so their local manifests match their archives.
                 compatible_immutable_consumer = (
-                    name not in PATH_VERIFIER_RELEASE_VERSIONS
+                    name not in CURRENT_RELEASE_VERSIONS
                     and (
                         (
-                            dependency_name in PATH_VERIFIER_RELEASE_VERSIONS
+                            dependency_name in CURRENT_RELEASE_VERSIONS
                             and dependency["req"] in {"^0.2.2", "^0.2.4"}
                             and expected_requirement == "^0.2.5"
                         )
@@ -1450,7 +1469,7 @@ def main() -> None:
     )
     patch_release_order(repo)
     security_release_order(repo)
-    path_verifier_release_order(repo)
+    current_release_order(repo)
     version, release_label = verify_workspace(
         repo, cargo_metadata(repo, args.toolchain), order
     )
@@ -1460,11 +1479,11 @@ def main() -> None:
     verify_publish_script_safety(repo)
     if (
         args.expected_release is not None
-        and args.expected_release != PATH_VERIFIER_RELEASE_ID
+        and args.expected_release != CURRENT_RELEASE_ID
     ):
         fail(
             f"confirmed release {args.expected_release} differs from path-verifier "
-            f"release identifier {PATH_VERIFIER_RELEASE_ID}"
+            f"release identifier {CURRENT_RELEASE_ID}"
         )
     if args.require_clean:
         if release_label.lower() == "unreleased":
@@ -1472,8 +1491,8 @@ def main() -> None:
         verify_clean_source(repo)
     print(
         f"release metadata valid for {len(order)} public crates; "
-        f"{len(PATH_VERIFIER_RELEASE_PACKAGES)} path-verifier packages match "
-        f"{PATH_VERIFIER_RELEASE_ID}"
+        f"{len(CURRENT_RELEASE_PACKAGES)} crypto dependency packages match "
+        f"{CURRENT_RELEASE_ID}"
     )
 
 

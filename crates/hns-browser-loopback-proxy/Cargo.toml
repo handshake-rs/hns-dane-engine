@@ -1,7 +1,7 @@
 [package]
 name = "hns-browser-loopback-proxy"
 description = "Authenticated loopback browser proxy adapters with explicit mobile and Chromium contracts"
-version = "0.2.4"
+version = "0.2.5"
 edition.workspace = true
 rust-version.workspace = true
 license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"
@@ -20,8 +20,8 @@ mobile = []
 [dependencies]
 base64 = "0.22"
 hns-core = { package = "hns-browser-primitives", version = "0.2.2", path = "../hns-browser-primitives" }
-hns-dane = { package = "hns-browser-dane", version = "0.2.2", path = "../hns-browser-dane" }
-hns-resolver = { package = "hns-browser-resolver", version = "0.2.2", path = "../hns-browser-resolver" }
+hns-dane = { package = "hns-browser-dane", version = "0.2.6", path = "../hns-browser-dane" }
+hns-resolver = { package = "hns-browser-resolver", version = "0.2.8", path = "../hns-browser-resolver" }
 httparse = "1.10"
 idna = "1.1"
 rcgen = { version = "0.14.8", default-features = false, features = ["ring", "x509-parser", "zeroize"] }

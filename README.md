@@ -79,9 +79,15 @@ The complete public package order is maintained in
 `hns-browser-testkit` crate contains repository fixtures and is never
 published.
 
-## Current mobile-wallet cohort
+## Crypto dependency cohort
 
-The current targeted compatible patch cohort is `0.2.6`:
+The current targeted release is the sixteen-package crypto dependency cohort
+listed in [`release/crypto-dependency-2026-10-24-crates.txt`](release/crypto-dependency-2026-10-24-crates.txt).
+It moves exact protocol pins to hns-rs 0.5.1 and ECDSA curves to 0.14.
+
+## Prior mobile-wallet cohort
+
+The previously published compatible patch cohort is `0.2.6`:
 
 - `hns-light-chain`
 - `hns-light-wallet`
@@ -108,13 +114,13 @@ dependency archives and their checksums are pinned under [`release/`](release/).
 
 ## Upstream Handshake protocol cohort
 
-The current mobile-wallet cohort consumes the coherent `hns-rs 0.5.0` protocol
+The current source consumes the coherent `hns-rs 0.5.1` protocol
 cohort. Direct
 protocol dependencies use exact crates.io requirements, and all nineteen
 upstream archive checksums are pinned in
-[`release/hns-rs-0.5.0-crates.sha256`](release/hns-rs-0.5.0-crates.sha256).
+[`release/hns-rs-0.5.1-crates.sha256`](release/hns-rs-0.5.1-crates.sha256).
 The reviewed upstream source revision is
-`60eb912d615243a6bfb9741b17f16833c5a9181a`.
+`a113595341984a2c82f7e2792deb55b2c7957203`.
 
 Repository policy rejects Git dependencies, unreviewed registry sources,
 escaping path dependencies, dependency aliases that hide protocol identities,

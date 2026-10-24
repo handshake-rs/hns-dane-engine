@@ -23,15 +23,15 @@ table:
 - `hns-transaction`
 - `hns-urkel-proof`
 
-Every declaration requires the exact crates.io version `=0.5.0`. The lockfile
+Every declaration requires the exact crates.io version `=0.5.1`. The lockfile
 resolves those packages plus transitive `hns-chat-protocol` and `hns-mining`
 from the crates.io registry, for a fixed sixteen-package
 closure. No Git package is permitted in a tracked manifest or the lockfile.
 
-[`../release/hns-rs-0.5.0-crates.sha256`](../release/hns-rs-0.5.0-crates.sha256)
-records the crates.io archive checksum for all nineteen public `hns-rs 0.5.0`
+[`../release/hns-rs-0.5.1-crates.sha256`](../release/hns-rs-0.5.1-crates.sha256)
+records the crates.io archive checksum for all nineteen public `hns-rs 0.5.1`
 packages. Each archive identifies clean source revision
-`60eb912d615243a6bfb9741b17f16833c5a9181a` and its expected `crates/<name>`
+`a113595341984a2c82f7e2792deb55b2c7957203` and its expected `crates/<name>`
 source path. `hns-script`, `hns-swap`, and `hns-marketplace-protocol` are
 verified release-cohort members but are outside this engine's dependency
 closure. `hns-hrm` and `hns-rollback-journal` back the current broker facade;
@@ -44,7 +44,7 @@ crate dependencies remain repository-local paths.
 
 `scripts/verify_cargo_source_policy.py` fails if:
 
-- any direct `hns-rs` package is not an exact `=0.5.0` crates.io dependency or
+- any direct `hns-rs` package is not an exact `=0.5.1` crates.io dependency or
   uses a Git, path, branch, tag, revision, or alias override;
 - a consumer bypasses the root declaration or appears outside the reviewed
   manifest and dependency section;
@@ -82,6 +82,6 @@ dry-runs remain isolated in the exact-commit manual workflow documented in
 clone with no sibling `hns-rs` directory.
 
 Before an upload, release execute mode independently reads back all nineteen
-crates.io API records and archives. It requires exact version 0.5.0, non-yanked
+crates.io API records and archives. It requires exact version 0.5.1, non-yanked
 status, the reviewed archive checksums, and clean per-package VCS provenance at
 the reviewed source revision and paths.

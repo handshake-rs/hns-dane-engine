@@ -1078,7 +1078,7 @@ mod tests {
 
     fn secp_identity(secret: u8) -> (SigningKey, PeerIdentity) {
         let signing = SigningKey::from_bytes((&[secret; 32]).into()).unwrap();
-        let encoded = signing.verifying_key().to_encoded_point(true);
+        let encoded = signing.verifying_key().to_sec1_point(true);
         (
             signing,
             PeerIdentity::new(encoded.as_bytes().try_into().unwrap()).unwrap(),

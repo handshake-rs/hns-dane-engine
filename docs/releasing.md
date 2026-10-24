@@ -41,9 +41,10 @@ The dependency-order authority is
 30. `hns-browser-loopback-proxy`
 31. `hns-browser-sync`
 
-The current targeted set is `hns-browser-dane` 0.2.5 and
-`hns-browser-transport` 0.2.5, in
-[`release/browser-dane-path-verifier-2026-10-23-crates.txt`](../release/browser-dane-path-verifier-2026-10-23-crates.txt).
+The current targeted set is the sixteen-package crypto dependency cohort in
+[`release/crypto-dependency-2026-10-24-crates.txt`](../release/crypto-dependency-2026-10-24-crates.txt).
+It advances protocol and curve dependents together so consumers can resolve
+without the affected crypto-bigint 0.5.x graph.
 The previous nine-package DNSSEC and DANE security release is recorded in
 [`release/dnssec-dane-security-2026-10-16-crates.txt`](../release/dnssec-dane-security-2026-10-16-crates.txt).
 Its release identifier was `dnssec-dane-2026-10-16`.
@@ -81,11 +82,11 @@ PolyForm Noncommercial license; foundation crates retain their manifest license.
 
 ## Source and dependency gates
 
-Direct protocol dependencies require exact crates.io `=0.5.0`. The complete
+Direct protocol dependencies require exact crates.io `=0.5.1`. The complete
 nineteen-package upstream checksum manifest is
-[`release/hns-rs-0.5.0-crates.sha256`](../release/hns-rs-0.5.0-crates.sha256),
+[`release/hns-rs-0.5.1-crates.sha256`](../release/hns-rs-0.5.1-crates.sha256),
 with clean reviewed source revision
-`60eb912d615243a6bfb9741b17f16833c5a9181a`.
+`a113595341984a2c82f7e2792deb55b2c7957203`.
 Execute mode checks non-yanked API records, downloaded archive checksums, clean
 VCS provenance, and the expected `crates/<name>` source paths. The immutable
 engine dependency manifests in `release/` receive the same verification. Do
@@ -152,7 +153,7 @@ never authorizes upload, tagging, or deployment.
 After explicit publication authorization, the current confirmation command is:
 
 ```sh
-./scripts/publish.sh --execute --confirm-publish browser-dane-path-verifier-2026-10-23
+./scripts/publish.sh --execute --confirm-publish crypto-dependency-2026-10-24
 ```
 
 The runner checks the clean dated candidate, all protocol inputs, and immutable
@@ -168,7 +169,7 @@ Override only with a registry-approved non-negative interval:
 ```sh
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish browser-dane-path-verifier-2026-10-23
+  ./scripts/publish.sh --execute --confirm-publish crypto-dependency-2026-10-24
 ```
 
 After propagation, the downloaded archive receives the same checksum and VCS

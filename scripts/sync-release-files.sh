@@ -63,7 +63,11 @@ do
         *)
             cp -- LICENSE-APACHE "crates/$package/LICENSE-APACHE"
             cp -- LICENSE-MIT "crates/$package/LICENSE-MIT"
-            cp -- release/CRATE-CHANGELOG.md "crates/$package/CHANGELOG.md"
+            if [ ! -f release/crypto-dependency-2026-10-24-crates.txt ] ||
+                ! grep -Fxq "$package" release/crypto-dependency-2026-10-24-crates.txt
+            then
+                cp -- release/CRATE-CHANGELOG.md "crates/$package/CHANGELOG.md"
+            fi
             ;;
     esac
 done

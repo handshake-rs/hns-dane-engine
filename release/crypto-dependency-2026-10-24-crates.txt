@@ -1,0 +1,16 @@
+hns-light-chain
+hns-light-wallet
+hns-light-p2p
+hns-light-sync
+hns-transport
+hns-resolver
+hns-p2p-transport
+hns-dane-engine
+hns-dane-engine-ffi
+hns-loopback-proxy
+hns-browser-dnssec
+hns-browser-dane
+hns-browser-resolver
+hns-browser-transport
+hns-browser-gateway
+hns-browser-loopback-proxy

@@ -11,32 +11,36 @@ for validation.
 | `hns-icann-dane` | `0.2.2` |
 | `hns-namespace-resolution` | `0.2.3` |
 | `hns-resolution-policy` | `0.3.0` |
-| `hns-light-chain` | `0.2.6` |
-| `hns-light-wallet` | `0.2.6` |
+| `hns-light-chain` | `0.2.7` |
+| `hns-light-wallet` | `0.2.7` |
 | `hns-dane` | `0.2.2` |
 | `hns-dnssec` | `0.2.3` |
 | `hns-gateway` | `0.3.0` |
 | `hns-cache` | `0.2.2` |
-| `hns-light-p2p` | `0.2.6` |
-| `hns-light-sync` | `0.2.6` |
-| `hns-transport` | `0.2.3` |
-| `hns-resolver` | `0.2.3` |
+| `hns-light-p2p` | `0.2.7` |
+| `hns-light-sync` | `0.2.7` |
+| `hns-transport` | `0.2.4` |
+| `hns-resolver` | `0.2.4` |
 | `hns-browser-observability` | `0.3.0` |
-| `hns-p2p-transport` | `0.3.1` |
-| `hns-dane-engine` | `0.3.1` |
-| `hns-dane-engine-ffi` | `0.2.2` |
-| `hns-loopback-proxy` | `0.2.2` |
+| `hns-p2p-transport` | `0.3.2` |
+| `hns-dane-engine` | `0.3.2` |
+| `hns-dane-engine-ffi` | `0.2.3` |
+| `hns-loopback-proxy` | `0.2.3` |
 | `hns-browser-primitives` | `0.2.2` |
 | `hns-browser-urkel` | `0.2.2` |
-| `hns-browser-dnssec` | `0.2.3` |
-| `hns-browser-dane` | `0.2.5` |
+| `hns-browser-dnssec` | `0.2.4` |
+| `hns-browser-dane` | `0.2.6` |
 | `hns-browser-chain` | `0.2.6` |
 | `hns-browser-p2p` | `0.2.6` |
-| `hns-browser-resolver` | `0.2.7` |
-| `hns-browser-transport` | `0.2.5` |
-| `hns-browser-gateway` | `0.2.4` |
-| `hns-browser-loopback-proxy` | `0.2.4` |
+| `hns-browser-resolver` | `0.2.8` |
+| `hns-browser-transport` | `0.2.6` |
+| `hns-browser-gateway` | `0.2.5` |
+| `hns-browser-loopback-proxy` | `0.2.5` |
 | `hns-browser-sync` | `0.2.2` |
+
+## Crypto dependency release - 2026-10-24
+
+The affected protocol, light-client, and browser packages consume hns-rs 0.5.1 and k256/p256 0.14, removing crypto-bigint 0.5.x from their published dependency graph.
 
 ## Browser DANE follow-up - 2026-10-23
 

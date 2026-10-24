@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-10-24
+
+Migrate published protocol and ECDSA dependencies to patched k256/p256 0.14 and crypto-bigint 0.7.7; preserve existing DNSSEC and transport behavior.
+
 This crate uses the shared `hns-dane-engine` workspace version. Its selected version is described in the repository-level
 [`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/main/CHANGELOG.md).
 

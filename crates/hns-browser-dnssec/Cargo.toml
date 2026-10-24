@@ -1,7 +1,7 @@
 [package]
 name = "hns-browser-dnssec"
 description = "Strict browser-adapter DNSSEC validation"
-version = "0.2.3"
+version = "0.2.4"
 edition.workspace = true
 rust-version.workspace = true
 license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"
@@ -16,7 +16,7 @@ documentation = "https://docs.rs/hns-browser-dnssec"
 hns-core.workspace = true
 num-bigint = "0.4.8"
 num-traits = "0.2.19"
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"] }
+p256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
 ring = "0.17.14"
 sha1 = "0.10.6"
 sha2 = "0.10.9"

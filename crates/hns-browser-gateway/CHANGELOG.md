@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5 - 2026-10-24
+
+Migrate protocol and ECDSA dependencies to the patched crypto stack; preserve existing DNSSEC and transport behavior.
+
 The selected source version is listed in the workspace
 [`CHANGELOG.md`](../../CHANGELOG.md).
 

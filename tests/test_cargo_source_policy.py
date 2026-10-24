@@ -114,7 +114,7 @@ class CargoSourcePolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             HNS_RS_REVISION,
-            "60eb912d615243a6bfb9741b17f16833c5a9181a",
+            "a113595341984a2c82f7e2792deb55b2c7957203",
         )
 
     def test_accepts_exact_registry_source_boundary(self) -> None:

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5 - 2026-10-24
+
+Migrate protocol and ECDSA dependencies to the patched crypto stack; preserve existing DNSSEC and transport behavior.
+
 This crate follows the compatible `hns-dane-engine` release line. Complete
 release notes are maintained in the repository-level
 [`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/loopback-proxy-v0.2.3/CHANGELOG.md).

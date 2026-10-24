@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-10-24
+
+Migrate published protocol and ECDSA dependencies to patched k256/p256 0.14 and crypto-bigint 0.7.7; preserve existing DNSSEC and transport behavior.
+
 ## 0.2.3 - 2026-10-16
 
 Raises the Handshake protocol dependency cohort to 0.5.0 so registry-only

@@ -1,7 +1,7 @@
 [package]
 name = "hns-browser-resolver"
 description = "Strict light-client resolver adapter for browser runtimes"
-version = "0.2.7"
+version = "0.2.8"
 edition.workspace = true
 rust-version.workspace = true
 license-file = "LICENSE-POLYFORM-NONCOMMERCIAL"
@@ -15,8 +15,8 @@ documentation = "https://docs.rs/hns-browser-resolver"
 [dependencies]
 hns-cache.workspace = true
 hns-core.workspace = true
-hns-dane = { package = "hns-browser-dane", version = "0.2.4", path = "../hns-browser-dane" }
-hns-dnssec = { package = "hns-browser-dnssec", version = "0.2.3", path = "../hns-browser-dnssec" }
+hns-dane = { package = "hns-browser-dane", version = "0.2.6", path = "../hns-browser-dane" }
+hns-dnssec = { package = "hns-browser-dnssec", version = "0.2.4", path = "../hns-browser-dnssec" }
 hns-namespace-resolution.workspace = true
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 thiserror = "2.0.19"

@@ -1,7 +1,7 @@
 [package]
 name = "hns-transport"
 description = "Proof-authorized direct Handshake DNS transports"
-version = "0.2.3"
+version = "0.2.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

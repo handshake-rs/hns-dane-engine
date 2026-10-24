@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-10-24
+
+Migrate protocol and ECDSA dependencies to the patched crypto stack; preserve existing DNSSEC and transport behavior.
+
 This crate uses the shared `hns-dane-engine` workspace version. Its selected version is described in the repository-level
 [`CHANGELOG.md`](https://github.com/handshake-rs/hns-dane-engine/blob/main/CHANGELOG.md).
 
