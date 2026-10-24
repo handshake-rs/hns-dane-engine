@@ -35,3 +35,22 @@ together. The mobile and Chromium transports in `hns-browser-transport` 0.2.4
 verify usage 0 against the WebPKI-verified path and usage 2 against a signed
 path to the matched trust anchor, including name, validity, CA, key usage,
 and path length checks.
+
+## Follow-up release
+
+Version 0.2.5 retains the 0.2.4 path fix and adds the public
+`TlsaPathVerifier` interface, so callers of the DANE policy API can supply
+authenticated path validation for usages 0 and 2. Without a verifier, the
+certificate-only API returns `PathValidationRequired` for those usages when no
+end-entity record matches. The transport checks DANE-TA candidates together,
+deduplicates records, and checks the path-length limit of the anchor actually
+selected. See the [0.2.5 DANE changelog](../crates/hns-browser-dane/CHANGELOG.md)
+and [transport changelog](../crates/hns-browser-transport/CHANGELOG.md).
+
+The 0.2.5 transport also raises its minimum `rustls-webpki` to 0.103.16,
+`webpki-roots` to 1.0.10, and Tokio to 1.53.3. These address separate
+[rustls-webpki](https://rustsec.org/advisories/RUSTSEC-2026-0382.html),
+[webpki-roots](https://rustsec.org/advisories/RUSTSEC-2026-0381.html), and
+[Tokio](https://rustsec.org/advisories/RUSTSEC-2026-0386.html) advisories.
+Applications must refresh their lockfiles and rebuild to consume these fixes;
+the existence of a newer crate release does not change an existing binary.
