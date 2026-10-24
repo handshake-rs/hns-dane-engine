@@ -635,6 +635,8 @@ def verify_publish_script_safety(repo: Path) -> None:
         "require_clean_archive_vcs=yes",
         "--confirm-publish RELEASE-ID",
         "sha256sum",
+        "release_curl()",
+        'curl --retry 5 --retry-delay 2 --retry-max-time 60 "$@"',
         "protocol_checksum_manifest",
         "protocol_api_checksum",
         "protocol_vcs_path",

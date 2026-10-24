@@ -84,6 +84,12 @@ ensure_release_tmp() {
     fi
 }
 
+release_curl() {
+    # crates.io occasionally returns a transient 5xx during the archive
+    # inventory. Curl retries only transient HTTP statuses by default.
+    curl --retry 5 --retry-delay 2 --retry-max-time 60 "$@"
+}
+
 verify_release_source_unchanged() {
     current_commit=$(git rev-parse HEAD)
     if [ "$current_commit" != "$release_commit" ]
@@ -728,7 +734,7 @@ create_registry_source_package() {
 published_crate_status() {
     package=$1
     version=$2
-    curl \
+    release_curl \
         --silent \
         --show-error \
         --user-agent "hns-dane-engine-release/$version (https://github.com/handshake-rs/hns-dane-engine)" \
@@ -740,7 +746,7 @@ published_crate_status() {
 published_package_status() {
     package=$1
     version=$2
-    curl \
+    release_curl \
         --silent \
         --show-error \
         --user-agent "hns-dane-engine-release/$version (https://github.com/handshake-rs/hns-dane-engine)" \
@@ -821,7 +827,7 @@ verify_prepublished_package() {
     fi
 
     metadata="$release_tmp/$package-$version.json"
-    curl \
+    release_curl \
         --fail \
         --silent \
         --show-error \
@@ -852,7 +858,7 @@ verify_prepublished_package() {
     fi
 
     archive="$release_tmp/$expected_filename"
-    curl \
+    release_curl \
         --fail \
         --location \
         --silent \
@@ -965,7 +971,7 @@ verify_published_package() {
 
     ensure_release_tmp
     published_archive="$release_tmp/$package-$version.crate"
-    curl \
+    release_curl \
         --fail \
         --location \
         --silent \
@@ -1029,7 +1035,7 @@ verify_protocol_packages_published() {
         fi
 
         protocol_metadata="$release_tmp/$package-$protocol_version.json"
-        curl \
+        release_curl \
             --fail \
             --silent \
             --show-error \
@@ -1054,7 +1060,7 @@ verify_protocol_packages_published() {
         fi
 
         protocol_archive="$release_tmp/$protocol_filename"
-        curl \
+        release_curl \
             --fail \
             --location \
             --silent \

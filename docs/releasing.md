@@ -90,6 +90,8 @@ Execute mode checks non-yanked API records, downloaded archive checksums, clean
 VCS provenance, and the expected `crates/<name>` source paths. The immutable
 engine dependency manifests in `release/` receive the same verification. Do
 not reconstruct an immutable dependency archive from a different commit.
+Registry API and archive reads retry transient HTTP errors before applying the
+same checksum and provenance checks.
 The prepublished archive check expects `hns-browser-dane` and
 `hns-browser-transport` 0.2.2 to be yanked after the trust-anchor advisory;
 it still verifies their recorded checksums and source provenance. All other
