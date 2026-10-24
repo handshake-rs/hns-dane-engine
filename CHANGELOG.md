@@ -29,24 +29,24 @@ for validation.
 | `hns-browser-primitives` | `0.2.2` |
 | `hns-browser-urkel` | `0.2.2` |
 | `hns-browser-dnssec` | `0.2.3` |
-| `hns-browser-dane` | `0.2.4` |
+| `hns-browser-dane` | `0.2.5` |
 | `hns-browser-chain` | `0.2.6` |
 | `hns-browser-p2p` | `0.2.6` |
 | `hns-browser-resolver` | `0.2.7` |
-| `hns-browser-transport` | `0.2.4` |
+| `hns-browser-transport` | `0.2.5` |
 | `hns-browser-gateway` | `0.2.4` |
 | `hns-browser-loopback-proxy` | `0.2.4` |
 | `hns-browser-sync` | `0.2.2` |
 
-## Unreleased browser DANE follow-up
+## Browser DANE follow-up - 2026-10-23
 
 The browser DANE policy now exposes a path-verifier interface for TLSA usages
 0 and 2. The certificate-only API reports when a verified path is required,
 and its ignored raw-intermediate field is deprecated. Mobile and Chromium
 transports deduplicate and bound TLSA records, validate DANE-TA candidates in
 one path-building pass, enforce the selected anchor's path-length limit, and
-report WebPKI rejection for PKIX-TA records. These changes have not yet been
-published as new crate versions.
+report WebPKI rejection for PKIX-TA records. The selected crate versions are
+`hns-browser-dane` 0.2.5 and `hns-browser-transport` 0.2.5.
 The transport also raises its `rustls-webpki` and `webpki-roots` minimums to
 0.103.16 and 1.0.10 to remove the newly distrusted emSign path from its TLS
 dependency graph.

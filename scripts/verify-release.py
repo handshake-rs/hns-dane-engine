@@ -146,6 +146,22 @@ PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST = (
     "release/hns-dane-engine-dnssec-foundation-2026-10-16-crates.sha256"
 )
 PREPUBLISHED_SECURITY_FOUNDATION_PACKAGES = ("hns-dnssec", "hns-resolver")
+PREPUBLISHED_SECURITY_PATCH_REVISION = "7f1b3f6b8c9d17ac27f3d2de84f6106e54b4d951"
+PREPUBLISHED_SECURITY_PATCH_MANIFEST = (
+    "release/prepublished-dnssec-dane-security-2026-10-16-crates.txt"
+)
+PREPUBLISHED_SECURITY_PATCH_CHECKSUM_MANIFEST = (
+    "release/hns-dane-engine-dnssec-dane-security-2026-10-16-crates.sha256"
+)
+PREPUBLISHED_SECURITY_PATCH_PACKAGES = (
+    "hns-transport",
+    "hns-dane-engine",
+    "hns-browser-dnssec",
+    "hns-browser-dane",
+    "hns-browser-resolver",
+    "hns-browser-transport",
+    "hns-browser-gateway",
+)
 PATCH_RELEASE_VERSION = "0.2.6"
 PATCH_RELEASE_MANIFEST = "release/mobile-wallet-0.2.6-crates.txt"
 PATCH_RELEASE_REVISION = "90a5dfeb5b7c00e8fea010e79f82076de4263fd6"
@@ -189,6 +205,13 @@ SECURITY_RELEASE_VERSIONS = {
     "hns-browser-transport": "0.2.4",
     "hns-browser-gateway": "0.2.4",
 }
+PATH_VERIFIER_RELEASE_ID = "browser-dane-path-verifier-2026-10-23"
+PATH_VERIFIER_RELEASE_MANIFEST = "release/browser-dane-path-verifier-2026-10-23-crates.txt"
+PATH_VERIFIER_RELEASE_VERSIONS = {
+    "hns-browser-dane": "0.2.5",
+    "hns-browser-transport": "0.2.5",
+}
+PATH_VERIFIER_RELEASE_PACKAGES = tuple(PATH_VERIFIER_RELEASE_VERSIONS)
 SUCCESSOR_RELEASE_VERSION = "0.3.0"
 SUCCESSOR_RELEASE_VERSIONS = {
     "hns-browser-observability": SUCCESSOR_RELEASE_VERSION,
@@ -464,6 +487,22 @@ def security_release_order(repo: Path) -> tuple[str, ...]:
     return packages
 
 
+def path_verifier_release_order(repo: Path) -> tuple[str, ...]:
+    packages = tuple(
+        line.strip()
+        for line in (repo / PATH_VERIFIER_RELEASE_MANIFEST)
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    if packages != PATH_VERIFIER_RELEASE_PACKAGES:
+        fail(
+            f"{PATH_VERIFIER_RELEASE_MANIFEST} must contain exactly "
+            f"{list(PATH_VERIFIER_RELEASE_PACKAGES)}"
+        )
+    return packages
+
+
 def verify_release_document(repo: Path, order: list[str], version: str) -> None:
     document = (repo / "docs/releasing.md").read_text(encoding="utf-8")
     documented = re.findall(r"^\d+\. `([^`]+)`$", document, flags=re.MULTILINE)
@@ -471,7 +510,7 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         fail("docs/releasing.md does not match release/public-crates.txt")
 
     execute_command = (
-        f"./scripts/publish.sh --execute --confirm-publish {SECURITY_RELEASE_ID}"
+        f"./scripts/publish.sh --execute --confirm-publish {PATH_VERIFIER_RELEASE_ID}"
     )
     if execute_command not in document:
         fail("docs/releasing.md does not use the current version in its execute example")
@@ -523,6 +562,10 @@ def verify_release_document(repo: Path, order: list[str], version: str) -> None:
         PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST,
         SECURITY_RELEASE_MANIFEST,
         SECURITY_RELEASE_ID,
+        PATH_VERIFIER_RELEASE_MANIFEST,
+        PATH_VERIFIER_RELEASE_ID,
+        PREPUBLISHED_SECURITY_PATCH_MANIFEST,
+        PREPUBLISHED_SECURITY_PATCH_CHECKSUM_MANIFEST,
         "./scripts/publish.sh --archive-only",
         ".github/workflows/release-preflight.yml",
         "expected_commit",
@@ -615,6 +658,9 @@ def verify_publish_script_safety(repo: Path) -> None:
         f"prepublished_current_loopback_checksum_manifest={CURRENT_LOOPBACK_CHECKSUM_MANIFEST}",
         f"prepublished_security_foundation_revision={PREPUBLISHED_SECURITY_FOUNDATION_REVISION}",
         f"prepublished_security_foundation_checksum_manifest={PREPUBLISHED_SECURITY_FOUNDATION_CHECKSUM_MANIFEST}",
+        f"prepublished_security_patch_revision={PREPUBLISHED_SECURITY_PATCH_REVISION}",
+        f"prepublished_security_patch_manifest={PREPUBLISHED_SECURITY_PATCH_MANIFEST}",
+        f"prepublished_security_patch_checksum_manifest={PREPUBLISHED_SECURITY_PATCH_CHECKSUM_MANIFEST}",
     }
     missing_lines = required_script_lines - set(script.splitlines())
     if missing_lines:
@@ -816,6 +862,8 @@ def verify_publish_script_safety(repo: Path) -> None:
         "printf '%s\\n' 0.3.1",
         'is_prepublished_loopback_package "$package" "$version"',
         'is_prepublished_security_foundation_package "$package" "$version"',
+        'is_prepublished_security_patch_package "$package" "$version"',
+        'prepublished_security_patch_package_version "$package"',
         'echo "skipping $package $version: immutable prepublished archive already verified"',
         'if [ "$api_checksum" != "$expected_checksum" ]',
         'hns-browser-dane:0.2.2|hns-browser-transport:0.2.2)',
@@ -954,20 +1002,23 @@ def expected_workspace_versions(
     package_names: set[str], workspace_version: str
 ) -> dict[str, str]:
     return {
-        name: SECURITY_RELEASE_VERSIONS.get(
+        name: PATH_VERIFIER_RELEASE_VERSIONS.get(
             name,
-            SUCCESSOR_RELEASE_VERSIONS.get(
+            SECURITY_RELEASE_VERSIONS.get(
                 name,
-                PATCH_RELEASE_VERSIONS.get(
+                SUCCESSOR_RELEASE_VERSIONS.get(
                     name,
-                    (
-                        PREPUBLISHED_PATCH_VERSION
-                        if name in PREPUBLISHED_PATCH_PACKAGES
-                        else CURRENT_LOOPBACK_VERSION
-                        if name in PREPUBLISHED_LOOPBACK_PACKAGES
-                        else PREPUBLISHED_LIGHT_CLIENT_VERSION
-                        if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
-                        else workspace_version
+                    PATCH_RELEASE_VERSIONS.get(
+                        name,
+                        (
+                            PREPUBLISHED_PATCH_VERSION
+                            if name in PREPUBLISHED_PATCH_PACKAGES
+                            else CURRENT_LOOPBACK_VERSION
+                            if name in PREPUBLISHED_LOOPBACK_PACKAGES
+                            else PREPUBLISHED_LIGHT_CLIENT_VERSION
+                            if name in PREPUBLISHED_LIGHT_CLIENT_PACKAGES
+                            else workspace_version
+                        ),
                     ),
                 ),
             ),
@@ -1252,15 +1303,22 @@ def verify_workspace(repo: Path, metadata: dict, order: list[str]) -> tuple[str,
                 # Previously published consumers retain their compatible
                 # lower bounds so their local manifests match their archives.
                 compatible_immutable_consumer = (
-                    name not in SECURITY_RELEASE_VERSIONS
+                    name not in PATH_VERIFIER_RELEASE_VERSIONS
                     and (
                         (
-                            dependency_name in PATCH_RELEASE_VERSIONS
+                            dependency_name in PATH_VERIFIER_RELEASE_VERSIONS
+                            and dependency["req"] in {"^0.2.2", "^0.2.4"}
+                            and expected_requirement == "^0.2.5"
+                        )
+                        or (
+                            name not in SECURITY_RELEASE_VERSIONS
+                            and dependency_name in PATCH_RELEASE_VERSIONS
                             and dependency["req"] in {"^0.2.2", "^0.2.3", "^0.2.4"}
                             and expected_requirement == "^0.2.6"
                         )
                         or (
-                            dependency_name in SECURITY_RELEASE_VERSIONS
+                            name not in SECURITY_RELEASE_VERSIONS
+                            and dependency_name in SECURITY_RELEASE_VERSIONS
                             and dependency["req"]
                             in {
                                 "^0.2.2",
@@ -1378,8 +1436,19 @@ def main() -> None:
             for package in PREPUBLISHED_SECURITY_FOUNDATION_PACKAGES
         },
     )
+    verify_named_prepublished_inventory(
+        repo,
+        PREPUBLISHED_SECURITY_PATCH_MANIFEST,
+        PREPUBLISHED_SECURITY_PATCH_CHECKSUM_MANIFEST,
+        PREPUBLISHED_SECURITY_PATCH_PACKAGES,
+        {
+            package: SECURITY_RELEASE_VERSIONS[package]
+            for package in PREPUBLISHED_SECURITY_PATCH_PACKAGES
+        },
+    )
     patch_release_order(repo)
     security_release_order(repo)
+    path_verifier_release_order(repo)
     version, release_label = verify_workspace(
         repo, cargo_metadata(repo, args.toolchain), order
     )
@@ -1389,11 +1458,11 @@ def main() -> None:
     verify_publish_script_safety(repo)
     if (
         args.expected_release is not None
-        and args.expected_release != SECURITY_RELEASE_ID
+        and args.expected_release != PATH_VERIFIER_RELEASE_ID
     ):
         fail(
-            f"confirmed release {args.expected_release} differs from security release "
-            f"identifier {SECURITY_RELEASE_ID}"
+            f"confirmed release {args.expected_release} differs from path-verifier "
+            f"release identifier {PATH_VERIFIER_RELEASE_ID}"
         )
     if args.require_clean:
         if release_label.lower() == "unreleased":
@@ -1401,7 +1470,8 @@ def main() -> None:
         verify_clean_source(repo)
     print(
         f"release metadata valid for {len(order)} public crates; "
-        f"{len(SECURITY_RELEASE_PACKAGES)} security packages match {SECURITY_RELEASE_ID}"
+        f"{len(PATH_VERIFIER_RELEASE_PACKAGES)} path-verifier packages match "
+        f"{PATH_VERIFIER_RELEASE_ID}"
     )
 
 

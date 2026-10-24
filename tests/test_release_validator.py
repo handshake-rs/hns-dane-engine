@@ -79,8 +79,8 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
         )
 
         self.assertEqual(versions["hns-browser-chain"], "0.2.6")
-        self.assertEqual(versions["hns-browser-dane"], "0.2.4")
-        self.assertEqual(versions["hns-browser-transport"], "0.2.4")
+        self.assertEqual(versions["hns-browser-dane"], "0.2.5")
+        self.assertEqual(versions["hns-browser-transport"], "0.2.5")
         self.assertEqual(versions["hns-browser-loopback-proxy"], "0.2.4")
         self.assertEqual(versions["hns-browser-gateway"], "0.2.4")
         self.assertEqual(versions["hns-namespace-resolution"], "0.2.3")
@@ -211,7 +211,10 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
         with temporary:
             script_path = root / "scripts/publish.sh"
             script = script_path.read_text(encoding="utf-8")
-            gateway_prefix, gateway_remainder = script.split(
+            script_prefix, operation_mapping = script.split(
+                "package_with_local_dependencies() {", 1
+            )
+            gateway_prefix, gateway_remainder = operation_mapping.split(
                 "hns-browser-gateway)", 1
             )
             gateway_mapping, gateway_suffix = gateway_remainder.split(";;", 1)
@@ -222,7 +225,9 @@ class ReleaseValidatorMutationTests(unittest.TestCase):
             )
             self.assertNotEqual(gateway_mapping, broken_gateway_mapping)
             script_path.write_text(
-                gateway_prefix
+                script_prefix
+                + "package_with_local_dependencies() {"
+                + gateway_prefix
                 + "hns-browser-gateway)"
                 + broken_gateway_mapping
                 + ";;"

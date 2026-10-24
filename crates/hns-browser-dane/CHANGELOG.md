@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5 - 2026-10-23
 
 Add the public `TlsaPathVerifier` interface and
 `evaluate_policy_with_path_verifier` so trusted transports can evaluate TLSA

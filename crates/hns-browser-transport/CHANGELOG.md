@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5 - 2026-10-23
 
 Use the public DANE path-verifier interface for mobile and Chromium policy
 decisions. PKIX-TA records return `WebPkiFailed` when WebPKI rejects the

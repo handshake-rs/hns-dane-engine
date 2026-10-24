@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-dane"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "hns-browser-dnssec",
  "hns-browser-primitives",
@@ -1024,7 +1024,7 @@ dependencies = [
 
 [[package]]
 name = "hns-browser-transport"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "h2",

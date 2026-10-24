@@ -60,6 +60,9 @@ prepublished_security_foundation_version=0.2.3
 prepublished_security_foundation_revision=70ff88db564e048cd79cd516259aa07d5d167e6a
 prepublished_security_foundation_manifest=release/prepublished-dnssec-foundation-2026-10-16-crates.txt
 prepublished_security_foundation_checksum_manifest=release/hns-dane-engine-dnssec-foundation-2026-10-16-crates.sha256
+prepublished_security_patch_revision=7f1b3f6b8c9d17ac27f3d2de84f6106e54b4d951
+prepublished_security_patch_manifest=release/prepublished-dnssec-dane-security-2026-10-16-crates.txt
+prepublished_security_patch_checksum_manifest=release/hns-dane-engine-dnssec-dane-security-2026-10-16-crates.sha256
 
 cleanup_release_tmp() {
     if [ -n "$release_tmp" ] && [ -d "$release_tmp" ]
@@ -139,6 +142,10 @@ prepublished_security_foundation_crates=$(sed \
     -e '/^[[:space:]]*#/d' \
     -e '/^[[:space:]]*$/d' \
     "$prepublished_security_foundation_manifest")
+prepublished_security_patch_crates=$(sed \
+    -e '/^[[:space:]]*#/d' \
+    -e '/^[[:space:]]*$/d' \
+    "$prepublished_security_patch_manifest")
 
 last_public_crate=
 for package in $public_crates
@@ -285,6 +292,30 @@ is_prepublished_security_foundation_package() {
     return 1
 }
 
+prepublished_security_patch_package_version() {
+    case "$1" in
+        hns-transport|hns-browser-dnssec) printf '%s\n' 0.2.3 ;;
+        hns-dane-engine) printf '%s\n' 0.3.1 ;;
+        hns-browser-resolver) printf '%s\n' 0.2.7 ;;
+        hns-browser-dane|hns-browser-transport|hns-browser-gateway)
+            printf '%s\n' 0.2.4
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+is_prepublished_security_patch_package() {
+    package=$1
+    version=$2
+    expected_version=$(prepublished_security_patch_package_version "$package") || return 1
+    [ "$version" = "$expected_version" ] || return 1
+    for prepublished_package in $prepublished_security_patch_crates
+    do
+        [ "$package" = "$prepublished_package" ] && return 0
+    done
+    return 1
+}
+
 is_prepublished_package() {
     is_prepublished_engine_package "$1" "$2" ||
         is_prepublished_adapter_package "$1" "$2" ||
@@ -295,7 +326,8 @@ is_prepublished_package() {
         is_prepublished_loopback_package "$1" "$2" ||
         is_prepublished_mobile_wallet_package "$1" "$2" ||
         is_prepublished_current_loopback_package "$1" "$2" ||
-        is_prepublished_security_foundation_package "$1" "$2"
+        is_prepublished_security_foundation_package "$1" "$2" ||
+        is_prepublished_security_patch_package "$1" "$2"
 }
 
 run_package_operation() {
@@ -760,6 +792,10 @@ verify_prepublished_package() {
     then
         source_revision=$prepublished_security_foundation_revision
         checksum_manifest=$prepublished_security_foundation_checksum_manifest
+    elif is_prepublished_security_patch_package "$package" "$version"
+    then
+        source_revision=$prepublished_security_patch_revision
+        checksum_manifest=$prepublished_security_patch_checksum_manifest
     else
         echo "error: $package $version is not a recorded immutable package" >&2
         exit 1
@@ -907,6 +943,11 @@ verify_prepublished_packages() {
         verify_prepublished_package "$package" "$prepublished_security_foundation_version"
     done
     echo "verified the recorded prepublished DNSSEC foundation archives at source $prepublished_security_foundation_revision"
+    for package in $prepublished_security_patch_crates
+    do
+        verify_prepublished_package "$package" "$(prepublished_security_patch_package_version "$package")"
+    done
+    echo "verified the recorded prepublished DNSSEC/DANE security archives at source $prepublished_security_patch_revision"
 }
 
 verify_published_package() {

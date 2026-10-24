@@ -41,8 +41,12 @@ The dependency-order authority is
 30. `hns-browser-loopback-proxy`
 31. `hns-browser-sync`
 
-The current targeted set is the nine DNSSEC and DANE security packages in
+The current targeted set is `hns-browser-dane` 0.2.5 and
+`hns-browser-transport` 0.2.5, in
+[`release/browser-dane-path-verifier-2026-10-23-crates.txt`](../release/browser-dane-path-verifier-2026-10-23-crates.txt).
+The previous nine-package DNSSEC and DANE security release is recorded in
 [`release/dnssec-dane-security-2026-10-16-crates.txt`](../release/dnssec-dane-security-2026-10-16-crates.txt).
+Its release identifier was `dnssec-dane-2026-10-16`.
 The selected versions are `hns-dnssec` 0.2.3, `hns-transport` 0.2.3,
 `hns-resolver` 0.2.3,
 `hns-dane-engine` 0.3.1, `hns-browser-dnssec` 0.2.3,
@@ -50,6 +54,11 @@ The selected versions are `hns-dnssec` 0.2.3, `hns-transport` 0.2.3,
 `hns-browser-transport` 0.2.4, and `hns-browser-gateway` 0.2.4. Direct
 consumers in this set raise their minimum dependency requirements to the
 corrected packages.
+The seven security-release archives published from
+`7f1b3f6b8c9d17ac27f3d2de84f6106e54b4d951` are recorded in
+[`release/prepublished-dnssec-dane-security-2026-10-16-crates.txt`](../release/prepublished-dnssec-dane-security-2026-10-16-crates.txt)
+and
+[`release/hns-dane-engine-dnssec-dane-security-2026-10-16-crates.sha256`](../release/hns-dane-engine-dnssec-dane-security-2026-10-16-crates.sha256).
 `hns-dnssec` 0.2.3 and `hns-resolver` 0.2.3 were published from
 `70ff88db564e048cd79cd516259aa07d5d167e6a` before the registry-only transport
 dependency conflict was exposed. Their immutable archive digests are recorded
@@ -141,7 +150,7 @@ never authorizes upload, tagging, or deployment.
 After explicit publication authorization, the current confirmation command is:
 
 ```sh
-./scripts/publish.sh --execute --confirm-publish dnssec-dane-2026-10-16
+./scripts/publish.sh --execute --confirm-publish browser-dane-path-verifier-2026-10-23
 ```
 
 The runner checks the clean dated candidate, all protocol inputs, and immutable
@@ -157,7 +166,7 @@ Override only with a registry-approved non-negative interval:
 ```sh
 PUBLISH_NEW_INTERVAL_SECONDS=605 \
 PUBLISH_UPDATE_INTERVAL_SECONDS=65 \
-  ./scripts/publish.sh --execute --confirm-publish dnssec-dane-2026-10-16
+  ./scripts/publish.sh --execute --confirm-publish browser-dane-path-verifier-2026-10-23
 ```
 
 After propagation, the downloaded archive receives the same checksum and VCS
